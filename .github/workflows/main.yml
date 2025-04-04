@@ -1,0 +1,41 @@
+name: Deploy React App to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '16'
+    
+    - name: Install dependencies
+      run: |
+        npm install
+        npm install recharts
+        npm install gh-pages --save-dev
+    
+    - name: Configure package.json
+      run: |
+        # Add homepage field
+        jq '.homepage = "https://notgigi.github.io/ApproximateLVL"' package.json > temp.json && mv temp.json package.json
+        # Add deploy scripts
+        jq '.scripts.predeploy = "npm run build"' package.json > temp.json && mv temp.json package.json
+        jq '.scripts.deploy = "gh-pages -d build"' package.json > temp.json && mv temp.json package.json
+    
+    - name: Build
+      run: npm run build
+      
+    - name: Deploy to GitHub Pages
+      uses: JamesIves/github-pages-deploy-action@4.1.4
+      with:
+        branch: gh-pages
+        folder: build
