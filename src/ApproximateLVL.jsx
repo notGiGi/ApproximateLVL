@@ -27,7 +27,7 @@ const FV_COLOR = "#e91e63";
 
 // SIMULATION ENGINE: Lógica central de la simulación.
 const SimulationEngine = {
-  simulateRound: (aliceValue, bobValue, p, algorithm = "auto", meetingPoint = 0.5) => {
+  simulateRound: (aliceValue, bobValue, p, algorithm = "auto", meetingPoint = 1) => {
     if (algorithm === "auto") {
       algorithm = p > 0.5 ? "AMP" : "FV";
     }
@@ -53,7 +53,7 @@ const SimulationEngine = {
     };
   },
 
-  runExperiment: (aliceInitial, bobInitial, p, rounds, algorithm = "auto", meetingPoint = 0.5) => {
+  runExperiment: (aliceInitial, bobInitial, p, rounds, algorithm = "auto", meetingPoint = 1) => {
     let aliceValue = aliceInitial;
     let bobValue = bobInitial;
     const history = [{
@@ -87,7 +87,7 @@ const SimulationEngine = {
     return algorithm === "AMP" ? (1 - p) : (Math.pow(1 - p, 2) + Math.pow(p, 2));
   },
 
-  runMultipleExperiments: (aliceInitial, bobInitial, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) => {
+  runMultipleExperiments: (aliceInitial, bobInitial, p, rounds, repetitions, algorithm = "auto", meetingPoint = 1) => {
     const allDiscrepancies = [];
     const allRuns = [];
     for (let i = 0; i < repetitions; i++) {
@@ -1293,8 +1293,8 @@ const ApproximateLVL = () => {
   const [bobValue, setBobValue] = useState(100);
   const [probability, setProbability] = useState(70);
   const [algorithm, setAlgorithm] = useState("auto");
-  const [meetingPoint, setMeetingPoint] = useState(0.5);
-  const [rounds, setRounds] = useState(10);
+  const [meetingPoint, setMeetingPoint] = useState(1);
+  const [rounds, setRounds] = useState(1);
   const [repetitions, setRepetitions] = useState(50);
 
   // Estados para Range Experiments.
