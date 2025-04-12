@@ -50,42 +50,6 @@ The simulator implements two theoretically optimal algorithms:
 - **Expected discrepancy**: (1-p)² + p²
 - **Properties**: More resilient to message loss in unreliable networks
 
-<div align="center">
-
-```
-                     │
-        AMP          │           FV
-   Expected: 1-p     │    Expected: (1-p)² + p²
-                     │
-    More Efficient   │    More Efficient
-        p > 0.5      │       p ≤ 0.5
-                     │
-                    0.5
-```
-
-</div>
-
-## 🚀 Getting Started
-
-### Prerequisites
-- Node.js (v14 or higher)
-- npm or yarn
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/notGiGi/ApproximateLVL.git
-
-# Navigate to project directory
-cd ApproximateLVL
-
-# Install dependencies
-npm install
-
-# Start the development server
-npm start
-```
 
 ## 📖 How to Use
 
@@ -133,7 +97,6 @@ npm start
 
 ### Statistical Analysis Tab
 - Distribution of final discrepancies
-- Key metrics (mean, median, min, max, standard deviation)
 - Comparison between experimental and theoretical results
 
 ### Theoretical Comparison Tab
@@ -146,72 +109,11 @@ npm start
 - Compare multiple experiment configurations
 - Filter and search experimental data
 
-## 🔧 Technical Details
 
-### Simulation Engine
-
-The core simulation engine implements:
-
-```javascript
-// Core simulation round logic
-simulateRound: (aliceValue, bobValue, p, algorithm, meetingPoint) => {
-  // Determine actual algorithm based on probability
-  if (algorithm === "auto") {
-    algorithm = p > 0.5 ? "AMP" : "FV";
-  }
-  
-  // Simulate message delivery with probability p
-  const aliceMessageDelivered = Math.random() < p;
-  const bobMessageDelivered = Math.random() < p;
-  
-  // Update values based on algorithm
-  let newAliceValue = aliceValue;
-  let newBobValue = bobValue;
-  
-  if (bobMessageDelivered) {
-    newAliceValue = algorithm === "AMP" ? meetingPoint : bobValue;
-  }
-  
-  if (aliceMessageDelivered) {
-    newBobValue = algorithm === "AMP" ? meetingPoint : aliceValue;
-  }
-  
-  return {
-    newAliceValue,
-    newBobValue,
-    aliceReceived: bobMessageDelivered,
-    bobReceived: aliceMessageDelivered
-  };
-}
-```
-
-### Recent Improvements
-
-- **Fixed Range Experiment Implementation**: Now performs real simulations across probability ranges instead of approximating results
-- **Enhanced Error Handling**: Robust validation of all data points prevents unexpected failures
-- **Adaptive Simulation**: Automatically adjusts rounds based on proximity to critical probability thresholds
-- **Performance Optimization**: Statistical validation through multiple repetitions
-- **UI Resilience**: Graceful handling of incomplete or invalid data
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgements
 
 - Based on theoretical work in distributed computing agreement protocols
-- Inspired by academic research on approximate agreement in lossy networks
-- Built with React and Recharts for visualization
 
 ---
 
