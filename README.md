@@ -14,9 +14,9 @@
 
 ## 📚 About
 
-ApproximateLVL is an advanced simulator for distributed computing agreement protocols. It provides an interactive visualization of how nodes in a distributed system converge to agreement despite unreliable message delivery.
+ApproximateLVL is a simulator for distributed computing agreement algorithms. It provides an interactive visualization of how nodes in a distributed system converge to agreement despite probabilistic channels.
 
-The simulator explores the theoretical properties of two optimal algorithms - **Agreed Meeting Point (AMP)** and **Flip Value (FV)** - and demonstrates how their performance varies under different network reliability conditions.
+The simulator explores the theoretical properties of two algorithms - **Agreed Meeting Point (AMP)** and **Flip Value (FV)** - and demonstrates how their performance varies under different probabilities.
 
 ## ✨ Key Features
 
@@ -24,15 +24,15 @@ The simulator explores the theoretical properties of two optimal algorithms - **
 - **📊 Dynamic Visualization**: Interactive charts showing convergence behavior over time
 - **⚙️ Configurable Parameters**: Adjust message delivery probability, initial values, algorithm selection, and more
 - **📈 Statistical Analysis**: Run multiple experiments to validate theoretical predictions
-- **📚 Range Experiments**: Test algorithm performance across a probability spectrum
-- **💾 Experiment Storage**: Save, load, and compare different experiment configurations
+- **📚 Range Experiments**: Test algorithm performance across a probability range
+- **💾 Experiment Storage**: Save, load, and compare different experiments
 - **🔍 Detailed Analysis**: Data tables, histograms, and comparative visualizations
 
 ## 🧠 Theoretical Background
 
 ### The Agreement Problem
 
-In distributed systems, nodes must often reach consensus despite unreliable communication channels. ApproximateLVL simulates a simplified version of this problem with two nodes (Alice and Bob) exchanging values over a lossy network with message delivery probability **p**.
+In distributed systems, nodes must often reach consensus despite unreliable communication channels. ApproximateLVL simulates a simplified version of this problem with two nodes (Alice and Bob) exchanging values over a stochastic channel with message probability **p**.
 
 ### Optimal Algorithms
 
@@ -42,24 +42,21 @@ The simulator implements two theoretically optimal algorithms:
 - **When to use**: Optimal when p > 0.5
 - **Behavior**: When a node receives a message, it adopts a predetermined meeting point value
 - **Expected discrepancy**: 1-p
-- **Properties**: Performs better with reliable networks
 
 #### 2. Flip Value (FV)
 - **When to use**: Optimal when p ≤ 0.5
 - **Behavior**: When a node receives a message, it directly adopts the sender's value
 - **Expected discrepancy**: (1-p)² + p²
-- **Properties**: More resilient to message loss in unreliable networks
-
 
 ## 📖 How to Use
 
 ### Single Experiment
 
 1. **Configure Parameters**:
-   - Set initial values for Alice and Bob using the sliders
+   - Set initial values for Alice and Bob
    - Adjust delivery probability (p)
    - Select algorithm (Auto, AMP, or FV)
-   - Configure simulation rounds and repetitions
+   - Configure simulation repetitions
 
 2. **Run Simulation**:
    - Click "Start Simulation" to execute
@@ -86,14 +83,13 @@ The simulator implements two theoretically optimal algorithms:
 4. **Analyze Results**:
    - Observe how experimental results match theoretical curves
    - Review detailed error metrics
-   - Save interesting configurations for later comparison
+   - Save interesting configurations of parameters for comparison
 
 ## 📊 Interface Overview
 
 ### Simulation Tab
-- Real-time visualization of agreement convergence
+- Real-time visualization of algorithms
 - Round-by-round data table
-- Animation controls for stepping through simulation
 
 ### Statistical Analysis Tab
 - Distribution of final discrepancies
@@ -107,16 +103,15 @@ The simulator implements two theoretically optimal algorithms:
 ### Saved Experiments Tab
 - Load and view previous experiments
 - Compare multiple experiment configurations
-- Filter and search experimental data
-
 
 
 ## 🙏 Acknowledgements
 
-- Based on theoretical work in distributed computing agreement protocols
+- Based on theoretical work in distributed computing agreement protocols by PIERRE FRAIGNIAUD, IRIF, University Paris Cité, CNRS, France; BOAZ PATT-SHAMIR, Tel Aviv University, Israel; SERGIO RAJSBAUM, IRIF and Instituto de Matemáticas, UNAM, Mexico.
+
 
 ---
 
 <div align="center">
-  <sub>Built with ❤️ by researchers and developers interested in distributed systems</sub>
+  <sub>Built with ❤️ LVL</sub>
 </div>
