@@ -500,7 +500,7 @@ function HistogramPlot({ discrepancies, theoretical, experimental }) {
   );
 }
 
-// Theory plot
+// Theory plot - COMPONENTE CORREGIDO
 function TheoryPlot({ currentP, experimentalData, displayCurves }) {
   if (!currentP && currentP !== 0) currentP = 0.5;
   
@@ -511,11 +511,29 @@ function TheoryPlot({ currentP, experimentalData, displayCurves }) {
       typeof item.discrepancy === 'number'
     ) : [];
   
+  // Solo generar puntos teóricos alineados con los puntos experimentales
   const ampData = [];
   const fvData = [];
-  for (let p = 0; p <= 1; p += 0.02) {
-    ampData.push({ p, discrepancy: 1 - p });
-    fvData.push({ p, discrepancy: Math.pow(1 - p, 2) + Math.pow(p, 2) });
+  
+  if (validExperimentalData.length > 0) {
+    // Usar los mismos valores de p que los datos experimentales
+    validExperimentalData.forEach(point => {
+      const p = point.p;
+      ampData.push({ 
+        p, 
+        discrepancy: 1 - p 
+      });
+      fvData.push({ 
+        p, 
+        discrepancy: Math.pow(1 - p, 2) + Math.pow(p, 2) 
+      });
+    });
+  } else {
+    // Si no hay datos experimentales, usar la generación original
+    for (let p = 0; p <= 1; p += 0.02) {
+      ampData.push({ p, discrepancy: 1 - p });
+      fvData.push({ p, discrepancy: Math.pow(1 - p, 2) + Math.pow(p, 2) });
+    }
   }
   
   const currentPoint = {
@@ -574,13 +592,13 @@ function TheoryPlot({ currentP, experimentalData, displayCurves }) {
           <Legend verticalAlign="top" height={36} />
 
           {showAMP && (
-            <Line data={ampData} type="monotone" dataKey="discrepancy" name="AMP Algorithm" stroke="#2ecc71" strokeWidth={2} dot={false} />
+            <Line data={ampData} type="monotone" dataKey="discrepancy" name="AMP Algorithm" stroke="#2ecc71" strokeWidth={2} dot={false} connectNulls />
           )}
           {showFV && (
-            <Line data={fvData} type="monotone" dataKey="discrepancy" name="FV Algorithm" stroke="#e74c3c" strokeWidth={2} dot={false} />
+            <Line data={fvData} type="monotone" dataKey="discrepancy" name="FV Algorithm" stroke="#e74c3c" strokeWidth={2} dot={false} connectNulls />
           )}
           {showExperimental && validExperimentalData.length > 0 && (
-            <Line data={validExperimentalData} type="monotone" dataKey="discrepancy" name="Experimental Curve" stroke="purple" strokeWidth={2} dot={{ r: 3, stroke: "purple", fill: "white" }} />
+            <Line data={validExperimentalData} type="monotone" dataKey="discrepancy" name="Experimental Curve" stroke="purple" strokeWidth={2} dot={{ r: 3, stroke: "purple", fill: "white" }} connectNulls />
           )}
           <Scatter data={[currentPoint]} fill="blue" name="Current Setting">
             <Cell fill="blue" r={6} />
