@@ -2078,8 +2078,8 @@ function CompleteDistributedComputingSimulator() {
   const [probability, setProbability] = useState(0.70);
   const [algorithm, setAlgorithm] = useState("auto");
   const [fvMethod, setFvMethod] = useState("average");
-  const [meetingPoint, setMeetingPoint] = useState(0.5);
-  const [rounds, setRounds] = useState(10);
+  const [meetingPoint, setMeetingPoint] = useState(1);
+  const [rounds, setRounds] = useState(1);
   const [repetitions, setRepetitions] = useState(50);
 
   // Range experiments states
@@ -2183,7 +2183,7 @@ function runRangeExperiments() {
   const actualSteps = customSteps ? customStepValue : steps;
   
   // Log the start of the experiment
-  addLog(`Starting range experiments with ${processCount} processes`);
+  addLog(`Starting simulation with ${processCount} processes`);
   addLog(`Values: [${initialProcessValues.map(v => v.toFixed(2)).join(", ")}], Rounds: ${actualRounds}, Repetitions: ${actualRepetitions}, Steps: ${actualSteps}`);
   
   // Generate probability points to test
@@ -2221,7 +2221,7 @@ function runRangeExperiments() {
       // All repetitions completed
       setIsRunning(false);
       setProgress(100);
-      addLog(`Range experiments completed with ${results.length} data points x ${actualRepetitions} repetitions`, "success");
+      addLog(`Simulation completed with ${results.length} data points x ${actualRepetitions} repetitions`, "success");
       return;
     }
     
@@ -2466,10 +2466,10 @@ function prepareRangeExperiment() {
     setExperimentMetadata({
       name: defaultName,
       tags: `range,${forcedAlgorithm},${processCount}-processes`,
-      description: `Range experiment from p=${rangeExperiments.minP.toFixed(2)} to p=${rangeExperiments.maxP.toFixed(2)} with ${rangeExperiments.steps} points`
+      description: `Simulation with range  from p=${rangeExperiments.minP.toFixed(2)} to p=${rangeExperiments.maxP.toFixed(2)} with ${rangeExperiments.steps} points`
     });
   } catch (error) {
-    addLog(`Error preparing range experiment: ${error.message}`, "error");
+    addLog(`Error preparing simulation: ${error.message}`, "error");
   }
 }
 
@@ -2621,39 +2621,43 @@ return (
               )}
             </div>
             <div className="mb-4">
-                <h3 className="text-sm font-semibold mb-2 pb-1 border-b">Algorithm</h3>
-                <div className="mb-4">
-                  <select value={algorithm} onChange={(e) => setAlgorithm(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md">
+              <h4 className="text-xs font-semibold mb-1">Algorithm Settings:</h4>
+                <div className="mb-3">
+                <label className="block text-xs mb-1">Select algorithm:</label>
+                  <select
+                    value={forcedAlgorithm}
+                    onChange={(e) => {
+                      setForcedAlgorithm(e.target.value);
+                      handleCurveDisplayChange('algorithmChange');
+                    }}
+                    className="w-full p-1 text-sm border border-gray-300 rounded-md"
+                    disabled={isRunning}
+                  >
                     <option value="auto">Optimized based on probability</option>
-                    <option value="AMP">Agreed Meeting Point (AMP)</option>
-                    <option value="FV">Flip Value (FV)</option>
+                    <option value="AMP">Use only AMP Algorithm</option>
+                    <option value="FV">Use only Algorithm</option>
                   </select>
                 </div>
                 
-                {(forcedAlgorithm === "FV" || forcedAlgorithm === "auto") && processCount === 3 && (
-                  <div className="mb-4">
-                    <label className="block text-xs font-medium mb-1">FV Method (3-process only):</label>
-                    <select
-                      value={fvMethod}
-                      onChange={(e) => setFvMethod(e.target.value)}
-                      className="w-full p-1 text-sm border border-gray-300 rounded-md"
-                    >
-                      <option value="average">Average of received values</option>
-                      <option value="median">Median (with own value)</option>
-                      <option value="weighted">Probability-weighted blend</option>
-                      <option value="accelerated">Accelerated convergence</option>
-                      <option value="first">First received value</option>
-                    </select>
-                    
-                    <div className="mt-2 bg-gray-50 p-2 rounded text-xs">
-                      {fvMethod === "average" && "Uses the average of received values."}
-                      {fvMethod === "median" && "Uses the median of own value and received values."}
-                      {fvMethod === "weighted" && "Weighted blend based on probability p."}
-                      {fvMethod === "accelerated" && "Accelerated convergence toward center."}
-                      {fvMethod === "first" && "Simply uses first received value."}
+                <div className="grid grid-cols-1 mb-3">
+                  {(forcedAlgorithm === "FV" || forcedAlgorithm === "auto") && processCount === 3 && (
+                    <div>
+                      <label className="block text-xs mb-1">FV Method (3-process):</label>
+                      <select
+                        value={fvMethod}
+                        onChange={(e) => setFvMethod(e.target.value)}
+                        className="w-full p-1 text-sm border border-gray-300 rounded-md"
+                        disabled={isRunning}
+                      >
+                        <option value="average">Average of received values</option>
+                        <option value="median">Median (with own value)</option>
+                        <option value="weighted">Probability-weighted blend</option>
+                        <option value="accelerated">Accelerated convergence</option>
+                        <option value="first">First received value</option>
+                      </select>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
                 
                 <div className="flex items-center mb-4">
                   <label className="text-sm mr-2">Meeting Point:</label>
@@ -2702,7 +2706,7 @@ return (
                 </div>
                 
                 <h4 className="text-xs font-semibold mb-1">Probability Range Settings:</h4>
-                <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="grid grid-cols-2 gap-2 mb-3">
                   <div>
                     <label className="block text-xs mb-1">Min Probability:</label>
                     <input
@@ -2790,42 +2794,7 @@ return (
                   </div>
                 </div>
               </div>
-              <h4 className="text-xs font-semibold mb-1">Algorithm Settings:</h4>
-              <div className="mb-3">
-                <select
-                  value={forcedAlgorithm}
-                  onChange={(e) => {
-                    setForcedAlgorithm(e.target.value);
-                    handleCurveDisplayChange('algorithmChange');
-                  }}
-                  className="w-full p-1 text-sm border border-gray-300 rounded-md"
-                  disabled={isRunning}
-                >
-                  <option value="auto">Auto (Based on Theory)</option>
-                  <option value="AMP">Force AMP Algorithm</option>
-                  <option value="FV">Force FV Algorithm</option>
-                </select>
-              </div>
               
-              <div className="grid grid-cols-1 mb-3">
-                {(forcedAlgorithm === "FV" || forcedAlgorithm === "auto") && processCount === 3 && (
-                  <div>
-                    <label className="block text-xs mb-1">FV Method (3-process):</label>
-                    <select
-                      value={fvMethod}
-                      onChange={(e) => setFvMethod(e.target.value)}
-                      className="w-full p-1 text-sm border border-gray-300 rounded-md"
-                      disabled={isRunning}
-                    >
-                      <option value="average">Average of received values</option>
-                      <option value="median">Median (with own value)</option>
-                      <option value="weighted">Probability-weighted blend</option>
-                      <option value="accelerated">Accelerated convergence</option>
-                      <option value="first">First received value</option>
-                    </select>
-                  </div>
-                )}
-              </div>
               
               <h4 className="text-xs font-semibold mb-1">Display Options:</h4>
               <div className="grid grid-cols-1 gap-1 mb-3">
@@ -2955,7 +2924,7 @@ return (
             </div>
             
             <div className="bg-white rounded-lg shadow p-4 mb-4">
-              <h3 className="text-lg font-semibold mb-4">Range Experiments</h3>
+              <h3 className="text-lg font-semibold mb-4">Simulation Experiments</h3>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div className="col-span-1 md:col-span-2">
@@ -3025,7 +2994,7 @@ return (
                       onClick={prepareRangeExperiment}
                       className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 transition-colors"
                     >
-                      💾 Save Range Experiment
+                      💾 Save Experiment
                     </button>
                   </div>
                 </div>
@@ -3057,7 +3026,7 @@ return (
               {experimentalResults && experimentalResults.length > 0 ? (
                 <div>
                   <div className="bg-white rounded-lg shadow p-4 mb-4">
-                    <h3 className="text-lg font-semibold mb-3">Range Experiment Results</h3>
+                    <h3 className="text-lg font-semibold mb-3">Simulation Results</h3>
                     
                     <div className="bg-gray-50 p-3 rounded-lg border text-sm mb-4">
                       <p className="font-medium">Experiment Parameters:</p>
@@ -3171,12 +3140,12 @@ return (
                 </div>
               ) : (
                 <div className="bg-white p-8 rounded-lg shadow text-center text-gray-500">
-                  <p className="mb-4">Run a range experiment first to see statistical analysis.</p>
+                  <p className="mb-4">Run a simulation first to see statistical analysis.</p>
                   <button 
                     onClick={() => setActiveTab('theory')}
                     className="px-4 py-2 bg-blue-600 text-white rounded"
                   >
-                    Go to Range Experiments
+                    Go to Theoretical Comparison
                   </button>
                 </div>
               )}
