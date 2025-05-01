@@ -1824,9 +1824,6 @@ function TheoryPlot({ currentP, experimentalData, displayCurves, rounds = 1 }) {
           {showExperimental && validExperimentalData.length > 0 && (
             <Line data={validExperimentalData} type="monotone" dataKey="discrepancy" name="Experimental Curve" stroke="purple" strokeWidth={2} dot={{ r: 3, stroke: "purple", fill: "white" }} connectNulls />
           )}
-          <Scatter data={[currentPoint]} fill="blue" name="Current Setting">
-            <Cell fill="blue" r={6} />
-          </Scatter>
           <ReferenceLine x={0.5} stroke="#666" strokeDasharray="3 3" />
         </ComposedChart>
       </ResponsiveContainer>
