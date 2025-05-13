@@ -143,9 +143,10 @@ function interpolateColor(color1, color2, factor) {
   return `#${rHex}${gHex}${bHex}`;
 }
 
+
 // Simulation Engine
 const SimulationEngine = {
-  // Simulate one round of message exchange
+  // Simular una ronda de intercambio de mensajes
   simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, fvMethod = "average") {
     if (algorithm === "auto") {
       algorithm = p > 0.5 ? "AMP" : "FV";
@@ -156,7 +157,7 @@ const SimulationEngine = {
     const messages = [];
     const messageDelivery = {};
     
-    // Generate message delivery matrix
+    // Generar matriz de entrega de mensajes
     for (let i = 0; i < processCount; i++) {
       for (let j = 0; j < processCount; j++) {
         if (i !== j) {
@@ -175,49 +176,46 @@ const SimulationEngine = {
       }
     }
     
-    // Process messages for each process
+    // Procesar mensajes para cada proceso
     for (let i = 0; i < processCount; i++) {
       const receivedMessages = [];
-      const receivedFrom = [];
+      const receivedValues = new Set([values[i]]); // Incluir su propio valor
       
-      // Collect received messages
+      // Recolectar mensajes recibidos
       for (let j = 0; j < processCount; j++) {
         if (i !== j && messageDelivery[`from${j}to${i}`]) {
           receivedMessages.push(values[j]);
-          receivedFrom.push(j);
+          receivedValues.add(values[j]);
         }
       }
       
-      // Apply algorithm if received any messages
-      if (receivedMessages.length > 0) {
+      // Aplicar algoritmo si se recibieron mensajes (se conocen múltiples valores)
+      if (receivedValues.size > 1) {
         if (algorithm === "AMP") {
-          // AMP always uses meeting point
+          // AMP: usar el punto de encuentro
           newValues[i] = meetingPoint;
-        } else { // FV algorithm
-          if (receivedMessages.length === 1 || processCount === 2) {
-            // If received only one message or we're in 2-process mode, adopt that value
-            newValues[i] = receivedMessages[0];
-          } else if (processCount === 3) {
-            // If received multiple messages in 3-process mode, apply selected FV method
+        } else { // Algoritmo FV
+          // CORRECCIÓN: Implementación estándar de Flip - invierte el valor
+          if (fvMethod === "flip" || processCount === 2) {
+            newValues[i] = 1 - values[i];
+          } 
+          // Si es 3+ procesos y se especificó otro método FV, aplicarlo
+          else if (processCount >= 3) {
             switch(fvMethod) {
               case "average":
-                // Average of received values
                 newValues[i] = receivedMessages.reduce((sum, val) => sum + val, 0) / receivedMessages.length;
                 break;
               case "median":
-                // Median considering own value and received values
                 const allValues = [values[i], ...receivedMessages].sort((a, b) => a - b);
                 newValues[i] = allValues[Math.floor(allValues.length / 2)];
                 break;
               case "weighted":
-                // Weighted blend based on probability
                 const pesoPropio = Math.pow(1-p, receivedMessages.length);
                 const pesoExterno = p / receivedMessages.length;
                 newValues[i] = values[i] * pesoPropio + 
                               receivedMessages.reduce((sum, val) => sum + val * pesoExterno, 0);
                 break;
               case "accelerated":
-                // Accelerated convergence to center
                 const medianValues = [values[i], ...receivedMessages].sort((a, b) => a - b);
                 const mediana = medianValues[Math.floor(medianValues.length / 2)];
                 const centroRango = 0.5;
@@ -225,19 +223,18 @@ const SimulationEngine = {
                 newValues[i] = mediana + factorAceleracion * (centroRango - mediana);
                 break;
               case "first":
-                // Use first received value
                 newValues[i] = receivedMessages[0];
                 break;
               default:
-                // Default to average
-                newValues[i] = receivedMessages.reduce((sum, val) => sum + val, 0) / receivedMessages.length;
+                // Por defecto, usar el comportamiento real de FV (invertir valor)
+                newValues[i] = 1 - values[i];
             }
           }
         }
       }
     }
     
-    // Calculate max discrepancy
+    // Calcular discrepancia máxima
     let maxDiscrepancy = 0;
     for (let i = 0; i < processCount; i++) {
       for (let j = i+1; j < processCount; j++) {
@@ -256,13 +253,13 @@ const SimulationEngine = {
     };
   },
 
-  // Run a complete experiment
+  // Ejecutar un experimento completo
   runExperiment: function(initialValues, p, rounds, algorithm = "auto", meetingPoint = 0.5, fvMethod = "average") {
     let values = [...initialValues];
     const processCount = values.length;
     const processNames = ["Alice", "Bob", "Charlie"];
     
-    // Calculate initial discrepancy
+    // Calcular discrepancia inicial
     let initialDiscrepancy = 0;
     for (let i = 0; i < processCount; i++) {
       for (let j = i+1; j < processCount; j++) {
@@ -273,7 +270,7 @@ const SimulationEngine = {
       }
     }
     
-    // Simulation history
+    // Historial de simulación
     const history = [{
       round: 0,
       values: [...values],
@@ -285,12 +282,12 @@ const SimulationEngine = {
       messages: []
     }];
     
-    // Run rounds
+    // Ejecutar rondas
     for (let r = 1; r <= rounds; r++) {
       const result = SimulationEngine.simulateRound(values, p, algorithm, meetingPoint, fvMethod);
       values = result.newValues;
       
-      // Record results for this round
+      // Registrar resultados para esta ronda
       history.push({
         round: r,
         values: [...values],
@@ -307,19 +304,19 @@ const SimulationEngine = {
     return history;
   },
 
-  // Run multiple experiments for statistical analysis
+  // Ejecutar múltiples experimentos para análisis estadístico
   runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5, fvMethod = "average") {
     const allDiscrepancies = [];
     const allRuns = [];
     const processCount = initialValues.length;
     
-    // Only use FV methods for 3 processes
+    // Solo usar métodos FV para 3 procesos
     const useFVMethod = processCount === 3 ? fvMethod : "average";
     
-    // Determine actual algorithm if auto
+    // Determinar algoritmo real si es auto
     const actualAlgorithm = algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm;
     
-    // Execute multiple simulations
+    // Ejecutar múltiples simulaciones
     for (let i = 0; i < repetitions; i++) {
       const history = SimulationEngine.runExperiment(
         initialValues, 
@@ -335,7 +332,7 @@ const SimulationEngine = {
       allRuns.push(history);
     }
     
-    // Calculate statistics
+    // Calcular estadísticas
     const mean = allDiscrepancies.reduce((a, b) => a + b, 0) / allDiscrepancies.length;
     const sorted = [...allDiscrepancies].sort((a, b) => a - b);
     const median = sorted.length % 2 === 0 ? 
@@ -346,7 +343,7 @@ const SimulationEngine = {
     const variance = allDiscrepancies.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / allDiscrepancies.length;
     const std = Math.sqrt(variance);
     
-    // Calculate theoretical discrepancy for 2 processes (we don't have formula for 3 yet)
+    // Calcular discrepancia teórica para 2 procesos (no tenemos fórmula para 3 aún)
     const theoretical = processCount === 2 ? 
       SimulationEngine.calculateExpectedDiscrepancy(p, algorithm, rounds) : 
       null;
@@ -365,9 +362,9 @@ const SimulationEngine = {
     };
   },
 
-  // Calculate theoretical expected discrepancy (original, for a single round)
+  // Calcular la discrepancia teórica esperada (original, para una sola ronda)
   calculateExpectedDiscrepancy: function(p, algorithm = "auto", rounds = 1) {
-    // For backward compatibility, if rounds=1, use the original calculation
+    // Para compatibilidad con versiones anteriores, si rounds=1, usar cálculo original
     if (rounds === 1) {
       if (algorithm === "auto") {
         algorithm = p > 0.5 ? "AMP" : "FV";
@@ -376,13 +373,13 @@ const SimulationEngine = {
       const q = 1 - p;
       return algorithm === "AMP" ? q : (p*p + q*q);
     } 
-    // For multiple rounds, use the new function
+    // Para múltiples rondas, usar la nueva función
     else {
       return this.calculateExpectedDiscrepancyMultiRound(p, rounds, algorithm);
     }
   },
   
-  // Calculate expected theoretical discrepancy for multiple rounds (2 processes)
+  // Calcular discrepancia teórica esperada para múltiples rondas (2 procesos)
   calculateExpectedDiscrepancyMultiRound: function(p, rounds, algorithm = "auto") {
     if (algorithm === "auto") {
       algorithm = p > 0.5 ? "AMP" : "FV";
@@ -390,26 +387,26 @@ const SimulationEngine = {
     
     const q = 1 - p;
     
-    // Formulas from Theorem 3.2 in the theory
+    // Fórmulas del Teorema 3.2 en la teoría
     if (algorithm === "AMP") {
-      // For AMP: expected discrepancy <= q^k
+      // Para AMP: discrepancia esperada <= q^k
       return Math.pow(q, rounds);
     } else {
-      // For FV: expected discrepancy <= (p² + q²)^k
+      // Para FV: discrepancia esperada <= (p² + q²)^k
       return Math.pow(p*p + q*q, rounds);
     }
   },
   
-  // Simulate evolution of multiple rounds with different initial values
+  // Simular evolución de múltiples rondas con diferentes valores iniciales
   runMultiRoundAnalysis: function(initialGap, pValues, maxRounds, repetitions = 100) {
     const results = [];
     
-    // For each p-value, analyze both algorithms
+    // Para cada valor p, analizar ambos algoritmos
     for (const p of pValues) {
       const q = 1 - p;
       const optimalAlgorithm = p > 0.5 ? "AMP" : "FV";
       
-      // Calculate theoretical expected discrepancies
+      // Calcular discrepancias teóricas esperadas
       const theoreticalAMP = [];
       const theoreticalFV = [];
       
@@ -425,17 +422,17 @@ const SimulationEngine = {
         });
       }
       
-      // Run experimental simulations
+      // Ejecutar simulaciones experimentales
       const experimentalAMP = Array(maxRounds + 1).fill(0).map(() => ({ sumDiscrepancy: 0, count: 0 }));
       const experimentalFV = Array(maxRounds + 1).fill(0).map(() => ({ sumDiscrepancy: 0, count: 0 }));
       
       for (let i = 0; i < repetitions; i++) {
-        // Simulation with AMP
+        // Simulación con AMP
         const historyAMP = this.runExperiment([0, initialGap], p, maxRounds, "AMP", 0.5);
-        // Simulation with FV
+        // Simulación con FV
         const historyFV = this.runExperiment([0, initialGap], p, maxRounds, "FV", 0.5);
         
-        // Record results for each round
+        // Registrar resultados para cada ronda
         for (let r = 0; r <= maxRounds; r++) {
           experimentalAMP[r].sumDiscrepancy += historyAMP[r].discrepancy;
           experimentalAMP[r].count++;
@@ -445,7 +442,7 @@ const SimulationEngine = {
         }
       }
       
-      // Calculate experimental averages
+      // Calcular promedios experimentales
       const avgExperimentalAMP = experimentalAMP.map((data, idx) => ({
         round: idx,
         discrepancy: data.sumDiscrepancy / data.count
@@ -456,7 +453,7 @@ const SimulationEngine = {
         discrepancy: data.sumDiscrepancy / data.count
       }));
       
-      // Add results
+      // Agregar resultados
       results.push({
         probability: p,
         optimalAlgorithm,
@@ -470,7 +467,7 @@ const SimulationEngine = {
     return results;
   },
   
-  // Analyze convergence rate per round
+  // Analizar tasa de convergencia por ronda
   analyzeConvergenceRate: function(p, rounds, algorithm = "auto") {
     if (algorithm === "auto") {
       algorithm = p > 0.5 ? "AMP" : "FV";
@@ -479,7 +476,7 @@ const SimulationEngine = {
     const q = 1 - p;
     const rates = [];
     
-    // Calculate theoretical discrepancy reduction rate per round
+    // Calcular tasa de reducción de discrepancia teórica por ronda
     for (let r = 1; r <= rounds; r++) {
       let theoreticalDiscrepancy, previousDiscrepancy;
       
@@ -491,7 +488,7 @@ const SimulationEngine = {
         previousDiscrepancy = Math.pow(p*p + q*q, r-1);
       }
       
-      // Convergence rate (how much it reduces in this round)
+      // Tasa de convergencia (cuánto se reduce en esta ronda)
       const convergenceRate = previousDiscrepancy > 0 ? 
         1 - (theoreticalDiscrepancy / previousDiscrepancy) : 0;
       
@@ -510,8 +507,338 @@ const SimulationEngine = {
       theoreticalFactor: algorithm === "AMP" ? q : (p*p + q*q),
       convergenceRates: rates
     };
+  },
+
+  // Calcular discrepancia esperada para n procesos
+  calculateExpectedDiscrepancyNProcesses: function(p, n, m, algorithm = "auto", meetingPoint = 0.5) {
+    const q = 1 - p;
+    
+    // Determinar qué algoritmo usar si es auto
+    if (algorithm === "auto") {
+      algorithm = p > 0.5 ? "AMP" : "FV";
+    }
+    
+    if (algorithm === "AMP") {
+      // Implementar fórmula para AMP con punto de encuentro a
+      const a = meetingPoint;
+      
+      // Calcular probabilidades A y B según la teoría
+      // A = Pr[cada jugador 0 recibió al menos un mensaje 1]
+      const A = 1 - Math.pow(q, n-m);
+      // B = Pr[cada jugador 1 recibió al menos un mensaje 0]
+      const B = 1 - Math.pow(q, m);
+      
+      // Fórmula de discrepancia esperada para AMP(a)
+      // E[Da(In.m)] = 1 - (aA + (1-a)B)
+      return 1 - (a*A + (1-a)*B);
+    } else {
+      // Algoritmo FV (Flip)
+      // Calcular probabilidades A, B y C según la teoría
+      const A = 1 - Math.pow(q, n-m);
+      const B = 1 - Math.pow(q, m);
+      // C = Pr[ningún jugador 0 recibió mensaje 1]
+      const C = Math.pow(q, m*(n-m));
+      
+      // Fórmula de discrepancia esperada para Flip
+      // E[DF(In.m)] = 1 - (CA + CB)
+      return 1 - (C*A + C*B);
+    }
+  },
+
+  // Simular una ronda con n procesos
+  simulateRoundWithNProcesses: function(values, p, algorithm = "auto", meetingPoint = 0.5) {
+    if (algorithm === "auto") {
+      algorithm = p > 0.5 ? "AMP" : "FV";
+    }
+    
+    const processCount = values.length;
+    const newValues = [...values];
+    const messages = [];
+    const messageDelivery = {};
+    
+    // Generar matriz de entrega de mensajes
+    for (let i = 0; i < processCount; i++) {
+      for (let j = 0; j < processCount; j++) {
+        if (i !== j) {
+          const delivered = Math.random() < p;
+          const key = `from${i}to${j}`;
+          messageDelivery[key] = delivered;
+          messages.push({
+            from: i,
+            to: j,
+            fromName: i < 3 ? ["Alice", "Bob", "Charlie"][i] : `P${i+1}`,
+            toName: j < 3 ? ["Alice", "Bob", "Charlie"][j] : `P${j+1}`,
+            delivered: delivered,
+            value: values[i]
+          });
+        }
+      }
+    }
+    
+    // Procesar mensajes para cada proceso
+    for (let i = 0; i < processCount; i++) {
+      const receivedMessages = [];
+      const receivedValues = new Set([values[i]]); // Incluir su propio valor
+      
+      // Recolectar mensajes recibidos y valores únicos conocidos
+      for (let j = 0; j < processCount; j++) {
+        if (i !== j && messageDelivery[`from${j}to${i}`]) {
+          receivedMessages.push(values[j]);
+          receivedValues.add(values[j]);
+        }
+      }
+      
+      // Aplicar algoritmo si se conocen múltiples valores
+      if (receivedValues.size > 1) {
+        if (algorithm === "AMP") {
+          // AMP: usar el punto de encuentro acordado
+          newValues[i] = meetingPoint;
+        } else { // Algoritmo FV
+          // FV: invertir su valor
+          newValues[i] = 1 - values[i];
+        }
+      }
+    }
+    
+    // Calcular discrepancia máxima
+    let maxDiscrepancy = 0;
+    for (let i = 0; i < processCount; i++) {
+      for (let j = i+1; j < processCount; j++) {
+        const discrepancy = Math.abs(newValues[i] - newValues[j]);
+        if (discrepancy > maxDiscrepancy) {
+          maxDiscrepancy = discrepancy;
+        }
+      }
+    }
+    
+    return {
+      newValues,
+      messages,
+      messageDelivery,
+      discrepancy: maxDiscrepancy
+    };
+  },
+
+  // Ejecutar experimento completo con n procesos
+  runNProcessExperiment: function(initialValues, p, rounds, algorithm = "auto", meetingPoint = 0.5) {
+    let values = [...initialValues];
+    const processCount = values.length;
+    const processNames = [];
+    
+    // Crear nombres para los procesos
+    for (let i = 0; i < processCount; i++) {
+      processNames.push(i < 3 ? ["Alice", "Bob", "Charlie"][i] : `Process${i+1}`);
+    }
+    
+    // Calcular discrepancia inicial
+    let initialDiscrepancy = 0;
+    for (let i = 0; i < processCount; i++) {
+      for (let j = i+1; j < processCount; j++) {
+        const discrepancy = Math.abs(values[i] - values[j]);
+        if (discrepancy > initialDiscrepancy) {
+          initialDiscrepancy = discrepancy;
+        }
+      }
+    }
+    
+    // Historial de la simulación
+    const history = [{
+      round: 0,
+      values: [...values],
+      processValues: values.reduce((obj, val, idx) => {
+        obj[processNames[idx].toLowerCase()] = val;
+        return obj;
+      }, {}),
+      discrepancy: initialDiscrepancy,
+      messages: []
+    }];
+    
+    // Ejecutar rondas
+    for (let r = 1; r <= rounds; r++) {
+      const result = this.simulateRoundWithNProcesses(values, p, algorithm, meetingPoint);
+      values = result.newValues;
+      
+      // Registrar resultados de esta ronda
+      history.push({
+        round: r,
+        values: [...values],
+        processValues: values.reduce((obj, val, idx) => {
+          obj[processNames[idx].toLowerCase()] = val;
+          return obj;
+        }, {}),
+        discrepancy: result.discrepancy,
+        messageDelivery: result.messageDelivery,
+        messages: result.messages
+      });
+    }
+    
+    return history;
+  },
+
+  // Ejecutar múltiples experimentos para análisis estadístico con n procesos
+  runMultipleNProcessExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
+    const allDiscrepancies = [];
+    const allRuns = [];
+    const processCount = initialValues.length;
+    
+    // Contar número de procesos con valor 0 (para cálculos teóricos)
+    let m = 0;
+    initialValues.forEach(val => {
+      if (val === 0) m++;
+    });
+    
+    // Determinar algoritmo real si es auto
+    const actualAlgorithm = algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm;
+    
+    // Ejecutar múltiples simulaciones
+    for (let i = 0; i < repetitions; i++) {
+      const history = this.runNProcessExperiment(
+        initialValues, 
+        p, 
+        rounds, 
+        algorithm, 
+        meetingPoint
+      );
+      
+      const finalDiscrepancy = history[history.length - 1].discrepancy;
+      allDiscrepancies.push(finalDiscrepancy);
+      allRuns.push(history);
+    }
+    
+    // Calcular estadísticas
+    const mean = allDiscrepancies.reduce((a, b) => a + b, 0) / allDiscrepancies.length;
+    const sorted = [...allDiscrepancies].sort((a, b) => a - b);
+    const median = sorted.length % 2 === 0 ? 
+      (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2 : 
+      sorted[Math.floor(sorted.length / 2)];
+    const min = Math.min(...allDiscrepancies);
+    const max = Math.max(...allDiscrepancies);
+    const variance = allDiscrepancies.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / allDiscrepancies.length;
+    const std = Math.sqrt(variance);
+    
+    // Calcular discrepancia teórica para n procesos
+    const theoretical = this.calculateExpectedDiscrepancyNProcesses(p, processCount, m, actualAlgorithm, meetingPoint);
+    
+    return {
+      mean,
+      median,
+      min,
+      max,
+      std,
+      allValues: allDiscrepancies,
+      theoretical,
+      algorithm: actualAlgorithm,
+      processCount,
+      allRuns,
+      n: processCount,
+      m: m  // Número de procesos con valor 0
+    };
   }
 };
+
+
+
+
+// Componente para manejar n procesos
+function NProcessesControl({ processValues, setProcessValues, maxProcesses = 10 }) {
+  const n = processValues.length;
+  
+  // Agregar un nuevo proceso
+  const addProcess = () => {
+    if (n < maxProcesses) {
+      // Alternamos valores 0 y 1 para nuevos procesos
+      setProcessValues([...processValues, n % 2]);
+    }
+  };
+  
+  // Eliminar un proceso
+  const removeProcess = () => {
+    if (n > 2) { // Mínimo 2 procesos
+      setProcessValues(processValues.slice(0, -1));
+    }
+  };
+  
+  // Actualizar el valor de un proceso específico
+  const updateProcessValue = (index, value) => {
+    const newValues = [...processValues];
+    // Asegurar que el valor esté entre 0 y 1
+    newValues[index] = Math.max(0, Math.min(1, parseFloat(value) || 0));
+    setProcessValues(newValues);
+  };
+  
+  return (
+    <div className="mb-4">
+      <div className="flex justify-between items-center mb-2">
+        <h3 className="text-sm font-semibold">Valores iniciales ({n} procesos)</h3>
+        <div className="flex space-x-2">
+          <button
+            onClick={removeProcess}
+            disabled={n <= 2}
+            className={`p-1 rounded-md ${n <= 2 ? 'bg-gray-200 text-gray-400' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
+            title="Eliminar proceso"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <button
+            onClick={addProcess}
+            disabled={n >= maxProcesses}
+            className={`p-1 rounded-md ${n >= maxProcesses ? 'bg-gray-200 text-gray-400' : 'bg-green-100 text-green-600 hover:bg-green-200'}`}
+            title="Agregar proceso"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+        {processValues.map((value, index) => {
+          // Asignar colores específicos para los primeros procesos
+          let color = "#666";
+          if (index === 0) color = ALICE_COLOR;
+          else if (index === 1) color = BOB_COLOR;
+          else if (index === 2) color = CHARLIE_COLOR;
+          else {
+            // Para procesos adicionales, asignar colores del arcoíris
+            const colors = [
+              "#9c27b0", "#e91e63", "#f44336", "#ff9800", 
+              "#ffc107", "#8bc34a", "#009688"
+            ];
+            color = colors[(index - 3) % colors.length];
+          }
+          
+          const processName = index < 3 ? 
+            ["Alice", "Bob", "Charlie"][index] : 
+            `P${index+1}`;
+          
+          return (
+            <div key={index}>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-xs font-medium" style={{ color }}>
+                  {processName}
+                </label>
+              </div>
+              <input
+                type="number"
+                min="0"
+                max="1"
+                step="1"
+                value={value}
+                onChange={(e) => updateProcessValue(index, e.target.value)}
+                className="w-full p-1 text-sm border rounded-md"
+                style={{ borderColor: color }}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 
 // Component for comparing experiments with advanced features
 function ExperimentComparison({ experiments }) {
@@ -1524,48 +1851,160 @@ function ExperimentVisualization({ experimentData, currentRound = 0, processCoun
 
   const roundData = experimentData.slice(0, Math.min(currentRound + 1, experimentData.length));
 
+  // Mejora de colores para admitir más procesos con distinción clara
+  const generateProcessColors = (count) => {
+    // Paleta extendida con colores más distintos entre sí
+    const baseColors = [
+      ALICE_COLOR, BOB_COLOR, CHARLIE_COLOR, 
+      "#9c27b0", // morado
+      "#e91e63", // rosa
+      "#f44336", // rojo
+      "#ff9800", // naranja
+      "#ffc107", // amarillo
+      "#8bc34a", // verde claro
+      "#009688", // turquesa
+      "#03a9f4", // azul claro  
+      "#673ab7", // violeta
+      "#795548", // marrón
+      "#607d8b", // azul grisáceo
+      "#ff5722"  // naranja rojizo
+    ];
+    
+    // Si tenemos más procesos que colores, generamos colores adicionales
+    if (count > baseColors.length) {
+      const extraColors = [];
+      for (let i = 0; i < count - baseColors.length; i++) {
+        // Generamos colores HSL espaciados uniformemente
+        const h = (i * 137.5) % 360; // Ángulo dorado para mejor distribución
+        const s = 75 + Math.random() * 15; // Saturación alta
+        const l = 45 + Math.random() * 10; // Luminosidad media
+        extraColors.push(`hsl(${h}, ${s}%, ${l}%)`);
+      }
+      return [...baseColors, ...extraColors];
+    }
+    
+    return baseColors.slice(0, count);
+  };
+  
+  const processColors = generateProcessColors(processCount);
+  
+  // Optimización del chartData para muchos procesos
   const chartData = roundData.map(d => {
     const round = d && typeof d.round === 'number' ? d.round : 0;
     const discrepancy = d && typeof d.discrepancy === 'number' ? d.discrepancy : 0;
     
-    const alice = d && d.values && typeof d.values[0] === 'number' ? d.values[0] : 0;
-    const bob = d && d.values && typeof d.values[1] === 'number' ? d.values[1] : 0;
-    const charlie = processCount > 2 && d && d.values && typeof d.values[2] === 'number' ? d.values[2] : 0;
+    // Formato adaptado para n procesos
+    const data = { round, discrepancy };
     
-    return {
-      round,
-      alice,
-      bob,
-      charlie,
-      discrepancy
-    };
+    if (d && d.values) {
+      d.values.forEach((val, idx) => {
+        // Para cada proceso, crear una entrada en los datos
+        data[`p${idx}`] = val;
+      });
+    }
+    
+    return data;
   });
 
+  // Función para generar nombre de proceso según índice
+  const getProcessName = (index) => {
+    if (index < 3) {
+      return ["Alice", "Bob", "Charlie"][index];
+    } else if (index < 26) {
+      // Usar letras del alfabeto para procesos 4-26
+      return `P-${String.fromCharCode(65 + index)}`;
+    } else {
+      // Para más de 26, usar números
+      return `P-${index + 1}`;
+    }
+  };
+
+  // Determinar si se debe compactar la leyenda
+  const useTwoColumnLegend = processCount > 5;
+
   return (
-    <div className="bg-white rounded-lg shadow p-4 h-64">
-      <h3 className="text-lg font-semibold mb-4">Experiment Visualization</h3>
-      <ResponsiveContainer width="100%" height="80%">
-        <LineChart data={chartData}>
+    <div className="bg-white rounded-lg shadow p-4 h-80">
+      <div className="flex justify-between items-center mb-2">
+        <h3 className="text-lg font-semibold">Experiment Visualization</h3>
+        
+        {processCount > 8 && (
+          <div className="text-xs text-gray-500 bg-yellow-50 px-2 py-1 rounded">
+            Showing {processCount} processes
+          </div>
+        )}
+      </div>
+      
+      <ResponsiveContainer width="100%" height={useTwoColumnLegend ? "75%" : "80%"}>
+        <LineChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
           <XAxis dataKey="round" />
           <YAxis domain={[0, 1]} />
           <Tooltip 
             formatter={(value) => value !== undefined && !isNaN(value) ? value.toFixed(4) : 'N/A'}
             labelFormatter={(value) => `Round: ${value}`}
+            isAnimationActive={false} // Mejorar rendimiento
           />
-          <Legend />
-          <Line type="monotone" dataKey="alice" name="Alice" stroke={ALICE_COLOR} strokeWidth={3}
-            dot={{ r: 5, strokeWidth: 2, fill: "white" }} />
-          <Line type="monotone" dataKey="bob" name="Bob" stroke={BOB_COLOR} strokeWidth={3}
-            dot={{ r: 5, strokeWidth: 2, fill: "white" }} />
-          {processCount > 2 && (
-            <Line type="monotone" dataKey="charlie" name="Charlie" stroke={CHARLIE_COLOR} strokeWidth={3}
-              dot={{ r: 5, strokeWidth: 2, fill: "white" }} />
+          <Legend 
+            layout={useTwoColumnLegend ? "horizontal" : "horizontal"}
+            verticalAlign="bottom"
+            align="center"
+            wrapperStyle={{ 
+              paddingTop: "10px",
+              fontSize: processCount > 8 ? "9px" : "11px",
+              display: "grid", 
+              gridTemplateColumns: useTwoColumnLegend ? "repeat(4, 1fr)" : "repeat(3, 1fr)"
+            }}
+          />
+          
+          {/* Renderizar línea para cada proceso */}
+          {Array.from({ length: Math.min(processCount, 20) }).map((_, index) => {
+            const name = getProcessName(index);
+            const strokeWidth = index < 3 ? 2.5 : 1.5;
+            const strokeDasharray = index > 10 ? "3 3" : null; // Línea punteada para procesos adicionales
+              
+            return (
+              <Line 
+                key={index}
+                type="monotone" 
+                dataKey={`p${index}`} 
+                name={name} 
+                stroke={processColors[index % processColors.length]} 
+                strokeWidth={strokeWidth}
+                dot={{ r: index < 3 ? 3 : 2, strokeWidth: 1, fill: "white" }}
+                activeDot={{ r: 4 }}
+              />
+            );
+          })}
+          
+          {/* Limitar a 20 procesos en la visualización */}
+          {processCount > 20 && (
+            <Line
+              type="monotone"
+              dataKey="discrepancy"
+              name={`+${processCount - 20} more`}
+              stroke="#999"
+              strokeWidth={0}
+              dot={{ r: 0 }}
+              activeDot={{ r: 0 }}
+            />
           )}
-          <Line type="monotone" dataKey="discrepancy" name="Discrepancy" stroke="#9b59b6" strokeWidth={2}
-            dot={{ r: 4 }} />
+          
+          <Line 
+            type="monotone" 
+            dataKey="discrepancy" 
+            name="Discrepancy" 
+            stroke="#9b59b6" 
+            strokeWidth={2.5}
+            dot={{ r: 3 }} 
+          />
         </LineChart>
       </ResponsiveContainer>
+      
+      {processCount > 10 && (
+        <div className="mt-1 text-xs text-gray-500 text-center">
+          Note: For better visibility, some processes may be shown with dashed lines or compact representation.
+        </div>
+      )}
     </div>
   );
 }
@@ -1573,7 +2012,10 @@ function ExperimentVisualization({ experimentData, currentRound = 0, processCoun
 
 
 // Results table
-function ResultsTable({ experimentData, processCount = 2 }) {
+function ResultsTable({ experimentData, processCount = 2, forcedAlgorithm, fvMethod, rounds = 1 }) {
+  // Si hay demasiados procesos, mostrar versión compacta
+  const isCompactView = processCount > 6;
+
   if (!experimentData || !Array.isArray(experimentData) || experimentData.length === 0) {
     return (
       <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg">
@@ -1582,42 +2024,82 @@ function ResultsTable({ experimentData, processCount = 2 }) {
     );
   }
 
+  // Mostrar solo algunos procesos clave si hay muchos
+  const getDisplayedProcesses = () => {
+    if (!isCompactView) {
+      return Array.from({ length: processCount }).map((_, i) => i);
+    }
+    
+    // Para muchos procesos, mostrar: primero, segundo, alguno del medio, penúltimo y último
+    if (processCount <= 10) {
+      return [0, 1, Math.floor(processCount/2), processCount-2, processCount-1];
+    } else {
+      return [0, 1, 2, Math.floor(processCount/3), Math.floor(2*processCount/3), processCount-2, processCount-1];
+    }
+  };
+  
+  const displayedProcesses = getDisplayedProcesses();
+
+  // Crear encabezados para procesos
+  const processHeaders = displayedProcesses.map(idx => {
+    const name = idx < 3 ? ["Alice", "Bob", "Charlie"][idx] : `P${idx+1}`;
+    const color = idx < 3 ? 
+      [ALICE_COLOR, BOB_COLOR, CHARLIE_COLOR][idx] : 
+      "#666"; // Color por defecto para procesos adicionales
+    
+    return { index: idx, name, color };
+  });
+
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
-          <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Round</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Alice</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bob</th>
-            {processCount > 2 && (
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Charlie</th>
-            )}
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Discrepancy</th>
-          </tr>
-        </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-          {experimentData.map((data, index) => (
-            <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{data.round}</td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: ALICE_COLOR }}>
-                {data.values && data.values[0] !== undefined ? data.values[0].toFixed(4) : 'N/A'}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: BOB_COLOR }}>
-                {data.values && data.values[1] !== undefined ? data.values[1].toFixed(4) : 'N/A'}
-              </td>
-              {processCount > 2 && (
-                <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: CHARLIE_COLOR }}>
-                  {data.values && data.values[2] !== undefined ? data.values[2].toFixed(4) : 'N/A'}
-                </td>
-              )}
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                {data.discrepancy !== undefined ? data.discrepancy.toFixed(4) : 'N/A'}
-              </td>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Round</th>
+              {processHeaders.map((header) => (
+                <th 
+                  key={header.index}
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  style={{ color: header.color }}
+                >
+                  {header.name}
+                </th>
+              ))}
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Discrepancy</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {experimentData.map((data, index) => (
+              <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{data.round}</td>
+                
+                {/* Renderizar celdas para procesos seleccionados */}
+                {processHeaders.map((header) => (
+                  <td 
+                    key={header.index}
+                    className="px-6 py-4 whitespace-nowrap text-sm" 
+                    style={{ color: header.color }}
+                  >
+                    {data.values && data.values[header.index] !== undefined ? 
+                      data.values[header.index].toFixed(4) : 'N/A'}
+                  </td>
+                ))}
+                
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {data.discrepancy !== undefined ? data.discrepancy.toFixed(4) : 'N/A'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      
+      {isCompactView && (
+        <div className="px-4 py-2 bg-yellow-50 text-sm">
+          <p>Showing {displayedProcesses.length} of {processCount} processes. {processCount-displayedProcesses.length} processes are hidden for readability.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -1701,7 +2183,15 @@ function HistogramPlot({ discrepancies, theoretical, experimental }) {
 
 // Theory plot
 // Improved Theory Plot component that correctly updates when rounds change
-function TheoryPlot({ currentP, experimentalData, displayCurves, rounds = 1 }) {
+// Theory plot mejorado para n procesos
+function TheoryPlot({ 
+  currentP, 
+  experimentalData, 
+  displayCurves, 
+  rounds = 1,
+  processValues = [0, 1], // Valores iniciales de los procesos
+  meetingPoint = 0.5      // Valor para AMP(a)
+}) {
   if (!currentP && currentP !== 0) currentP = 0.5;
   
   const [selectedRound, setSelectedRound] = useState(rounds);
@@ -1718,39 +2208,147 @@ function TheoryPlot({ currentP, experimentalData, displayCurves, rounds = 1 }) {
       typeof item.discrepancy === 'number'
     ) : [];
 
+  // Número total de procesos
+  const processCount = processValues.length;
+  
+  // Contar procesos con valor 0 (m)
+  let m = 0;
+  processValues.forEach(val => {
+    if (val === 0 || val === 0.0) m++;
+  });
+
   // Generate theoretical data points (recalculated on every render)
   const ampData = [];
   const fvData = [];
 
   // Generate complete theoretical curves
-  for (let p = 0; p <= 1; p += 0.02) {
-    // Calculate discrepancy for the selected round
-    // Use Math.pow directly to ensure up-to-date calculations
-    const ampDiscrepancy = Math.pow(1 - p, selectedRound);
-    const fvDiscrepancy = Math.pow(p*p + (1-p)*(1-p), selectedRound);
-    
-    ampData.push({ 
-      p, 
-      discrepancy: ampDiscrepancy 
-    });
-    fvData.push({ 
-      p, 
-      discrepancy: fvDiscrepancy 
-    });
+  if (processCount > 2) {
+    // Para n procesos
+    for (let p = 0; p <= 1; p += 0.02) {
+      const q = 1 - p;
+      
+      // Variables comunes para ambos algoritmos
+      const A = Math.pow(1 - Math.pow(q, processCount-m), m);
+      const B = Math.pow(1 - Math.pow(q, m), processCount-m);
+      
+      // Para múltiples rondas, aplicamos la fórmula reiteradamente
+      let ampDiscrepancy, fvDiscrepancy;
+      
+      if (selectedRound <= 1) {
+        // AMP para n procesos - Fórmula de la ecuación 15
+        ampDiscrepancy = 1 - (meetingPoint*A + (1-meetingPoint)*B);
+        
+        // FV para n procesos
+        const C = Math.pow(q, m*(processCount-m));
+        fvDiscrepancy = 1 - (C*A + C*B);
+      } else {
+        // Para múltiples rondas, necesitamos simularlo
+        // Esto es una aproximación para múltiples rondas con n>2
+        let ampValue = 1 - (meetingPoint*A + (1-meetingPoint)*B);
+        let fvValue = 1 - (Math.pow(q, m*(processCount-m))*(A + B));
+        
+        // Aproximamos el comportamiento multi-ronda
+        // Nota: esta es una aproximación, no una fórmula exacta para n>2
+        for (let r = 1; r < selectedRound; r++) {
+          ampValue = ampValue * (1-p);
+          fvValue = fvValue * (p*p + q*q);
+        }
+        
+        ampDiscrepancy = ampValue;
+        fvDiscrepancy = fvValue;
+      }
+      
+      ampData.push({ p, discrepancy: ampDiscrepancy });
+      fvData.push({ p, discrepancy: fvDiscrepancy });
+    }
+  } else {
+    // Para 2 procesos, usamos las fórmulas originales
+    for (let p = 0; p <= 1; p += 0.02) {
+      // Calculate discrepancy for the selected round
+      const q = 1 - p;
+      const ampDiscrepancy = Math.pow(q, selectedRound);
+      const fvDiscrepancy = Math.pow(p*p + q*q, selectedRound);
+      
+      ampData.push({ p, discrepancy: ampDiscrepancy });
+      fvData.push({ p, discrepancy: fvDiscrepancy });
+    }
   }
 
   // Calculate current point theoretical value
+  let currentPointAMP, currentPointFV;
+  
+  if (processCount > 2) {
+    // Para n procesos
+    const q = 1 - currentP;
+    
+    // Variables comunes
+    const A = Math.pow(1 - Math.pow(q, processCount-m), m);
+    const B = Math.pow(1 - Math.pow(q, m), processCount-m);
+    
+    if (selectedRound <= 1) {
+      // AMP
+      currentPointAMP = 1 - (meetingPoint*A + (1-meetingPoint)*B);
+      
+      // FV
+      const C = Math.pow(q, m*(processCount-m));
+      currentPointFV = 1 - (C*A + C*B);
+    } else {
+      // Aproximación para múltiples rondas
+      let ampValue = 1 - (meetingPoint*A + (1-meetingPoint)*B);
+      let fvValue = 1 - (Math.pow(q, m*(processCount-m))*(A + B));
+      
+      for (let r = 1; r < selectedRound; r++) {
+        ampValue = ampValue * (1-currentP);
+        fvValue = fvValue * (currentP*currentP + q*q);
+      }
+      
+      currentPointAMP = ampValue;
+      currentPointFV = fvValue;
+    }
+  } else {
+    // Para 2 procesos
+    const q = 1 - currentP;
+    currentPointAMP = Math.pow(q, selectedRound);
+    currentPointFV = Math.pow(currentP*currentP + q*q, selectedRound);
+  }
+  
   const currentPoint = {
     p: currentP,
-    // Calculate directly rather than calling a function to ensure up-to-date value
-    expectedDiscrepancy: currentP > 0.5 ? 
-      Math.pow(1 - currentP, selectedRound) : 
-      Math.pow(currentP*currentP + (1-currentP)*(1-currentP), selectedRound)
+    expectedDiscrepancy: currentP > 0.5 ? currentPointAMP : currentPointFV
   };
 
   const showAMP = displayCurves?.theoreticalAmp !== false;
   const showFV = displayCurves?.theoreticalFv !== false;
   const showExperimental = displayCurves?.experimental !== false && validExperimentalData.length > 0;
+
+  // Texto descriptivo para las fórmulas según el número de procesos
+  let formulaDescription;
+  if (processCount === 2) {
+    formulaDescription = (
+      <div className="text-xs text-gray-600 mb-2">
+
+        <ul className="list-disc pl-4">
+          <li>AMP: (1-p){selectedRound > 1 ? <sup>{selectedRound}</sup> : ''}</li>
+          <li>FV: (p²+q²){selectedRound > 1 ? <sup>{selectedRound}</sup> : ''}</li>
+        </ul>
+      </div>
+    );
+  } else {
+    formulaDescription = (
+      <div className="text-xs text-gray-600 mb-2">
+       <ul className="list-disc pl-4">
+          <li>AMP({meetingPoint.toFixed(2)}): 1 - ({meetingPoint.toFixed(2)}·A + {(1-meetingPoint).toFixed(2)}·B)</li>
+          <li>FV: 1 - (C·A + C·B)</li>
+          <li>Where: A = (1-q<sup>{processCount-m}</sup>)<sup>{m}</sup>, B = (1-q<sup>{m}</sup>)<sup>{processCount-m}</sup>, C = q<sup>{m*(processCount-m)}</sup></li>
+        </ul>
+        {selectedRound > 1 && (
+          <p className="text-yellow-600 mt-1">
+            Nota: Para {selectedRound} rondas con {processCount} procesos se usa una aproximación.
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-lg shadow p-4">
@@ -1773,17 +2371,19 @@ function TheoryPlot({ currentP, experimentalData, displayCurves, rounds = 1 }) {
         )}
       </div>
 
+      {formulaDescription}
+
       <div className="mb-3 text-sm text-gray-600 flex flex-wrap items-center gap-4">
         {showFV && (
           <div className="flex items-center">
             <span className="inline-block w-3 h-3 bg-red-500 mr-1 rounded-sm"></span>
-            <span>FV: (p²+q²){selectedRound > 1 ? <sup>{selectedRound}</sup> : ''}</span>
+            <span>FV Algorithm</span>
           </div>
         )}
         {showAMP && (
           <div className="flex items-center">
             <span className="inline-block w-3 h-3 bg-green-500 mr-1 rounded-sm"></span>
-            <span>AMP: (1-p){selectedRound > 1 ? <sup>{selectedRound}</sup> : ''}</span>
+            <span>AMP Algorithm</span>
           </div>
         )}
         {showExperimental && (
@@ -1816,10 +2416,10 @@ function TheoryPlot({ currentP, experimentalData, displayCurves, rounds = 1 }) {
           <Legend verticalAlign="top" height={36} />
 
           {showAMP && (
-            <Line data={ampData} type="monotone" dataKey="discrepancy" name={`AMP Algorithm (Round ${selectedRound})`} stroke="#2ecc71" strokeWidth={2} dot={false} connectNulls />
+            <Line data={ampData} type="monotone" dataKey="discrepancy" name={`AMP Algorithm`} stroke="#2ecc71" strokeWidth={2} dot={false} connectNulls />
           )}
           {showFV && (
-            <Line data={fvData} type="monotone" dataKey="discrepancy" name={`FV Algorithm (Round ${selectedRound})`} stroke="#e74c3c" strokeWidth={2} dot={false} connectNulls />
+            <Line data={fvData} type="monotone" dataKey="discrepancy" name={`FV Algorithm`} stroke="#e74c3c" strokeWidth={2} dot={false} connectNulls />
           )}
           {showExperimental && validExperimentalData.length > 0 && (
             <Line data={validExperimentalData} type="monotone" dataKey="discrepancy" name="Experimental Curve" stroke="purple" strokeWidth={2} dot={{ r: 3, stroke: "purple", fill: "white" }} connectNulls />
@@ -1830,40 +2430,39 @@ function TheoryPlot({ currentP, experimentalData, displayCurves, rounds = 1 }) {
       
       {rounds > 1 && (
         <div className="mt-4 bg-blue-50 p-3 rounded">
-          <h4 className="font-medium text-sm mb-1">Multi-Round Expected Discrepancy</h4>
+          <h4 className="font-medium text-sm mb-1">Discrepancias esperadas para p={currentP.toFixed(2)}</h4>
           <div className="overflow-x-auto">
             <table className="min-w-full text-xs">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-1 px-2">Round</th>
-                  <th className="text-right py-1 px-2">AMP (1-p)<sup>k</sup></th>
-                  <th className="text-right py-1 px-2">FV (p²+q²)<sup>k</sup></th>
-                  <th className="text-right py-1 px-2">Optimal Algorithm</th>
+                  <th className="text-left py-1 px-2">Algoritmo</th>
+                  <th className="text-right py-1 px-2">Discrepancia teórica</th>
+                  <th className="text-right py-1 px-2">Óptimo para</th>
                 </tr>
               </thead>
               <tbody>
-                {[...Array(rounds)].map((_, i) => {
-                  const round = i + 1;
-                  // Calculate values directly rather than relying on function calls
-                  const ampDisc = Math.pow(1 - currentP, round);
-                  const fvDisc = Math.pow(currentP*currentP + (1-currentP)*(1-currentP), round);
-                  const optimalAlg = currentP > 0.5 ? "AMP" : "FV";
-                  
-                  return (
-                    <tr key={round} className={round === selectedRound ? 'bg-blue-100' : (i % 2 === 0 ? 'bg-white' : 'bg-gray-50')}>
-                      <td className="py-1 px-2">{round}</td>
-                      <td className="text-right py-1 px-2 font-mono">{ampDisc.toFixed(4)}</td>
-                      <td className="text-right py-1 px-2 font-mono">{fvDisc.toFixed(4)}</td>
-                      <td className="text-right py-1 px-2 font-medium">
-                        <span className={`px-1.5 py-0.5 rounded text-xs ${
-                          optimalAlg === "AMP" ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                        }`}>
-                          {optimalAlg}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
+                <tr className="bg-white">
+                  <td className="py-1 px-2">AMP</td>
+                  <td className="text-right py-1 px-2 font-mono">{currentPointAMP.toFixed(4)}</td>
+                  <td className="text-right py-1 px-2 font-medium">
+                    <span className={`px-1.5 py-0.5 rounded text-xs ${
+                      currentP > 0.5 ? 'bg-green-100 text-green-800' : ''
+                    }`}>
+                      {currentP > 0.5 ? "p > 0.5" : ""}
+                    </span>
+                  </td>
+                </tr>
+                <tr className="bg-gray-50">
+                  <td className="py-1 px-2">FV</td>
+                  <td className="text-right py-1 px-2 font-mono">{currentPointFV.toFixed(4)}</td>
+                  <td className="text-right py-1 px-2 font-medium">
+                    <span className={`px-1.5 py-0.5 rounded text-xs ${
+                      currentP <= 0.5 ? 'bg-red-100 text-red-800' : ''
+                    }`}>
+                      {currentP <= 0.5 ? "p ≤ 0.5" : ""}
+                    </span>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -3404,14 +4003,11 @@ function initializeMultiRoundVerification() {
 // Main component
 function CompleteDistributedComputingSimulator() {
   // Configuration states
-  const [processCount, setProcessCount] = useState(2);
-  const [aliceValue, setAliceValue] = useState(0.00);
-  const [bobValue, setBobValue] = useState(1.00);
-  const [charlieValue, setCharlieValue] = useState(0.50);
+  const [processValues, setProcessValues] = useState([0, 1]); // Valores para n procesos
   const [probability, setProbability] = useState(0.70);
   const [algorithm, setAlgorithm] = useState("auto");
   const [fvMethod, setFvMethod] = useState("average");
-  const [meetingPoint, setMeetingPoint] = useState(1);
+  const [meetingPoint, setMeetingPoint] = useState(0.5);
   const [rounds, setRounds] = useState(1);
   const [repetitions, setRepetitions] = useState(50);
 
@@ -3501,18 +4097,9 @@ function CompleteDistributedComputingSimulator() {
 
   // Get initial values for processes
   function getInitialValues() {
-    if (processCount === 2) {
-      return [aliceValue, bobValue];
-    } else {
-      return [aliceValue, bobValue, charlieValue];
-    }
+    return [...processValues]; // Devuelve una copia de los valores actuales
   }
   
-  // Call verification function when component mounts
-  useEffect(() => {
-    initializeMultiRoundVerification();
-  }, []);
-
   // Run range experiments with progressive visualization
   function runRangeExperiments() {
     if (isRunning) return;
@@ -3530,6 +4117,13 @@ function CompleteDistributedComputingSimulator() {
     const actualRounds = rounds;
     const actualRepetitions = repetitions;
     const actualSteps = customSteps ? customStepValue : steps;
+    const processCount = initialProcessValues.length;
+    
+    // Count processes with value 0 (for theoretical calculations)
+    let m = 0;
+    initialProcessValues.forEach(val => {
+      if (val === 0 || val === 0.0) m++;
+    });
     
     // Log the start of the experiment
     addLog(`Starting simulation with ${processCount} processes`);
@@ -3548,12 +4142,16 @@ function CompleteDistributedComputingSimulator() {
       const p = allProbabilities[i];
       const actualAlgorithm = forcedAlgorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : forcedAlgorithm;
       
+      // Calculate theoretical discrepancy using n-process formula
+      const theoretical = SimulationEngine.calculateExpectedDiscrepancyNProcesses(
+        p, processCount, m, actualAlgorithm, actualMeetingPoint
+      );
+      
       results.push({
         p,
         algorithm: actualAlgorithm,
-        fvMethod: (actualAlgorithm === "FV" || (forcedAlgorithm === "auto" && p <= 0.5)) && processCount === 3 ? fvMethod : null,
-        // Calculate theoretical discrepancy for the specified number of rounds
-        theoretical: processCount === 2 ? SimulationEngine.calculateExpectedDiscrepancy(p, actualAlgorithm, actualRounds) : null,
+        fvMethod: (actualAlgorithm === "FV" || (forcedAlgorithm === "auto" && p <= 0.5)) && processCount > 2 ? fvMethod : null,
+        theoretical,
         discrepancy: 0,
         samples: 0,
         discrepancies: []
@@ -3583,16 +4181,14 @@ function CompleteDistributedComputingSimulator() {
         const p = allProbabilities[i];
         const result = results[i];
         const actualAlgorithm = result.algorithm;
-        const actualFvMethod = processCount === 3 ? fvMethod : "average";
         
-        // Run one repetition for this probability
-        const history = SimulationEngine.runExperiment(
+        // Run one repetition for this probability using n-process simulation
+        const history = SimulationEngine.runNProcessExperiment(
           initialProcessValues,
           p,
-          actualRounds, // Use the specified number of rounds
+          actualRounds,
           actualAlgorithm,
-          actualMeetingPoint,
-          actualFvMethod
+          actualMeetingPoint
         );
         
         // Get the final discrepancy from the last round
@@ -3626,11 +4222,11 @@ function CompleteDistributedComputingSimulator() {
     }, 10);
   }
 
-  // Compare FV methods (only for 3 processes)
+  // Compare FV methods (only for 3+ processes)
   function runFVMethodComparison() {
-    // Only allow for 3 processes
-    if (processCount !== 3) {
-      addLog("FV method comparison is only available with 3 processes selected", "warning");
+    // Only allow for 3+ processes
+    if (processValues.length < 3) {
+      addLog("FV method comparison is only available with 3 or more processes selected", "warning");
       return;
     }
     
@@ -3782,28 +4378,38 @@ function CompleteDistributedComputingSimulator() {
     }
     
     try {
+      // Get initial values and count processes with value 0 (m)
+      const initialValues = getInitialValues();
+      let m = 0;
+      initialValues.forEach(val => {
+        if (val === 0 || val === 0.0) m++;
+      });
+      
       // Prepare data to save
       const experimentData = {
         type: "range",
         timestamp: new Date().toISOString(),
         parameters: {
-          processCount,
-          initialValues: getInitialValues(),
+          processCount: processValues.length,
+          initialValues: initialValues,
+          m: m, // Número de procesos con valor 0
           minP: rangeExperiments.minP,
           maxP: rangeExperiments.maxP,
-          steps: rangeExperiments.steps,
+          steps: rangeExperiments.customSteps ? rangeExperiments.customStepValue : rangeExperiments.steps,
           algorithm: forcedAlgorithm,
-          fvMethod: processCount === 3 ? fvMethod : null,
-          meetingPoint,
-          rounds,
-          repetitions
+          fvMethod: processValues.length > 2 ? fvMethod : null,
+          meetingPoint: meetingPoint,
+          rounds: rounds,
+          repetitions: repetitions
         },
         results: experimentalResults.map(result => ({
           p: result.p,
           algorithm: result.algorithm,
           discrepancy: result.discrepancy,
           theoretical: result.theoretical,
-          samples: result.samples
+          samples: result.samples,
+          // Incluir array de discrepancias individuales si está disponible
+          discrepancies: result.discrepancies ? [...result.discrepancies] : null
         }))
       };
       
@@ -3811,16 +4417,173 @@ function CompleteDistributedComputingSimulator() {
       setCurrentExperimentToSave(experimentData);
       setShowSaveModal(true);
       
-      // Suggest a default name
-      const defaultName = `Range P=${rangeExperiments.minP.toFixed(2)}-${rangeExperiments.maxP.toFixed(2)} ${forcedAlgorithm}${rounds > 1 ? ` (${rounds} rounds)` : ''}`;
+      // Generate suggested name based on process configuration
+      const processInfo = processValues.length > 3 ? 
+        `${processValues.length}-processes` : 
+        `${processValues.length}p (${m}×0,${processValues.length-m}×1)`;
+        
+      const algInfo = forcedAlgorithm === "auto" ? 
+        "Auto" : 
+        forcedAlgorithm + (forcedAlgorithm === "AMP" ? `(${meetingPoint})` : "");
+      
+      const defaultName = `Range P=${rangeExperiments.minP.toFixed(2)}-${rangeExperiments.maxP.toFixed(2)} ${algInfo} ${processInfo}${rounds > 1 ? ` (${rounds} rounds)` : ''}`;
+      
+      // Generate tags automatically
+      let suggestedTags = [
+        "range",
+        forcedAlgorithm.toLowerCase(),
+        `${processValues.length}-processes`,
+        `m=${m}`
+      ];
+      
+      // Add special tags based on properties
+      if (rounds > 1) suggestedTags.push("multi-round");
+      if (rangeExperiments.minP < 0.5 && rangeExperiments.maxP > 0.5) suggestedTags.push("crossover");
+      if (processValues.length > 2 && forcedAlgorithm === "FV") suggestedTags.push(`fv-${fvMethod}`);
+      
       setExperimentMetadata({
         name: defaultName,
-        tags: `range,${forcedAlgorithm},${processCount}-processes${rounds > 1 ? ',multi-round' : ''}`,
-        description: `Simulation with range from p=${rangeExperiments.minP.toFixed(2)} to p=${rangeExperiments.maxP.toFixed(2)} with ${rangeExperiments.steps} points${rounds > 1 ? ` over ${rounds} rounds` : ''}`
+        tags: suggestedTags.join(","),
+        description: `Simulation with ${processValues.length} processes (${m} with value 0, ${processValues.length-m} with value 1) from p=${rangeExperiments.minP.toFixed(2)} to p=${rangeExperiments.maxP.toFixed(2)} with ${experimentalResults.length} data points${rounds > 1 ? ` over ${rounds} rounds` : ''}.`
       });
     } catch (error) {
-      addLog(`Error preparing simulation: ${error.message}`, "error");
+      addLog(`Error preparing experiment for saving: ${error.message}`, "error");
+      console.error("Error in prepareRangeExperiment:", error);
     }
+  }
+
+  // Run multi-round convergence analysis
+  function runMultiRoundAnalysis() {
+    setIsRunningMultiRound(true);
+    addLog("Running multi-round convergence analysis...");
+    
+    // Get settings
+    const { initialGap, maxRounds, pValues, repetitions: mrRepetitions } = multiRoundSettings;
+    
+    // Run the analysis
+    setTimeout(() => {
+      try {
+        const results = SimulationEngine.runMultiRoundAnalysis(
+          initialGap,
+          pValues,
+          maxRounds,
+          mrRepetitions
+        );
+        
+        setMultiRoundAnalysisData(results);
+        addLog("Multi-round analysis completed", "success");
+      } catch (error) {
+        addLog(`Error in multi-round analysis: ${error.message}`, "error");
+      } finally {
+        setIsRunningMultiRound(false);
+      }
+    }, 100); // Small delay to prevent UI freeze
+  }
+
+  // Analyze convergence rates
+  function analyzeConvergenceRates() {
+    addLog("Analyzing convergence rates...");
+    
+    const pValues = [0.1, 0.3, 0.5, 0.7, 0.9];
+    const rates = [];
+    
+    for (const p of pValues) {
+      const ampRate = SimulationEngine.analyzeConvergenceRate(p, 5, "AMP");
+      const fvRate = SimulationEngine.analyzeConvergenceRate(p, 5, "FV");
+      rates.push(ampRate, fvRate);
+    }
+    
+    setConvergenceRatesData(rates);
+    addLog("Convergence rate analysis completed", "success");
+  }
+
+  // Componente para controlar n procesos
+  function NProcessesControl() {
+    const processCount = processValues.length;
+    
+    const addProcess = () => {
+      if (processCount < 10) { // Limitar a 10 procesos para la usabilidad
+        // Valor por defecto para nuevo proceso: alternar 0 y 1
+        setProcessValues([...processValues, processCount % 2]);
+      }
+    };
+    
+    const removeProcess = () => {
+      if (processCount > 2) { // Mínimo 2 procesos
+        setProcessValues(processValues.slice(0, -1));
+      }
+    };
+    
+    return (
+      <div className="mb-4 bg-blue-50 p-3 rounded-lg">
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="text-sm font-semibold">Procesos ({processCount})</h3>
+          <div className="flex space-x-2">
+            <button
+              onClick={removeProcess}
+              disabled={processCount <= 2 || isRunning}
+              className={`px-2 py-1 rounded ${
+                processCount <= 2 || isRunning ? 'bg-gray-300 text-gray-500' : 'bg-red-100 text-red-600 hover:bg-red-200'
+              }`}
+            >
+              -
+            </button>
+            <button
+              onClick={addProcess}
+              disabled={processCount >= 10 || isRunning}
+              className={`px-2 py-1 rounded ${
+                processCount >= 10 || isRunning ? 'bg-gray-300 text-gray-500' : 'bg-green-100 text-green-600 hover:bg-green-200'
+              }`}
+            >
+              +
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          {processValues.map((value, index) => {
+            // Asignar colores específicos para los primeros procesos
+            let color = "#666";
+            if (index === 0) color = ALICE_COLOR;
+            else if (index === 1) color = BOB_COLOR;
+            else if (index === 2) color = CHARLIE_COLOR;
+            else {
+              // Para procesos adicionales, asignar colores del arcoíris
+              const colors = [
+                "#9c27b0", "#e91e63", "#f44336", "#ff9800", 
+                "#ffc107", "#8bc34a", "#009688"
+              ];
+              color = colors[(index - 3) % colors.length];
+            }
+            
+            const processName = index < 3 ? 
+              ["Alice", "Bob", "Charlie"][index] : 
+              `P${index+1}`;
+            
+            return (
+              <div key={index}>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-xs font-medium" style={{ color }}>{processName}</label>
+                </div>
+                <select
+                  value={value}
+                  onChange={(e) => {
+                    const newValues = [...processValues];
+                    newValues[index] = parseInt(e.target.value);
+                    setProcessValues(newValues);
+                  }}
+                  className="w-full p-1 text-sm border rounded-md"
+                  style={{ borderColor: color }}
+                  disabled={isRunning}
+                >
+                  <option value="0">0</option>
+                  <option value="1">1</option>
+                </select>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -3857,119 +4620,10 @@ function CompleteDistributedComputingSimulator() {
             <div className="bg-white rounded-lg shadow p-4 mb-4">
               <h2 className="text-lg font-semibold mb-4">🎛️ Simulation Parameters</h2>
               
-              {/* Process count selector */}
-              <div className="mb-4 bg-blue-50 p-3 rounded-lg">
-                <h3 className="text-sm font-semibold mb-2">Number of Processes</h3>
-                <div className="flex items-center space-x-4">
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      value="2"
-                      checked={processCount === 2}
-                      onChange={() => setProcessCount(2)}
-                      className="form-radio h-4 w-4 text-blue-600"
-                    />
-                    <span className="ml-2 text-sm">2 Processes</span>
-                  </label>
-                  <label className="inline-flex items-center">
-                    <input
-                      type="radio"
-                      value="3"
-                      checked={processCount === 3}
-                      onChange={() => setProcessCount(3)}
-                      className="form-radio h-4 w-4 text-blue-600"
-                    />
-                    <span className="ml-2 text-sm">3 Processes </span>
-                  </label>
-                </div>
-              </div>
+              {/* Process controller */}
+              <NProcessesControl />
               
-              <div className="mb-4">
-                <h3 className="text-sm font-semibold mb-2 pb-1 border-b">Initial Values & Probability</h3>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs font-medium" style={{ color: ALICE_COLOR }}>Alice</label>
-                    </div>
-                    <input
-                      type="number"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={aliceValue}
-                      onChange={(e) => {
-                        const value = Math.max(0, Math.min(1, parseFloat(e.target.value) || 0));
-                        setAliceValue(value);
-                      }}
-                      className="w-full p-1 text-sm border rounded-md"
-                      style={{ borderColor: ALICE_COLOR }}
-                    />
-                  </div>
-                  
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs font-medium" style={{ color: BOB_COLOR }}>Bob</label>
-                    </div>
-                    <input
-                      type="number"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={bobValue}
-                      onChange={(e) => {
-                        const value = Math.max(0, Math.min(1, parseFloat(e.target.value) || 0));
-                        setBobValue(value);
-                      }}
-                      className="w-full p-1 text-sm border rounded-md"
-                      style={{ borderColor: BOB_COLOR }}
-                    />
-                  </div>
-                  
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs font-medium" style={{ color: "#9b59b6" }}>Probability (p)</label>
-                    </div>
-                    <input
-                      type="number"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={probability}
-                      onChange={(e) => {
-                        const value = Math.max(0, Math.min(1, parseFloat(e.target.value) || 0));
-                        setProbability(value);
-                      }}
-                      className="w-full p-1 text-sm border rounded-md"
-                      style={{ borderColor: "#9b59b6" }}
-                    />
-                  </div>
-                </div>
-                
-                {processCount === 3 && (
-                  <div className="mt-3">
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs font-medium" style={{ color: CHARLIE_COLOR }}>Charlie (0.00-2.00)</label>
-                    </div>
-                    <input
-                      type="number"
-                      min="0"
-                      max="2"
-                      step="0.01"
-                      value={charlieValue}
-                      onChange={(e) => {
-                        const value = Math.max(0, Math.min(2, parseFloat(e.target.value) || 0));
-                        setCharlieValue(value);
-                      }}
-                      className="w-full p-1 text-sm border rounded-md"
-                      style={{ borderColor: CHARLIE_COLOR }}
-                    />
-                    <div className="flex justify-between text-xs text-gray-500 mt-1">
-                      <span>Min: 0.00</span>
-                      <span>Max: 2.00</span>
-                    </div>
-                  </div>
-                )}
-              </div>
+             
               <div className="mb-4">
                 <h4 className="text-xs font-semibold mb-1">Algorithm Settings:</h4>
                   <div className="mb-3">
@@ -3989,25 +4643,6 @@ function CompleteDistributedComputingSimulator() {
                     </select>
                   </div>
                   
-                  <div className="grid grid-cols-1 mb-3">
-                    {(forcedAlgorithm === "FV" || forcedAlgorithm === "auto") && processCount === 3 && (
-                      <div>
-                        <label className="block text-xs mb-1">FV Method (3-process):</label>
-                        <select
-                          value={fvMethod}
-                          onChange={(e) => setFvMethod(e.target.value)}
-                          className="w-full p-1 text-sm border border-gray-300 rounded-md"
-                          disabled={isRunning}
-                        >
-                          <option value="average">Average of received values</option>
-                          <option value="median">Median (with own value)</option>
-                          <option value="weighted">Probability-weighted blend</option>
-                          <option value="accelerated">Accelerated convergence</option>
-                          <option value="first">First received value</option>
-                        </select>
-                      </div>
-                    )}
-                  </div>
                   
                   <div className="flex items-center mb-4">
                     <label className="text-sm mr-2">Meeting Point:</label>
@@ -4019,12 +4654,11 @@ function CompleteDistributedComputingSimulator() {
                       value={meetingPoint} 
                       onChange={(e) => setMeetingPoint(Number(e.target.value))} 
                       className="w-20 p-1 border border-gray-300 rounded-md" 
+                      disabled={isRunning}
                     />
                   </div>
                   
-                  <p className="text-sm italic text-green-600">
-                    For p = {probability.toFixed(2)}, the optimal algorithm is {getOptimalAlgorithm(probability)}
-                  </p>
+                  
                 </div>
                 
                 <div className="mb-4">
@@ -4041,6 +4675,7 @@ function CompleteDistributedComputingSimulator() {
                           value={rounds} 
                           onChange={(e) => setRounds(Number(e.target.value))} 
                           className="w-full p-1 text-sm border border-gray-300 rounded-md" 
+                          disabled={isRunning}
                         />
                         {rounds > 1 && (
                           <div className="ml-1 text-xs text-blue-600 cursor-help" title="Simulation will run for multiple rounds, showing the final discrepancy">
@@ -4060,6 +4695,7 @@ function CompleteDistributedComputingSimulator() {
                         value={repetitions} 
                         onChange={(e) => setRepetitions(Number(e.target.value))} 
                         className="w-full p-1 text-sm border border-gray-300 rounded-md" 
+                        disabled={isRunning}
                       />
                     </div>
                   </div>
@@ -4068,11 +4704,6 @@ function CompleteDistributedComputingSimulator() {
                     <div className="mb-4 bg-blue-50 p-2 rounded text-xs">
                       <p className="font-medium text-blue-700">Multi-Round Mode</p>
                       <p className="mt-1">Running simulation for {rounds} rounds. Theory plots and results will show the final discrepancy after all rounds.</p>
-                      <p className="mt-1">Expected reduction: {
-                        probability > 0.5 
-                          ? `${Math.pow(1-probability, rounds).toFixed(4)} (AMP)`
-                          : `${Math.pow(probability*probability + (1-probability)*(1-probability), rounds).toFixed(4)} (FV)`
-                      }</p>
                     </div>
                   )}
                   
@@ -4189,7 +4820,7 @@ function CompleteDistributedComputingSimulator() {
                       className="mr-2"
                       disabled={isRunning}
                     />
-                    <label htmlFor="showTheoreticalAmp" className="text-xs">Show AMP Curve (1-p)</label>
+                    <label htmlFor="showTheoreticalAmp" className="text-xs">Show AMP Curve</label>
                   </div>
                   <div className="flex items-center">
                     <input
@@ -4200,7 +4831,7 @@ function CompleteDistributedComputingSimulator() {
                       className="mr-2"
                       disabled={isRunning}
                     />
-                    <label htmlFor="showTheoreticalFv" className="text-xs">Show FV Curve ((1-p)² + p²)</label>
+                    <label htmlFor="showTheoreticalFv" className="text-xs">Show FV Curve</label>
                   </div>
                 </div>
               </div>
@@ -4266,15 +4897,6 @@ function CompleteDistributedComputingSimulator() {
                 >
                   📈 Statistical Analysis
                 </button>
-                {processCount === 3 && (
-                  <button 
-                    onClick={() => setActiveTab('methods')}
-                    className={`px-4 py-2 font-medium text-sm ${activeTab === 'methods' ? 'border-b-2 border-green-500 text-green-600' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    🧪 Method Comparison
-                  </button>
-                )}
-
                 <button 
                   onClick={() => setActiveTab('saved')}
                   className={`px-4 py-2 font-medium text-sm ${activeTab === 'saved' ? 'border-b-2 border-green-500 text-green-600' : 'text-gray-500 hover:text-gray-700'}`}
@@ -4293,6 +4915,8 @@ function CompleteDistributedComputingSimulator() {
                     experimentalData={experimentalResults} 
                     displayCurves={rangeDisplayCurves}
                     rounds={rounds}
+                    processValues={processValues}
+                    meetingPoint={meetingPoint}
                   />
                 </div>
                 
@@ -4304,17 +4928,35 @@ function CompleteDistributedComputingSimulator() {
                       <div className="mb-4 bg-blue-50 p-3 rounded-lg">
                         <h4 className="font-bold text-blue-800 mb-2">Theoretical Background:</h4>
                         <p className="text-sm mb-2">
-                          From the paper, there are two optimal algorithms depending on p:
+                          From the paper, there are algorithms that perform optimally depending on p:
                         </p>
                         <ul className="list-disc pl-5 mb-2 text-sm space-y-1">
                           <li>
-                            <span className="font-bold">Agreed Meeting Point (AMP)</span>: For p &gt; 0.5. Expected discrepancy: <span className="font-mono">(1-p)<sup>{rounds > 1 ? rounds : 1}</sup></span>
+                            <span className="font-bold">Agreed Meeting Point (AMP)</span>: For p &gt; 0.5
                           </li>
                           <li>
-                            <span className="font-bold">Flip Value (FV)</span>: For p &lt;= 0.5. Expected discrepancy: <span className="font-mono">(p² + q²)<sup>{rounds > 1 ? rounds : 1}</sup></span>
+                            <span className="font-bold">Flip Value (FV)</span>: For p &lt;= 0.5
                           </li>
                         </ul>
-                        {rounds > 1 && (
+                        <p className="text-sm">
+                          For n processes with m processes having value 0 and (n-m) having value 1:
+                        </p>
+                        <ul className="list-disc pl-5 mb-2 text-sm space-y-1">
+                          <li>
+                            <span className="font-bold">AMP(a)</span>: E[D] = 1 - (aA + (1-a)B) where:
+                            <ul className="list-disc pl-5 text-xs mt-1">
+                              <li>A = 1 - q^(n-m) (Probability each 0-player received at least one 1-message)</li>
+                              <li>B = 1 - q^m (Probability each 1-player received at least one 0-message)</li>
+                            </ul>
+                          </li>
+                          <li>
+                            <span className="font-bold">Flip (FV)</span>: E[D] = 1 - (CA + CB) where:
+                            <ul className="list-disc pl-5 text-xs mt-1">
+                              <li>C = q^(m*(n-m)) (Probability no player received any message)</li>
+                            </ul>
+                          </li>
+                        </ul>
+                        {processValues.length === 2 && rounds > 1 && (
                           <div className="bg-white p-2 rounded">
                             <p className="text-sm font-semibold">Multi-round behavior (from Theorem 3.2):</p>
                             <p className="text-sm">After k rounds, discrepancy decreases exponentially: 
@@ -4351,11 +4993,11 @@ function CompleteDistributedComputingSimulator() {
                       <h4 className="font-medium mb-2">Results Summary:</h4>
                       <div className="bg-gray-50 p-3 rounded-lg border text-sm">
                         <p>
-                          Tested {experimentalResults.length} probability points from {rangeExperiments.minP} to {rangeExperiments.maxP} with {processCount} processes.
+                          Tested {experimentalResults.length} probability points from {rangeExperiments.minP} to {rangeExperiments.maxP} with {processValues.length} processes.
                         </p>
                         <p className="mt-2">
                           The algorithm {forcedAlgorithm === "auto" ? "automatically selected" : `was forced to use ${forcedAlgorithm}`} for each test.
-                          {forcedAlgorithm === "FV" && processCount === 3 && ` Using FV method: ${fvMethod}.`}
+                          {forcedAlgorithm === "FV" && processValues.length > 2 && ` Using FV method: ${fvMethod}.`}
                         </p>
                         {rounds > 1 && (
                           <p className="mt-2 text-blue-700">
@@ -4363,20 +5005,6 @@ function CompleteDistributedComputingSimulator() {
                           </p>
                         )}
                       </div>
-                      
-                      {processCount === 3 && (
-                        <div className="mt-6 bg-gray-50 p-4 rounded-lg border">
-                          <h4 className="font-medium mb-2 text-orange-600">Note About 3-Process Theoretical Predictions</h4>
-                          <p className="text-sm text-gray-700 mb-2">
-                            The theoretical formulas shown are derived for 2-process systems. For 3-process systems:
-                          </p>
-                          <ul className="list-disc pl-5 text-sm text-gray-700">
-                            <li>Experimental results may differ from theoretical predictions</li>
-                            <li>The maximum discrepancy among all process pairs is used</li>
-                            <li>Advanced FV methods may perform differently than in 2-process systems</li>
-                          </ul>
-                        </div>
-                      )}
                       
                       <div className="mt-6 text-center">
                         <button
@@ -4396,33 +5024,52 @@ function CompleteDistributedComputingSimulator() {
                     The theoretical analysis shows that:
                   </p>
                   <ul className="list-disc pl-5 mb-4 space-y-2">
-                    <li>For p &lt; 0.5, the Flip Value (FV) algorithm has lower expected discrepancy: (p²+q²)<sup>{rounds > 1 ? rounds : 1}</sup></li>
-                    <li>For p &gt; 0.5, the Agreed Meeting Point (AMP) algorithm performs better: (1-p)<sup>{rounds > 1 ? rounds : 1}</sup></li>
-                    <li>At p = 0.5, both algorithms have the same expected discrepancy of {Math.pow(0.5, rounds).toFixed(6)}.</li>
+                    <li>For p &lt; 0.5, the Flip Value (FV) algorithm typically has lower expected discrepancy</li>
+                    <li>For p &gt; 0.5, the Agreed Meeting Point (AMP) algorithm performs better</li>
+                    <li>At p = 0.5, both algorithms often have similar expected discrepancy.</li>
                     <li>The current probability p = {probability.toFixed(2)} suggests that <strong>{getOptimalAlgorithm(probability)}</strong> is the optimal algorithm.</li>
                   </ul>
                   <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <h4 className="font-semibold mb-2">Mathematical formulas:</h4>
-                    <p>Single round:</p>
-                    <div className="ml-4">
-                      <p>FV algorithm: Discrepancy = (1-p)² + p²</p>
-                      <p>AMP algorithm: Discrepancy = 1-p</p>
-                    </div>
-                    <p className="mt-2">Multiple rounds (k):</p>
-                    <div className="ml-4">
-                      <p>FV algorithm: Discrepancy = ((1-p)² + p²)<sup>k</sup></p>
-                      <p>AMP algorithm: Discrepancy = (1-p)<sup>k</sup></p>
-                    </div>
+                    <h4 className="font-semibold mb-2">For n processes:</h4>
+                    <p className="text-sm">For {processValues.length} processes with {processValues.filter(v => v === 0).length} having value 0 and {processValues.filter(v => v === 1).length} having value 1:</p>
                     
-                    {rounds > 1 && (
-                      <div className="mt-3 p-3 bg-blue-50 rounded">
-                        <p className="font-medium">Theoretical discrepancy after {rounds} rounds:</p>
-                        <div className="flex justify-between mt-1">
-                          <span>FV: {Math.pow(probability*probability + (1-probability)*(1-probability), rounds).toFixed(6)}</span>
-                          <span>AMP: {Math.pow(1-probability, rounds).toFixed(6)}</span>
-                        </div>
+                    <div className="mt-3 p-3 bg-blue-50 rounded">
+                      <p className="font-medium">Theoretical discrepancy with p = {probability.toFixed(2)}:</p>
+                      <div className="flex justify-between mt-1">
+                        <span>
+                          <strong>AMP({meetingPoint}):</strong> {
+                            (() => {
+                              const p = probability;
+                              const q = 1 - p;
+                              const n = processValues.length;
+                              const m = processValues.filter(v => v === 0).length;
+                              const a = meetingPoint;
+                              
+                              const A = 1 - Math.pow(q, n-m);
+                              const B = 1 - Math.pow(q, m);
+                              
+                              return (1 - (a*A + (1-a)*B)).toFixed(6);
+                            })()
+                          }
+                        </span>
+                        <span>
+                          <strong>FV:</strong> {
+                            (() => {
+                              const p = probability;
+                              const q = 1 - p;
+                              const n = processValues.length;
+                              const m = processValues.filter(v => v === 0).length;
+                              
+                              const A = 1 - Math.pow(q, n-m);
+                              const B = 1 - Math.pow(q, m);
+                              const C = Math.pow(q, m*(n-m));
+                              
+                              return (1 - (C*A + C*B)).toFixed(6);
+                            })()
+                          }
+                        </span>
                       </div>
-                    )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -4433,171 +5080,191 @@ function CompleteDistributedComputingSimulator() {
                 {experimentalResults && experimentalResults.length > 0 ? (
                   <div>
                     <div className="bg-white rounded-lg shadow p-4 mb-4">
-                      <h3 className="text-lg font-semibold mb-3">Simulation Results</h3>
+                      <h3 className="text-lg font-semibold mb-3">Statistical Analysis for {processValues.length} Processes</h3>
                       
-                      <div className="bg-gray-50 p-3 rounded-lg border text-sm mb-4">
-                        <p className="font-medium">Experiment Parameters:</p>
-                        <ul className="mt-1 space-y-1">
-                          <li>Processes: {processCount} ({processCount === 2 ? "Alice, Bob" : "Alice, Bob, Charlie"})</li>
-                          <li>Rounds: {rounds}</li>
-                          <li>Probability Range: {rangeExperiments.minP.toFixed(2)} to {rangeExperiments.maxP.toFixed(2)}</li>
-                          <li>Algorithm: {forcedAlgorithm === "auto" ? "Optimized based on p" : forcedAlgorithm}</li>
-                          {processCount === 3 && forcedAlgorithm !== "AMP" && (
-                            <li>FV Method: {fvMethod}</li>
-                          )}
-                          <li>Data Points: {experimentalResults.length}</li>
-                          <li>Repetitions per point: {repetitions}</li>
-                        </ul>
-                      </div>
-                      
-                      <div className="mb-6">
-                        <h4 className="font-medium mb-3 text-lg text-gray-700 flex items-center">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M5 4a3 3 0 00-3 3v6a3 3 0 003 3h10a3 3 0 003-3V7a3 3 0 00-3-3H5zm-1 9v-1h5v2H5a1 1 0 01-1-1zm7 1h4a1 1 0 001-1v-1h-5v2zm0-4h5V8h-5v2zM9 8H4v2h5V8z" clipRule="evenodd" />
-                          </svg>
-                          Detailed Results
-                        </h4>
-                        <RangeResultsTable 
-                          results={experimentalResults} 
-                          processCount={processCount}
-                          forcedAlgorithm={forcedAlgorithm}
-                          fvMethod={fvMethod}
-                          rounds={rounds}
-                        />
-                      </div>
-                      
-                      {/* Accuracy Graph */}
-                      <div className="mb-6">
-                        <h4 className="font-medium mb-3 text-gray-700">Accuracy Analysis</h4>
-                        <div className="bg-white border rounded-lg p-4">
-                          {processCount === 2 ? (
-                            <ResponsiveContainer width="100%" height={300}>
-                              <LineChart 
-                                data={experimentalResults.map(result => {
-                                  // Recalcular el valor teórico correcto basado en la fórmula
-                                  const p = result.p;
-                                  const q = 1 - p;
-                                  let theoreticalValue;
-                                  
-                                  if (result.algorithm === "AMP") {
-                                    theoreticalValue = Math.pow(q, rounds);
-                                  } else { // FV algorithm
-                                    theoreticalValue = Math.pow(p*p + q*q, rounds);
-                                  }
-                                  
-                                  // Manejar casos especiales
-                                  if (theoreticalValue === 0) {
-                                    // Evitar división por cero
-                                    return { 
-                                      p: result.p, 
-                                      accuracy: result.discrepancy === 0 ? 100 : 0 // 100% si ambos son 0, 0% si no coinciden
-                                    };
-                                  }
-                                  
-                                  // Calcular precisión: 100% - porcentaje de error
-                                  const error = Math.abs(theoreticalValue - result.discrepancy) / theoreticalValue;
-                                  
-                                  // Limitar a valores entre 0-100% para la visualización
-                                  const accuracy = Math.max(0, Math.min(100, (1 - error) * 100));
-                                  
-                                  return { 
-                                    p: result.p, 
-                                    accuracy: accuracy,
-                                    theoretical: theoreticalValue,
-                                    experimental: result.discrepancy
-                                  };
-                                })}
-                                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                              >
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis 
-                                  dataKey="p" 
-                                  label={{ value: 'Probability (p)', position: 'insideBottom', offset: -5 }} 
-                                  domain={[0, 1]}
-                                />
-                                <YAxis 
-                                  domain={[0, 100]} 
-                                  label={{ value: 'Accuracy (%)', angle: -90, position: 'insideLeft' }} 
-                                />
-                                <Tooltip 
-                                  formatter={(value, name) => {
-                                    if (name === "accuracy") return `${value.toFixed(2)}%`;
-                                    return value.toFixed(6);
-                                  }} 
-                                  labelFormatter={(label) => `Probability: ${parseFloat(label).toFixed(2)}`}
-                                  content={({ active, payload, label }) => {
-                                    if (active && payload && payload.length) {
-                                      const data = payload[0].payload;
-                                      return (
-                                        <div className="bg-white p-2 border shadow-lg rounded">
-                                          <p className="font-medium text-sm mb-1">{`Probability: ${parseFloat(label).toFixed(2)}`}</p>
-                                          <p className="text-sm">{`Accuracy: ${data.accuracy.toFixed(2)}%`}</p>
-                                          <p className="text-xs text-gray-600">{`Theoretical: ${data.theoretical.toFixed(6)}`}</p>
-                                          <p className="text-xs text-gray-600">{`Experimental: ${data.experimental.toFixed(6)}`}</p>
-                                          <p className="text-xs text-gray-600">{`Error: ${Math.abs(data.theoretical - data.experimental).toFixed(6)}`}</p>
-                                        </div>
-                                      );
-                                    }
-                                    return null;
-                                  }}
-                                />
-                                <Legend />
-                                <Line 
-                                  type="monotone" 
-                                  dataKey="accuracy" 
-                                  name="Accuracy %" 
-                                  stroke="#2ecc71" 
-                                  strokeWidth={2}
-                                  connectNulls
-                                />
-                                <ReferenceLine y={95} stroke="red" strokeDasharray="3 3" label={{ value: '95% Accuracy', position: 'right' }} />
-                              </LineChart>
-                            </ResponsiveContainer>
-                          ) : (
-                            <div className="text-center p-4 text-gray-500">
-                              Accuracy analysis is only available for 2-process experiments where theoretical predictions exist.
-                            </div>
-                          )}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div className="bg-blue-50 p-3 rounded-lg">
+                          <h4 className="font-medium mb-2">Experiment Configuration</h4>
+                          <ul className="text-sm space-y-1">
+                            <li><span className="font-medium">Processes:</span> {processValues.length}</li>
+                            <li><span className="font-medium">Process Values:</span> {processValues.join(', ')}</li>
+                            <li><span className="font-medium">Zero-valued processes:</span> {processValues.filter(v => v === 0).length}</li>
+                            <li><span className="font-medium">One-valued processes:</span> {processValues.filter(v => v === 1).length}</li>
+                            <li><span className="font-medium">Algorithm:</span> {forcedAlgorithm}</li>
+                            <li><span className="font-medium">Meeting Point:</span> {meetingPoint}</li>
+                            <li><span className="font-medium">Rounds:</span> {rounds}</li>
+                            <li><span className="font-medium">Repetitions:</span> {repetitions}</li>
+                          </ul>
+                        </div>
+                        
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <h4 className="font-medium mb-2">Summary Statistics</h4>
+                          {(() => {
+                            // Calcular estadísticas básicas
+                            const discrepancies = experimentalResults.map(r => r.discrepancy);
+                            const avgDiscrepancy = discrepancies.reduce((sum, d) => sum + d, 0) / discrepancies.length;
+                            const minDiscrepancy = Math.min(...discrepancies);
+                            const maxDiscrepancy = Math.max(...discrepancies);
+                            
+                            // Calcular desviación estándar
+                            const variance = discrepancies.reduce((sum, d) => sum + Math.pow(d - avgDiscrepancy, 2), 0) / discrepancies.length;
+                            const stdDev = Math.sqrt(variance);
+                            
+                            // Calcular error teórico promedio
+                            const errorsPercent = experimentalResults
+                              .filter(r => r.theoretical)
+                              .map(r => Math.abs(r.discrepancy - r.theoretical) / r.theoretical * 100);
+                            
+                            const avgErrorPercent = errorsPercent.length > 0 ? 
+                              errorsPercent.reduce((a, b) => a + b, 0) / errorsPercent.length : null;
+                            
+                            return (
+                              <ul className="text-sm space-y-1">
+                                <li><span className="font-medium">Average Discrepancy:</span> {avgDiscrepancy.toFixed(6)}</li>
+                                <li><span className="font-medium">Minimum Discrepancy:</span> {minDiscrepancy.toFixed(6)}</li>
+                                <li><span className="font-medium">Maximum Discrepancy:</span> {maxDiscrepancy.toFixed(6)}</li>
+                                <li><span className="font-medium">Standard Deviation:</span> {stdDev.toFixed(6)}</li>
+                                {avgErrorPercent !== null && (
+                                  <li><span className="font-medium">Avg. Error vs Theory:</span> {avgErrorPercent.toFixed(2)}%</li>
+                                )}
+                                <li><span className="font-medium">Data Points:</span> {experimentalResults.length}</li>
+                              </ul>
+                            );
+                          })()}
                         </div>
                       </div>
                       
-                      {/* Error by Repetitions */}
                       <div className="mb-4">
-                        <h4 className="font-medium mb-3 text-gray-700">Error Reduction with Repetitions</h4>
-                        <div className="bg-white border rounded-lg p-4">
-                          <ResponsiveContainer width="100%" height={300}>
+                        <h4 className="font-medium mb-2">Discrepancy Distribution</h4>
+                        <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
                             <LineChart
-                              data={[...Array(repetitions)].map((_, i) => {
-                                // Calculate average error after i+1 repetitions
-                                const avgError = experimentalResults.reduce((sum, result) => {
-                                  if (!result.discrepancies || !result.theoretical) return sum;
-                                  // Take first i+1 discrepancies
-                                  const samplesUsed = Math.min(i+1, result.discrepancies.length);
-                                  if (samplesUsed === 0) return sum;
-                                  
-                                  // Calculate average of those discrepancies
-                                  const avgDisc = result.discrepancies.slice(0, samplesUsed).reduce((a, b) => a + b, 0) / samplesUsed;
-                                  // Calculate error
-                                  const error = Math.abs(result.theoretical - avgDisc);
-                                  return sum + error;
-                                }, 0) / experimentalResults.length;
-                                
-                                return {
-                                  repetitions: i+1,
-                                  error: avgError
-                                };
-                              })}
-                              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                              data={experimentalResults.sort((a, b) => a.p - b.p)}
+                              margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
                             >
                               <CartesianGrid strokeDasharray="3 3" />
-                              <XAxis dataKey="repetitions" label={{ value: 'Repetitions', position: 'insideBottom', offset: -5 }} />
-                              <YAxis label={{ value: 'Average Error', angle: -90, position: 'insideLeft' }} />
-                              <Tooltip formatter={(value) => value.toFixed(4)} />
+                              <XAxis 
+                                dataKey="p" 
+                                label={{ value: 'Probability (p)', position: 'insideBottom', offset: -5 }}
+                              />
+                              <YAxis 
+                                label={{ value: 'Discrepancy', angle: -90, position: 'insideLeft', offset: -5 }}
+                              />
+                              <Tooltip formatter={(value) => value.toFixed(6)} />
                               <Legend />
-                              <Line type="monotone" dataKey="error" name="Avg. Error" stroke="#e74c3c" strokeWidth={2} />
+                              <Line 
+                                type="monotone" 
+                                dataKey="discrepancy" 
+                                name="Experimental Discrepancy" 
+                                stroke="#8884d8" 
+                                dot={{ r: 3 }}
+                              />
+                              {experimentalResults[0].theoretical && (
+                                <Line 
+                                  type="monotone" 
+                                  dataKey="theoretical" 
+                                  name="Theoretical Discrepancy" 
+                                  stroke="#82ca9d" 
+                                  strokeDasharray="5 5"
+                                  dot={{ r: 3 }}
+                                />
+                              )}
                             </LineChart>
                           </ResponsiveContainer>
                         </div>
+                      </div>
+                      
+                      <div className="mb-4">
+                        <h4 className="font-medium mb-2">Error Analysis</h4>
+                        {experimentalResults[0].theoretical ? (
+                          <div className="h-64">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <ComposedChart
+                                data={experimentalResults.map(r => ({
+                                  ...r,
+                                  error: Math.abs(r.discrepancy - r.theoretical),
+                                  errorPercent: r.theoretical ? 
+                                    Math.abs(r.discrepancy - r.theoretical) / r.theoretical * 100 : 0
+                                })).sort((a, b) => a.p - b.p)}
+                                margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
+                              >
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="p" />
+                                <YAxis 
+                                  yAxisId="left" 
+                                  label={{ value: 'Absolute Error', angle: -90, position: 'insideLeft', offset: -5 }}
+                                />
+                                <YAxis 
+                                  yAxisId="right" 
+                                  orientation="right" 
+                                  label={{ value: 'Error %', angle: 90, position: 'insideRight', offset: -5 }}
+                                />
+                                <Tooltip formatter={(value) => value.toFixed(6)} />
+                                <Legend />
+                                <Line 
+                                  yAxisId="left"
+                                  type="monotone" 
+                                  dataKey="error" 
+                                  name="Absolute Error" 
+                                  stroke="#ff7300" 
+                                />
+                                <Bar 
+                                  yAxisId="right"
+                                  dataKey="errorPercent" 
+                                  name="Error %" 
+                                  fill="#8884d8" 
+                                />
+                              </ComposedChart>
+                            </ResponsiveContainer>
+                          </div>
+                        ) : (
+                          <p className="text-gray-500 italic">Theoretical predictions are not available for comparison with {processValues.length} processes with this distribution.</p>
+                        )}
+                      </div>
+                      
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">p</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Algorithm</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Experimental</th>
+                              {experimentalResults[0].theoretical && (
+                                <>
+                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Theoretical</th>
+                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Error</th>
+                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Error %</th>
+                                </>
+                              )}
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {experimentalResults.sort((a, b) => a.p - b.p).map((result, idx) => (
+                              <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                <td className="px-3 py-2 whitespace-nowrap text-sm">{result.p.toFixed(2)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-sm">
+                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                    result.algorithm === 'AMP' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                  }`}>
+                                    {result.algorithm}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 whitespace-nowrap text-sm font-mono">{result.discrepancy.toFixed(6)}</td>
+                                {result.theoretical && (
+                                  <>
+                                    <td className="px-3 py-2 whitespace-nowrap text-sm font-mono">{result.theoretical.toFixed(6)}</td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-sm font-mono">
+                                      {Math.abs(result.discrepancy - result.theoretical).toFixed(6)}
+                                    </td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-sm font-mono">
+                                      {(Math.abs(result.discrepancy - result.theoretical) / result.theoretical * 100).toFixed(2)}%
+                                    </td>
+                                  </>
+                                )}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                       
                       <div className="mt-6 text-center">
@@ -4605,7 +5272,7 @@ function CompleteDistributedComputingSimulator() {
                           onClick={prepareRangeExperiment}
                           className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 transition-colors"
                         >
-                          💾 Save Experiment Results
+                          💾 Save Experiment
                         </button>
                       </div>
                     </div>
@@ -4624,13 +5291,13 @@ function CompleteDistributedComputingSimulator() {
               </div>
             )}
             {/* Method Comparison tab */}
-            {activeTab === 'methods' && processCount === 3 && (
+            {activeTab === 'methods' && processValues.length > 2 && (
               <div>
                 <div className="bg-white rounded-lg shadow p-4 mt-4">
                   <h3 className="text-lg font-semibold mb-4">FV Method Comparison</h3>
                   
                   <div className="bg-blue-50 p-3 rounded-lg mb-4 text-sm">
-                    <p>This tool lets you compare how different FV methods perform with {processCount} processes:</p>
+                    <p>This tool lets you compare how different FV methods perform with {processValues.length} processes:</p>
                     <ul className="list-disc pl-5 mt-2 space-y-1">
                       <li><strong>Average:</strong> Uses average of received values</li>
                       <li><strong>Median:</strong> Uses median of own and received values</li>
@@ -4642,7 +5309,7 @@ function CompleteDistributedComputingSimulator() {
                   
                   <div className="mb-4">
                     <div className="text-sm text-gray-600 mb-2">
-                      Using current settings: p={probability.toFixed(2)}, {rounds} rounds, {repetitions} repetitions, {processCount} processes
+                      Using current settings: p={probability.toFixed(2)}, {rounds} rounds, {repetitions} repetitions, {processValues.length} processes
                     </div>
                     <button 
                       onClick={runFVMethodComparison}
@@ -4657,7 +5324,6 @@ function CompleteDistributedComputingSimulator() {
                 </div>
               </div>
             )}
-            
             
             {/* Saved Experiments tab */}
             {activeTab === 'saved' && (
@@ -4688,7 +5354,7 @@ function CompleteDistributedComputingSimulator() {
                     <>
                       <div className="mb-4 border-b pb-2">
                         <div className="flex justify-between items-center">
-                          <h4 className="font-medium">Available Experiments</h4>
+                          <h4 className="font-medium">Available Experiments ({savedExperiments.length})</h4>
                           <div className="flex space-x-2">
                             <button
                               onClick={() => setComparisonView('chart')}
@@ -4706,16 +5372,11 @@ function CompleteDistributedComputingSimulator() {
                         </div>
                       </div>
                       
-                      <div className="bg-gray-50 p-4 rounded-lg border mb-6">
-                        <h4 className="font-medium mb-3 flex items-center">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                          </svg>
-                          Experiments ({savedExperiments.length})
-                        </h4>
+                      <div className="mb-4 bg-gray-50 p-3 rounded-lg">
+                        <h4 className="font-medium mb-2">Select Experiments to Compare</h4>
                         <div className="max-h-64 overflow-y-auto">
                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                            {savedExperiments.map(exp => (
+                            {savedExperiments.map((exp) => (
                               <div 
                                 key={exp.metadata.id} 
                                 className={`flex items-center justify-between bg-white p-3 rounded border ${
@@ -4734,15 +5395,25 @@ function CompleteDistributedComputingSimulator() {
                                     type="checkbox"
                                     id={`exp-${exp.metadata.id}`}
                                     checked={selectedExperiments.includes(exp.metadata.id)}
-                                    onChange={(e) => e.stopPropagation()}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      if (selectedExperiments.includes(exp.metadata.id)) {
+                                        setSelectedExperiments(prev => prev.filter(id => id !== exp.metadata.id));
+                                      } else {
+                                        setSelectedExperiments(prev => [...prev, exp.metadata.id]);
+                                      }
+                                    }}
                                     className="mr-2"
                                   />
                                   <div>
                                     <label htmlFor={`exp-${exp.metadata.id}`} className="text-sm font-medium block">
                                       {exp.metadata.name}
                                     </label>
+                                    <div className="text-xs text-gray-500">
+                                      {exp.parameters.processCount} processes, {exp.parameters.algorithm}
+                                    </div>
                                     <div className="flex mt-1 space-x-1">
-                                      {exp.metadata.tags && exp.metadata.tags.length > 0 && exp.metadata.tags.slice(0, 2).map((tag, i) => (
+                                      {exp.metadata.tags && exp.metadata.tags.slice(0, 2).map((tag, i) => (
                                         <span key={i} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
                                           {tag}
                                         </span>
@@ -4754,14 +5425,6 @@ function CompleteDistributedComputingSimulator() {
                                       )}
                                     </div>
                                   </div>
-                                </div>
-                                <div className="flex flex-col items-end">
-                                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded mb-1">
-                                    {exp.parameters.minP.toFixed(2)}-{exp.parameters.maxP.toFixed(2)}
-                                  </span>
-                                  <span className="text-xs text-gray-500">
-                                    {new Date(exp.metadata.createdAt).toLocaleDateString()}
-                                  </span>
                                 </div>
                               </div>
                             ))}
@@ -4797,45 +5460,88 @@ function CompleteDistributedComputingSimulator() {
                             if (comparisonView === 'chart') {
                               return <ExperimentComparison experiments={selectedExps} />;
                             } else if (comparisonView === 'details') {
-                              return <AdvancedComparisonView experiments={selectedExps} />;
+                              return (
+                                <div className="bg-white rounded-lg shadow p-4">
+                                  <h3 className="text-lg font-semibold mb-4">Experiment Details</h3>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {selectedExps.map((exp) => (
+                                      <div key={exp.metadata.id} className="border rounded-lg p-4">
+                                        <h4 className="font-medium mb-2">{exp.metadata.name}</h4>
+                                        
+                                        <div className="mb-2">
+                                          <h5 className="text-sm font-medium">Configuration</h5>
+                                          <div className="text-xs space-y-1 mt-1">
+                                            <p><span className="font-medium">Processes:</span> {exp.parameters.processCount}</p>
+                                            <p><span className="font-medium">Algorithm:</span> {exp.parameters.algorithm}</p>
+                                            <p><span className="font-medium">Probability Range:</span> {exp.parameters.minP.toFixed(2)} - {exp.parameters.maxP.toFixed(2)}</p>
+                                            <p><span className="font-medium">Rounds:</span> {exp.parameters.rounds || 1}</p>
+                                            <p><span className="font-medium">Data Points:</span> {exp.results.length}</p>
+                                          </div>
+                                        </div>
+                                        
+                                        {exp.metadata.description && (
+                                          <div className="mb-2">
+                                            <h5 className="text-sm font-medium">Description</h5>
+                                            <p className="text-xs mt-1">{exp.metadata.description}</p>
+                                          </div>
+                                        )}
+                                        
+                                        <div className="mb-2">
+                                          <h5 className="text-sm font-medium">Tags</h5>
+                                          <div className="flex flex-wrap gap-1 mt-1">
+                                            {exp.metadata.tags && exp.metadata.tags.map((tag, i) => (
+                                              <span key={i} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                                                {tag}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                        
+                                        <div className="text-xs text-gray-500 mt-2">
+                                          Created: {new Date(exp.metadata.createdAt).toLocaleString()}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
                             }
                           })()}
                         </div>
                       )}
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-white rounded-lg shadow p-4">
+                          <h3 className="text-lg font-semibold mb-3">Quick Analysis Guide</h3>
+                          <div className="space-y-2 text-sm">
+                            <div className="bg-gray-50 p-3 rounded-lg">
+                              <h4 className="font-medium mb-1 text-blue-700">1. Run Experiments</h4>
+                              <p>Run range experiments with different parameters to generate data.</p>
+                            </div>
+                            <div className="bg-gray-50 p-3 rounded-lg">
+                              <h4 className="font-medium mb-1 text-blue-700">2. Save Experiments</h4>
+                              <p>Save your experiments with meaningful names, tags, and descriptions for easy reference.</p>
+                            </div>
+                            <div className="bg-gray-50 p-3 rounded-lg">
+                              <h4 className="font-medium mb-1 text-blue-700">3. Compare Results</h4>
+                              <p>Select multiple experiments to visually compare their performance.</p>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="bg-white rounded-lg shadow p-4">
+                          <h3 className="text-lg font-semibold mb-3">Analysis Tips</h3>
+                          <ul className="list-disc pl-5 space-y-2 text-sm">
+                            <li><span className="font-medium">Compare algorithms:</span> Run experiments with different algorithms using the same probability.</li>
+                            <li><span className="font-medium">Study convergence:</span> Analyze how different process counts affect convergence rates.</li>
+                            <li><span className="font-medium">Test FV methods:</span> For 3+ process systems, compare the performance of different FV methods.</li>
+                            <li><span className="font-medium">Validate theory:</span> Check how experimental results align with theoretical predictions across probability ranges.</li>
+                            <li><span className="font-medium">Analyze multi-round:</span> Use multiple rounds to study how discrepancy decreases over rounds.</li>
+                          </ul>
+                        </div>
+                      </div>
                     </>
                   )}
-                </div>
-
-                {/* More content for the Saved tab */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-white rounded-lg shadow p-4">
-                    <h3 className="text-lg font-semibold mb-3">Quick Analysis Guide</h3>
-                    <div className="space-y-2 text-sm">
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <h4 className="font-medium mb-1 text-blue-700">1. Run Experiments</h4>
-                        <p>Run range experiments with different parameters to generate data.</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <h4 className="font-medium mb-1 text-blue-700">2. Save Experiments</h4>
-                        <p>Save your experiments with meaningful names, tags, and descriptions for easy reference.</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <h4 className="font-medium mb-1 text-blue-700">3. Compare Results</h4>
-                        <p>Select multiple experiments to visually compare their performance.</p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-white rounded-lg shadow p-4">
-                    <h3 className="text-lg font-semibold mb-3">Analysis Tips</h3>
-                    <ul className="list-disc pl-5 space-y-2 text-sm">
-                      <li><span className="font-medium">Compare algorithms:</span> Run experiments with different algorithms using the same probability.</li>
-                      <li><span className="font-medium">Study convergence:</span> Analyze how different process counts affect convergence rates.</li>
-                      <li><span className="font-medium">Test FV methods:</span> For 3-process systems, compare the performance of different FV methods.</li>
-                      <li><span className="font-medium">Validate theory:</span> Check how experimental results align with theoretical predictions across probability ranges.</li>
-                      <li><span className="font-medium">Analyze multi-round:</span> Use the Multiple Rounds tab to study how discrepancy decreases over rounds.</li>
-                    </ul>
-                  </div>
                 </div>
               </div>
             )}
