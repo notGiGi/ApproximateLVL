@@ -19,6 +19,9 @@ import {
   Area
 } from 'recharts';
 
+// Importar el motor de simulación
+import { SimulationEngine } from './SimulationEngine.js';
+
 // Colors
 const ALICE_COLOR = "#3498db";
 const BOB_COLOR = "#e67e22";
@@ -143,602 +146,6 @@ function interpolateColor(color1, color2, factor) {
   return `#${rHex}${gHex}${bHex}`;
 }
 
-
-// Simulation Engine
-const SimulationEngine = {
-  // Simular una ronda de intercambio de mensajes
-  simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, fvMethod = "average") {
-    if (algorithm === "auto") {
-      algorithm = p > 0.5 ? "AMP" : "FV";
-    }
-    
-    const processCount = values.length;
-    const newValues = [...values];
-    const messages = [];
-    const messageDelivery = {};
-    
-    // Generar matriz de entrega de mensajes
-    for (let i = 0; i < processCount; i++) {
-      for (let j = 0; j < processCount; j++) {
-        if (i !== j) {
-          const delivered = Math.random() < p;
-          const key = `from${i}to${j}`;
-          messageDelivery[key] = delivered;
-          messages.push({
-            from: i,
-            to: j,
-            fromName: ["Alice", "Bob", "Charlie"][i],
-            toName: ["Alice", "Bob", "Charlie"][j],
-            delivered: delivered,
-            value: values[i]
-          });
-        }
-      }
-    }
-    
-    // Procesar mensajes para cada proceso
-    for (let i = 0; i < processCount; i++) {
-      const receivedMessages = [];
-      const receivedValues = new Set([values[i]]); // Incluir su propio valor
-      
-      // Recolectar mensajes recibidos
-      for (let j = 0; j < processCount; j++) {
-        if (i !== j && messageDelivery[`from${j}to${i}`]) {
-          receivedMessages.push(values[j]);
-          receivedValues.add(values[j]);
-        }
-      }
-      
-      // Aplicar algoritmo si se recibieron mensajes (se conocen múltiples valores)
-      if (receivedValues.size > 1) {
-        if (algorithm === "AMP") {
-          // AMP: usar el punto de encuentro
-          newValues[i] = meetingPoint;
-        } else { // Algoritmo FV
-          // CORRECCIÓN: Implementación estándar de Flip - invierte el valor
-          if (fvMethod === "flip" || processCount === 2) {
-            newValues[i] = 1 - values[i];
-          } 
-          // Si es 3+ procesos y se especificó otro método FV, aplicarlo
-          else if (processCount >= 3) {
-            switch(fvMethod) {
-              case "average":
-                newValues[i] = receivedMessages.reduce((sum, val) => sum + val, 0) / receivedMessages.length;
-                break;
-              case "median":
-                const allValues = [values[i], ...receivedMessages].sort((a, b) => a - b);
-                newValues[i] = allValues[Math.floor(allValues.length / 2)];
-                break;
-              case "weighted":
-                const pesoPropio = Math.pow(1-p, receivedMessages.length);
-                const pesoExterno = p / receivedMessages.length;
-                newValues[i] = values[i] * pesoPropio + 
-                              receivedMessages.reduce((sum, val) => sum + val * pesoExterno, 0);
-                break;
-              case "accelerated":
-                const medianValues = [values[i], ...receivedMessages].sort((a, b) => a - b);
-                const mediana = medianValues[Math.floor(medianValues.length / 2)];
-                const centroRango = 0.5;
-                const factorAceleracion = p;
-                newValues[i] = mediana + factorAceleracion * (centroRango - mediana);
-                break;
-              case "first":
-                newValues[i] = receivedMessages[0];
-                break;
-              default:
-                // Por defecto, usar el comportamiento real de FV (invertir valor)
-                newValues[i] = 1 - values[i];
-            }
-          }
-        }
-      }
-    }
-    
-    // Calcular discrepancia máxima
-    let maxDiscrepancy = 0;
-    for (let i = 0; i < processCount; i++) {
-      for (let j = i+1; j < processCount; j++) {
-        const discrepancy = Math.abs(newValues[i] - newValues[j]);
-        if (discrepancy > maxDiscrepancy) {
-          maxDiscrepancy = discrepancy;
-        }
-      }
-    }
-    
-    return {
-      newValues,
-      messages,
-      messageDelivery,
-      discrepancy: maxDiscrepancy
-    };
-  },
-
-  // Ejecutar un experimento completo
-  runExperiment: function(initialValues, p, rounds, algorithm = "auto", meetingPoint = 0.5, fvMethod = "average") {
-    let values = [...initialValues];
-    const processCount = values.length;
-    const processNames = ["Alice", "Bob", "Charlie"];
-    
-    // Calcular discrepancia inicial
-    let initialDiscrepancy = 0;
-    for (let i = 0; i < processCount; i++) {
-      for (let j = i+1; j < processCount; j++) {
-        const discrepancy = Math.abs(values[i] - values[j]);
-        if (discrepancy > initialDiscrepancy) {
-          initialDiscrepancy = discrepancy;
-        }
-      }
-    }
-    
-    // Historial de simulación
-    const history = [{
-      round: 0,
-      values: [...values],
-      processValues: values.reduce((obj, val, idx) => {
-        obj[processNames[idx].toLowerCase()] = val;
-        return obj;
-      }, {}),
-      discrepancy: initialDiscrepancy,
-      messages: []
-    }];
-    
-    // Ejecutar rondas
-    for (let r = 1; r <= rounds; r++) {
-      const result = SimulationEngine.simulateRound(values, p, algorithm, meetingPoint, fvMethod);
-      values = result.newValues;
-      
-      // Registrar resultados para esta ronda
-      history.push({
-        round: r,
-        values: [...values],
-        processValues: values.reduce((obj, val, idx) => {
-          obj[processNames[idx].toLowerCase()] = val;
-          return obj;
-        }, {}),
-        discrepancy: result.discrepancy,
-        messageDelivery: result.messageDelivery,
-        messages: result.messages
-      });
-    }
-    
-    return history;
-  },
-
-  // Ejecutar múltiples experimentos para análisis estadístico
-  runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5, fvMethod = "average") {
-    const allDiscrepancies = [];
-    const allRuns = [];
-    const processCount = initialValues.length;
-    
-    // Solo usar métodos FV para 3 procesos
-    const useFVMethod = processCount === 3 ? fvMethod : "average";
-    
-    // Determinar algoritmo real si es auto
-    const actualAlgorithm = algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm;
-    
-    // Ejecutar múltiples simulaciones
-    for (let i = 0; i < repetitions; i++) {
-      const history = SimulationEngine.runExperiment(
-        initialValues, 
-        p, 
-        rounds, 
-        algorithm, 
-        meetingPoint, 
-        useFVMethod
-      );
-      
-      const finalDiscrepancy = history[history.length - 1].discrepancy;
-      allDiscrepancies.push(finalDiscrepancy);
-      allRuns.push(history);
-    }
-    
-    // Calcular estadísticas
-    const mean = allDiscrepancies.reduce((a, b) => a + b, 0) / allDiscrepancies.length;
-    const sorted = [...allDiscrepancies].sort((a, b) => a - b);
-    const median = sorted.length % 2 === 0 ? 
-      (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2 : 
-      sorted[Math.floor(sorted.length / 2)];
-    const min = Math.min(...allDiscrepancies);
-    const max = Math.max(...allDiscrepancies);
-    const variance = allDiscrepancies.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / allDiscrepancies.length;
-    const std = Math.sqrt(variance);
-    
-    // Calcular discrepancia teórica para 2 procesos (no tenemos fórmula para 3 aún)
-    const theoretical = processCount === 2 ? 
-      SimulationEngine.calculateExpectedDiscrepancy(p, algorithm, rounds) : 
-      null;
-    
-    return {
-      mean,
-      median,
-      min,
-      max,
-      std,
-      allValues: allDiscrepancies,
-      theoretical,
-      algorithm: actualAlgorithm,
-      processCount,
-      allRuns
-    };
-  },
-
-  // Calcular la discrepancia teórica esperada (original, para una sola ronda)
-  calculateExpectedDiscrepancy: function(p, algorithm = "auto", rounds = 1) {
-    // Para compatibilidad con versiones anteriores, si rounds=1, usar cálculo original
-    if (rounds === 1) {
-      if (algorithm === "auto") {
-        algorithm = p > 0.5 ? "AMP" : "FV";
-      }
-      
-      const q = 1 - p;
-      return algorithm === "AMP" ? q : (p*p + q*q);
-    } 
-    // Para múltiples rondas, usar la nueva función
-    else {
-      return this.calculateExpectedDiscrepancyMultiRound(p, rounds, algorithm);
-    }
-  },
-  
-  // Calcular discrepancia teórica esperada para múltiples rondas (2 procesos)
-  calculateExpectedDiscrepancyMultiRound: function(p, rounds, algorithm = "auto") {
-    if (algorithm === "auto") {
-      algorithm = p > 0.5 ? "AMP" : "FV";
-    }
-    
-    const q = 1 - p;
-    
-    // Fórmulas del Teorema 3.2 en la teoría
-    if (algorithm === "AMP") {
-      // Para AMP: discrepancia esperada <= q^k
-      return Math.pow(q, rounds);
-    } else {
-      // Para FV: discrepancia esperada <= (p² + q²)^k
-      return Math.pow(p*p + q*q, rounds);
-    }
-  },
-  
-  // Simular evolución de múltiples rondas con diferentes valores iniciales
-  runMultiRoundAnalysis: function(initialGap, pValues, maxRounds, repetitions = 100) {
-    const results = [];
-    
-    // Para cada valor p, analizar ambos algoritmos
-    for (const p of pValues) {
-      const q = 1 - p;
-      const optimalAlgorithm = p > 0.5 ? "AMP" : "FV";
-      
-      // Calcular discrepancias teóricas esperadas
-      const theoreticalAMP = [];
-      const theoreticalFV = [];
-      
-      for (let r = 0; r <= maxRounds; r++) {
-        theoreticalAMP.push({
-          round: r,
-          discrepancy: Math.pow(q, r)
-        });
-        
-        theoreticalFV.push({
-          round: r,
-          discrepancy: Math.pow(p*p + q*q, r)
-        });
-      }
-      
-      // Ejecutar simulaciones experimentales
-      const experimentalAMP = Array(maxRounds + 1).fill(0).map(() => ({ sumDiscrepancy: 0, count: 0 }));
-      const experimentalFV = Array(maxRounds + 1).fill(0).map(() => ({ sumDiscrepancy: 0, count: 0 }));
-      
-      for (let i = 0; i < repetitions; i++) {
-        // Simulación con AMP
-        const historyAMP = this.runExperiment([0, initialGap], p, maxRounds, "AMP", 0.5);
-        // Simulación con FV
-        const historyFV = this.runExperiment([0, initialGap], p, maxRounds, "FV", 0.5);
-        
-        // Registrar resultados para cada ronda
-        for (let r = 0; r <= maxRounds; r++) {
-          experimentalAMP[r].sumDiscrepancy += historyAMP[r].discrepancy;
-          experimentalAMP[r].count++;
-          
-          experimentalFV[r].sumDiscrepancy += historyFV[r].discrepancy;
-          experimentalFV[r].count++;
-        }
-      }
-      
-      // Calcular promedios experimentales
-      const avgExperimentalAMP = experimentalAMP.map((data, idx) => ({
-        round: idx,
-        discrepancy: data.sumDiscrepancy / data.count
-      }));
-      
-      const avgExperimentalFV = experimentalFV.map((data, idx) => ({
-        round: idx,
-        discrepancy: data.sumDiscrepancy / data.count
-      }));
-      
-      // Agregar resultados
-      results.push({
-        probability: p,
-        optimalAlgorithm,
-        theoreticalAMP,
-        theoreticalFV,
-        experimentalAMP: avgExperimentalAMP,
-        experimentalFV: avgExperimentalFV
-      });
-    }
-    
-    return results;
-  },
-  
-  // Analizar tasa de convergencia por ronda
-  analyzeConvergenceRate: function(p, rounds, algorithm = "auto") {
-    if (algorithm === "auto") {
-      algorithm = p > 0.5 ? "AMP" : "FV";
-    }
-    
-    const q = 1 - p;
-    const rates = [];
-    
-    // Calcular tasa de reducción de discrepancia teórica por ronda
-    for (let r = 1; r <= rounds; r++) {
-      let theoreticalDiscrepancy, previousDiscrepancy;
-      
-      if (algorithm === "AMP") {
-        theoreticalDiscrepancy = Math.pow(q, r);
-        previousDiscrepancy = Math.pow(q, r-1);
-      } else {
-        theoreticalDiscrepancy = Math.pow(p*p + q*q, r);
-        previousDiscrepancy = Math.pow(p*p + q*q, r-1);
-      }
-      
-      // Tasa de convergencia (cuánto se reduce en esta ronda)
-      const convergenceRate = previousDiscrepancy > 0 ? 
-        1 - (theoreticalDiscrepancy / previousDiscrepancy) : 0;
-      
-      rates.push({
-        round: r,
-        discrepancy: theoreticalDiscrepancy,
-        convergenceRate: convergenceRate,
-        reductionFactor: previousDiscrepancy > 0 ? 
-          theoreticalDiscrepancy / previousDiscrepancy : 0
-      });
-    }
-    
-    return {
-      probability: p,
-      algorithm,
-      theoreticalFactor: algorithm === "AMP" ? q : (p*p + q*q),
-      convergenceRates: rates
-    };
-  },
-
-  // Calcular discrepancia esperada para n procesos
-  calculateExpectedDiscrepancyNProcesses: function(p, n, m, algorithm = "auto", meetingPoint = 0.5) {
-    const q = 1 - p;
-    
-    // Determinar qué algoritmo usar si es auto
-    if (algorithm === "auto") {
-      algorithm = p > 0.5 ? "AMP" : "FV";
-    }
-    
-    if (algorithm === "AMP") {
-      // Implementar fórmula para AMP con punto de encuentro a
-      const a = meetingPoint;
-      
-      // Calcular probabilidades A y B según la teoría
-      // A = Pr[cada jugador 0 recibió al menos un mensaje 1]
-      const A = 1 - Math.pow(q, n-m);
-      // B = Pr[cada jugador 1 recibió al menos un mensaje 0]
-      const B = 1 - Math.pow(q, m);
-      
-      // Fórmula de discrepancia esperada para AMP(a)
-      // E[Da(In.m)] = 1 - (aA + (1-a)B)
-      return 1 - (a*A + (1-a)*B);
-    } else {
-      // Algoritmo FV (Flip)
-      // Calcular probabilidades A, B y C según la teoría
-      const A = 1 - Math.pow(q, n-m);
-      const B = 1 - Math.pow(q, m);
-      // C = Pr[ningún jugador 0 recibió mensaje 1]
-      const C = Math.pow(q, m*(n-m));
-      
-      // Fórmula de discrepancia esperada para Flip
-      // E[DF(In.m)] = 1 - (CA + CB)
-      return 1 - (C*A + C*B);
-    }
-  },
-
-  // Simular una ronda con n procesos
-  simulateRoundWithNProcesses: function(values, p, algorithm = "auto", meetingPoint = 0.5) {
-    if (algorithm === "auto") {
-      algorithm = p > 0.5 ? "AMP" : "FV";
-    }
-    
-    const processCount = values.length;
-    const newValues = [...values];
-    const messages = [];
-    const messageDelivery = {};
-    
-    // Generar matriz de entrega de mensajes
-    for (let i = 0; i < processCount; i++) {
-      for (let j = 0; j < processCount; j++) {
-        if (i !== j) {
-          const delivered = Math.random() < p;
-          const key = `from${i}to${j}`;
-          messageDelivery[key] = delivered;
-          messages.push({
-            from: i,
-            to: j,
-            fromName: i < 3 ? ["Alice", "Bob", "Charlie"][i] : `P${i+1}`,
-            toName: j < 3 ? ["Alice", "Bob", "Charlie"][j] : `P${j+1}`,
-            delivered: delivered,
-            value: values[i]
-          });
-        }
-      }
-    }
-    
-    // Procesar mensajes para cada proceso
-    for (let i = 0; i < processCount; i++) {
-      const receivedMessages = [];
-      const receivedValues = new Set([values[i]]); // Incluir su propio valor
-      
-      // Recolectar mensajes recibidos y valores únicos conocidos
-      for (let j = 0; j < processCount; j++) {
-        if (i !== j && messageDelivery[`from${j}to${i}`]) {
-          receivedMessages.push(values[j]);
-          receivedValues.add(values[j]);
-        }
-      }
-      
-      // Aplicar algoritmo si se conocen múltiples valores
-      if (receivedValues.size > 1) {
-        if (algorithm === "AMP") {
-          // AMP: usar el punto de encuentro acordado
-          newValues[i] = meetingPoint;
-        } else { // Algoritmo FV
-          // FV: invertir su valor
-          newValues[i] = 1 - values[i];
-        }
-      }
-    }
-    
-    // Calcular discrepancia máxima
-    let maxDiscrepancy = 0;
-    for (let i = 0; i < processCount; i++) {
-      for (let j = i+1; j < processCount; j++) {
-        const discrepancy = Math.abs(newValues[i] - newValues[j]);
-        if (discrepancy > maxDiscrepancy) {
-          maxDiscrepancy = discrepancy;
-        }
-      }
-    }
-    
-    return {
-      newValues,
-      messages,
-      messageDelivery,
-      discrepancy: maxDiscrepancy
-    };
-  },
-
-  // Ejecutar experimento completo con n procesos
-  runNProcessExperiment: function(initialValues, p, rounds, algorithm = "auto", meetingPoint = 0.5) {
-    let values = [...initialValues];
-    const processCount = values.length;
-    const processNames = [];
-    
-    // Crear nombres para los procesos
-    for (let i = 0; i < processCount; i++) {
-      processNames.push(i < 3 ? ["Alice", "Bob", "Charlie"][i] : `Process${i+1}`);
-    }
-    
-    // Calcular discrepancia inicial
-    let initialDiscrepancy = 0;
-    for (let i = 0; i < processCount; i++) {
-      for (let j = i+1; j < processCount; j++) {
-        const discrepancy = Math.abs(values[i] - values[j]);
-        if (discrepancy > initialDiscrepancy) {
-          initialDiscrepancy = discrepancy;
-        }
-      }
-    }
-    
-    // Historial de la simulación
-    const history = [{
-      round: 0,
-      values: [...values],
-      processValues: values.reduce((obj, val, idx) => {
-        obj[processNames[idx].toLowerCase()] = val;
-        return obj;
-      }, {}),
-      discrepancy: initialDiscrepancy,
-      messages: []
-    }];
-    
-    // Ejecutar rondas
-    for (let r = 1; r <= rounds; r++) {
-      const result = this.simulateRoundWithNProcesses(values, p, algorithm, meetingPoint);
-      values = result.newValues;
-      
-      // Registrar resultados de esta ronda
-      history.push({
-        round: r,
-        values: [...values],
-        processValues: values.reduce((obj, val, idx) => {
-          obj[processNames[idx].toLowerCase()] = val;
-          return obj;
-        }, {}),
-        discrepancy: result.discrepancy,
-        messageDelivery: result.messageDelivery,
-        messages: result.messages
-      });
-    }
-    
-    return history;
-  },
-
-  // Ejecutar múltiples experimentos para análisis estadístico con n procesos
-  runMultipleNProcessExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
-    const allDiscrepancies = [];
-    const allRuns = [];
-    const processCount = initialValues.length;
-    
-    // Contar número de procesos con valor 0 (para cálculos teóricos)
-    let m = 0;
-    initialValues.forEach(val => {
-      if (val === 0) m++;
-    });
-    
-    // Determinar algoritmo real si es auto
-    const actualAlgorithm = algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm;
-    
-    // Ejecutar múltiples simulaciones
-    for (let i = 0; i < repetitions; i++) {
-      const history = this.runNProcessExperiment(
-        initialValues, 
-        p, 
-        rounds, 
-        algorithm, 
-        meetingPoint
-      );
-      
-      const finalDiscrepancy = history[history.length - 1].discrepancy;
-      allDiscrepancies.push(finalDiscrepancy);
-      allRuns.push(history);
-    }
-    
-    // Calcular estadísticas
-    const mean = allDiscrepancies.reduce((a, b) => a + b, 0) / allDiscrepancies.length;
-    const sorted = [...allDiscrepancies].sort((a, b) => a - b);
-    const median = sorted.length % 2 === 0 ? 
-      (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2 : 
-      sorted[Math.floor(sorted.length / 2)];
-    const min = Math.min(...allDiscrepancies);
-    const max = Math.max(...allDiscrepancies);
-    const variance = allDiscrepancies.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / allDiscrepancies.length;
-    const std = Math.sqrt(variance);
-    
-    // Calcular discrepancia teórica para n procesos
-    const theoretical = this.calculateExpectedDiscrepancyNProcesses(p, processCount, m, actualAlgorithm, meetingPoint);
-    
-    return {
-      mean,
-      median,
-      min,
-      max,
-      std,
-      allValues: allDiscrepancies,
-      theoretical,
-      algorithm: actualAlgorithm,
-      processCount,
-      allRuns,
-      n: processCount,
-      m: m  // Número de procesos con valor 0
-    };
-  }
-};
-
-
-
-
 // Componente para manejar n procesos
 function NProcessesControl({ processValues, setProcessValues, maxProcesses = 10 }) {
   const n = processValues.length;
@@ -838,7 +245,6 @@ function NProcessesControl({ processValues, setProcessValues, maxProcesses = 10 
     </div>
   );
 }
-
 
 // Component for comparing experiments with advanced features
 function ExperimentComparison({ experiments }) {
@@ -2009,8 +1415,6 @@ function ExperimentVisualization({ experimentData, currentRound = 0, processCoun
   );
 }
 
-
-
 // Results table
 function ResultsTable({ experimentData, processCount = 2, forcedAlgorithm, fvMethod, rounds = 1 }) {
   // Si hay demasiados procesos, mostrar versión compacta
@@ -2181,8 +1585,6 @@ function HistogramPlot({ discrepancies, theoretical, experimental }) {
   );
 }
 
-// Theory plot
-// Improved Theory Plot component that correctly updates when rounds change
 // Theory plot mejorado para n procesos
 function TheoryPlot({ 
   currentP, 
@@ -2744,6 +2146,9 @@ function RangeResultsTable({ results, processCount = 2, forcedAlgorithm, fvMetho
             ) : (
               <> FV: (p²+q²)<sup>{rounds}</sup></>
             )}
+            {processCount > 2 && (
+              <span className="text-yellow-600"> Note: For {processCount} processes, multi-round theoretical values are approximated.</span>
+            )}
           </p>
         </div>
       )}
@@ -2778,6 +2183,7 @@ function RangeResultsTable({ results, processCount = 2, forcedAlgorithm, fvMetho
     </div>
   );
 }
+
 // Improved modal for saving experiments
 function SaveExperimentModal({ showSaveModal, setShowSaveModal, experimentMetadata, setExperimentMetadata, currentExperimentToSave, setSavedExperiments, addLog }) {
   if (!showSaveModal) return null;
@@ -3528,7 +2934,7 @@ function TheoreticalVsExperimentalTable({ p, maxRounds = 3, repetitions = 100 })
       } finally {
         setIsCalculating(false);
       }
-    }, 100);
+    }, 50); // Reduced delay for faster execution
   }, [p, maxRounds, repetitions, isCalculating]);
   
   return (
@@ -3753,7 +3159,7 @@ function ErrorAnalysisByProbability({ maxRounds = 3, repetitions = 50 }) {
       } finally {
         setIsCalculating(false);
       }
-    }, 100);
+    }, 50); // Reduced delay for faster execution
   }, [maxRounds, repetitions, isCalculating]);
   
   // Prepare data for probability error chart
@@ -3942,64 +3348,6 @@ function ErrorAnalysisByProbability({ maxRounds = 3, repetitions = 50 }) {
   );
 }
 
-// Function to validate the multi-round implementation
-function verifyMultiRoundImplementation() {
-  // Verify theoretical discrepancy for different scenarios
-  function checkTheoreticalDiscrepancy(p, rounds, algorithm, expected) {
-    const calculated = SimulationEngine.calculateExpectedDiscrepancyMultiRound(p, rounds, algorithm);
-    const margin = 0.0001; // Error margin for floating point comparisons
-    
-    if (Math.abs(calculated - expected) > margin) {
-      console.error(`Error in theoretical discrepancy calculation:
-        p=${p}, rounds=${rounds}, algorithm=${algorithm}
-        Expected: ${expected}, Calculated: ${calculated}`);
-      return false;
-    }
-    return true;
-  }
-  
-  // Test cases for AMP
-  const ampTests = [
-    { p: 0.7, rounds: 1, expected: 0.3 },        // q^1 = 0.3
-    { p: 0.7, rounds: 2, expected: 0.09 },       // q^2 = 0.3^2 = 0.09
-    { p: 0.7, rounds: 3, expected: 0.027 }       // q^3 = 0.3^3 = 0.027
-  ];
-  
-  // Test cases for FV
-  const fvTests = [
-    { p: 0.3, rounds: 1, expected: 0.58 },       // p^2 + q^2 = 0.3^2 + 0.7^2 = 0.09 + 0.49 = 0.58
-    { p: 0.3, rounds: 2, expected: 0.3364 },     // (p^2 + q^2)^2 = 0.58^2 = 0.3364
-    { p: 0.3, rounds: 3, expected: 0.195112 }    // (p^2 + q^2)^3 = 0.58^3 = 0.195112
-  ];
-  
-  // Run validations
-  let allTestsPassed = true;
-  
-  ampTests.forEach(test => {
-    allTestsPassed = checkTheoreticalDiscrepancy(test.p, test.rounds, "AMP", test.expected) && allTestsPassed;
-  });
-  
-  fvTests.forEach(test => {
-    allTestsPassed = checkTheoreticalDiscrepancy(test.p, test.rounds, "FV", test.expected) && allTestsPassed;
-  });
-  
-  return allTestsPassed;
-}
-
-// Function to initialize the verification of the implementation
-function initializeMultiRoundVerification() {
-  // Run verifications when component loads
-  const verificationsResult = verifyMultiRoundImplementation();
-  
-  if (verificationsResult) {
-    console.log("✅ All multi-round verifications passed successfully.");
-  } else {
-    console.error("❌ Some multi-round verifications failed. Check console for details.");
-  }
-  
-  return verificationsResult;
-}
-
 // Main component
 function CompleteDistributedComputingSimulator() {
   // Configuration states
@@ -4129,6 +3477,11 @@ function CompleteDistributedComputingSimulator() {
     addLog(`Starting simulation with ${processCount} processes`);
     addLog(`Values: [${initialProcessValues.map(v => v.toFixed(2)).join(", ")}], Rounds: ${actualRounds}, Repetitions: ${actualRepetitions}, Steps: ${actualSteps}`);
     
+    // Warn about theoretical approximation for multi-round n > 2 processes
+    if (actualRounds > 1 && processCount > 2) {
+      addLog(`Note: Theoretical values for ${processCount} processes with ${actualRounds} rounds use approximation`, "warning");
+    }
+    
     // Generate probability points to test
     const stepSize = (maxP - minP) / (Math.max(actualSteps - 1, 1));
     const allProbabilities = [];
@@ -4143,9 +3496,36 @@ function CompleteDistributedComputingSimulator() {
       const actualAlgorithm = forcedAlgorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : forcedAlgorithm;
       
       // Calculate theoretical discrepancy using n-process formula
-      const theoretical = SimulationEngine.calculateExpectedDiscrepancyNProcesses(
-        p, processCount, m, actualAlgorithm, actualMeetingPoint
-      );
+      // FIXED: Now correctly accounts for multiple rounds
+      let theoretical;
+      if (processCount === 2) {
+        // For 2 processes, use exact multi-round formula
+        theoretical = SimulationEngine.calculateExpectedDiscrepancyMultiRound(
+          p, actualRounds, actualAlgorithm
+        );
+        
+        // DEBUG: Let's see what's happening
+        console.log(`DEBUG: p=${p.toFixed(2)}, algorithm=${actualAlgorithm}, rounds=${actualRounds}, theoretical=${theoretical.toFixed(6)}`);
+      } else {
+        // For n > 2 processes, theoretical formula is only available for 1 round
+        // For multiple rounds, we approximate by applying the reduction factor
+        const singleRoundTheoretical = SimulationEngine.calculateExpectedDiscrepancyNProcesses(
+          p, processCount, m, actualAlgorithm, actualMeetingPoint
+        );
+        
+        if (actualRounds === 1) {
+          theoretical = singleRoundTheoretical;
+        } else {
+          // Approximate multi-round behavior for n > 2 processes
+          // Apply the theoretical reduction factor for each additional round
+          const q = 1 - p;
+          const reductionFactor = actualAlgorithm === "AMP" ? q : (p*p + q*q);
+          theoretical = singleRoundTheoretical * Math.pow(reductionFactor, actualRounds - 1);
+        }
+        
+        // DEBUG: Let's see what's happening for n>2
+        console.log(`DEBUG n>2: p=${p.toFixed(2)}, processCount=${processCount}, m=${m}, algorithm=${actualAlgorithm}, rounds=${actualRounds}, theoretical=${theoretical.toFixed(6)}`);
+      }
       
       results.push({
         p,
@@ -4213,13 +3593,13 @@ function CompleteDistributedComputingSimulator() {
       // Run next repetition after a small delay so the UI can update
       setTimeout(() => {
         runNextRepetition();
-      }, 50); // Add a small delay to see the curve evolve
+      }, 10); // Reduced delay from 50ms to 10ms for faster execution
     }
     
     // Start with the first repetition
     setTimeout(() => {
       runNextRepetition();
-    }, 10);
+    }, 5);
   }
 
   // Compare FV methods (only for 3+ processes)
@@ -4291,7 +3671,7 @@ function CompleteDistributedComputingSimulator() {
         
         // Process next method
         processNextMethod();
-      }, 0);
+      }, 5); // Reduced delay for faster execution
     }
     
     // Start with the first method
@@ -4477,7 +3857,7 @@ function CompleteDistributedComputingSimulator() {
       } finally {
         setIsRunningMultiRound(false);
       }
-    }, 100); // Small delay to prevent UI freeze
+    }, 50); // Small delay to prevent UI freeze
   }
 
   // Analyze convergence rates
@@ -4881,6 +4261,7 @@ function CompleteDistributedComputingSimulator() {
               )}
             </div>
           </div>
+          
           {/* Main Content Area */}
           <div className="lg:flex-1">
             <div className="border-b border-gray-200 mb-4">
@@ -5002,6 +4383,11 @@ function CompleteDistributedComputingSimulator() {
                         {rounds > 1 && (
                           <p className="mt-2 text-blue-700">
                             <strong>Multiple rounds:</strong> Results show discrepancy after {rounds} rounds of message exchange.
+                            {processValues.length === 2 ? (
+                              <span className="text-green-700"> Theoretical values use exact multi-round formulas.</span>
+                            ) : (
+                              <span className="text-yellow-700"> Theoretical values for {processValues.length} processes use approximation for multiple rounds.</span>
+                            )}
                           </p>
                         )}
                       </div>
@@ -5018,7 +4404,15 @@ function CompleteDistributedComputingSimulator() {
                   )}
                 </div>
                 
-                <div className="bg-white rounded-lg shadow p-4">
+                <RangeResultsTable 
+                  results={experimentalResults} 
+                  processCount={processValues.length} 
+                  forcedAlgorithm={forcedAlgorithm} 
+                  fvMethod={fvMethod} 
+                  rounds={rounds} 
+                />
+                
+                <div className="bg-white rounded-lg shadow p-4 mt-4">
                   <h3 className="text-lg font-semibold mb-4">Algorithm Comparison</h3>
                   <p className="mb-4">
                     The theoretical analysis shows that:
@@ -5074,6 +4468,7 @@ function CompleteDistributedComputingSimulator() {
                 </div>
               </div>
             )}
+            
             {/* Statistical Analysis tab */}
             {activeTab === 'statistics' && (
               <div>
@@ -5288,40 +4683,6 @@ function CompleteDistributedComputingSimulator() {
                     </button>
                   </div>
                 )}
-              </div>
-            )}
-            {/* Method Comparison tab */}
-            {activeTab === 'methods' && processValues.length > 2 && (
-              <div>
-                <div className="bg-white rounded-lg shadow p-4 mt-4">
-                  <h3 className="text-lg font-semibold mb-4">FV Method Comparison</h3>
-                  
-                  <div className="bg-blue-50 p-3 rounded-lg mb-4 text-sm">
-                    <p>This tool lets you compare how different FV methods perform with {processValues.length} processes:</p>
-                    <ul className="list-disc pl-5 mt-2 space-y-1">
-                      <li><strong>Average:</strong> Uses average of received values</li>
-                      <li><strong>Median:</strong> Uses median of own and received values</li>
-                      <li><strong>Weighted:</strong> Blend weighted by probability p</li>
-                      <li><strong>Accelerated:</strong> Converges faster toward mid-range</li>
-                      <li><strong>First:</strong> Only uses first received value</li>
-                    </ul>
-                  </div>
-                  
-                  <div className="mb-4">
-                    <div className="text-sm text-gray-600 mb-2">
-                      Using current settings: p={probability.toFixed(2)}, {rounds} rounds, {repetitions} repetitions, {processValues.length} processes
-                    </div>
-                    <button 
-                      onClick={runFVMethodComparison}
-                      disabled={isRunning}
-                      className="px-4 py-2 bg-blue-600 text-white rounded"
-                    >
-                      {isRunning ? "Comparing..." : "Compare FV Methods"}
-                    </button>
-                  </div>
-                  
-                  {comparisonResults && <FVMethodComparisonChart comparisonResults={comparisonResults} />}
-                </div>
               </div>
             )}
             
@@ -5545,7 +4906,6 @@ function CompleteDistributedComputingSimulator() {
                 </div>
               </div>
             )}
-            
           </div>
         </div>
       </main>
