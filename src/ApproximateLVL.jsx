@@ -22,7 +22,12 @@ import {
 // Importar el motor de simulación
 import { SimulationEngine } from './SimulationEngine.js';
 
+
+
+
 // Colors
+
+
 const ALICE_COLOR = "#3498db";
 const BOB_COLOR = "#e67e22";
 const CHARLIE_COLOR = "#2ecc71";
