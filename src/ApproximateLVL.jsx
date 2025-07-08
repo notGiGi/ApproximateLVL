@@ -3946,7 +3946,7 @@ function CompleteDistributedComputingSimulator() {
     return (
       <div className="mb-4 bg-blue-50 p-3 rounded-lg">
         <div className="flex justify-between items-center mb-2">
-          <h3 className="text-sm font-semibold">Procesos ({processCount})</h3>
+          <h3 className="text-sm font-semibold">Processes ({processCount})</h3>
           <div className="flex space-x-2">
             <button
               onClick={removeProcess}
