@@ -49,7 +49,13 @@ function calculateExperimentStats(experiment) {
   const mean = discrepancies.reduce((a, b) => a + b, 0) / discrepancies.length;
   const min = Math.min(...discrepancies);
   const max = Math.max(...discrepancies);
-  
+  const absErrors = data.map(d => d.absError);
+  const relErrors = data.map(d => d.errorPercent);
+  const minAbs = absErrors.length ? Math.min(...absErrors) : 0;
+  const maxAbs = absErrors.length ? Math.max(...absErrors) : 0;
+  const minRel = relErrors.length ? Math.min(...relErrors) : 0;
+  const maxRel = relErrors.length ? Math.max(...relErrors) : 0;
+
   // Standard deviation
   const variance = discrepancies.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / discrepancies.length;
   const stdDev = Math.sqrt(variance);
@@ -1513,371 +1519,311 @@ function ResultsTable({ experimentData, processCount = 2, forcedAlgorithm, fvMet
   );
 }
 
-// Histogram plot
-function HistogramPlot({ discrepancies, theoretical, experimental }) {
-  if (!discrepancies || !Array.isArray(discrepancies) || discrepancies.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg">
-        <p className="text-gray-400">No data available</p>
-      </div>
-    );
-  }
 
-  const validDiscrepancies = discrepancies.filter(d => typeof d === 'number' && !isNaN(d) && isFinite(d));
-
-  if (validDiscrepancies.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg">
-        <p className="text-gray-400">No valid data points available</p>
-      </div>
-    );
-  }
-
-  const min = Math.min(...validDiscrepancies);
-  const max = Math.max(...validDiscrepancies);
-
-  if (min === max) {
-    return (
-      <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg">
-        <p className="text-gray-400">All data points have the same value: {min.toFixed(4)}</p>
-      </div>
-    );
-  }
-
-  const binCount = 10;
-  const binWidth = (max - min) / binCount;
-  const bins = Array(binCount).fill(0).map((_, i) => ({
-    x: min + i * binWidth,
-    count: 0
-  }));
-
-  validDiscrepancies.forEach(d => {
-    const binIndex = Math.min(Math.floor((d - min) / binWidth), binCount - 1);
-    if (binIndex >= 0) bins[binIndex].count++;
-  });
-
-  const mean = validDiscrepancies.reduce((a, b) => a + b, 0) / validDiscrepancies.length;
-
-  const showTheoreticalRef = theoretical !== undefined && typeof theoretical === 'number' && !isNaN(theoretical);
-  const showExperimentalRef = experimental !== undefined && typeof experimental === 'number' && !isNaN(experimental);
-
-  return (
-    <div className="bg-white rounded-lg shadow p-4 h-64">
-      <h3 className="text-lg font-semibold mb-4">Distribution of Final Discrepancies</h3>
-      <ResponsiveContainer width="100%" height="80%">
-        <BarChart data={bins} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} />
-          <XAxis 
-            dataKey="x" 
-            tickFormatter={(value) => value !== undefined && !isNaN(value) ? value.toFixed(2) : 'N/A'}
-          />
-          <YAxis />
-          <Tooltip 
-            formatter={(value) => value !== undefined && !isNaN(value) ? value : 'N/A'}
-            labelFormatter={(value) => `Value: ${value !== undefined && !isNaN(value) ? value.toFixed(4) : 'N/A'}`}
-          />
-          <Bar dataKey="count" fill={ACCENT_COLOR} />
-          <ReferenceLine x={mean} stroke="green" strokeWidth={2} strokeDasharray="3 3" label={{ value: 'Mean', position: 'top' }}/>
-          {showTheoreticalRef && (
-            <ReferenceLine x={theoretical} stroke="red" strokeWidth={2} strokeDasharray="3 3" label={{ value: 'Theoretical', position: 'insideTopLeft' }}/>
-          )}
-          {showExperimentalRef && (
-            <ReferenceLine x={experimental} stroke="blue" strokeWidth={2} strokeDasharray="3 3" label={{ value: 'Experimental', position: 'insideTopRight' }}/>
-          )}
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-// Theory plot mejorado para n procesos
-function TheoryPlot({ 
-  currentP, 
-  experimentalData, 
-  displayCurves, 
-  rounds = 1,
-  processValues = [0, 1], // Valores iniciales de los procesos
-  meetingPoint = 0.5      // Valor para AMP(a)
-}) {
-  if (!currentP && currentP !== 0) currentP = 0.5;
-  
-  const [selectedRound, setSelectedRound] = useState(rounds);
-  
-  // Update selectedRound when rounds prop changes
-  useEffect(() => {
-    setSelectedRound(rounds);
-  }, [rounds]);
-  
-  const validExperimentalData = Array.isArray(experimentalData) ? 
-    experimentalData.filter(item => 
-      item && 
-      typeof item.p === 'number' && 
-      typeof item.discrepancy === 'number'
-    ) : [];
-
-  // Número total de procesos
-  const processCount = processValues.length;
-  
-  // Contar procesos con valor 0 (m)
-  let m = 0;
-  processValues.forEach(val => {
-    if (val === 0 || val === 0.0) m++;
-  });
-
-  // Generate theoretical data points (recalculated on every render)
-  const ampData = [];
-  const fvData = [];
-
-  // Generate complete theoretical curves
-  if (processCount > 2) {
-    // Para n procesos
-    for (let p = 0; p <= 1; p += 0.02) {
-      const q = 1 - p;
-      
-      // Variables comunes para ambos algoritmos
-      const A = Math.pow(1 - Math.pow(q, processCount-m), m);
-      const B = Math.pow(1 - Math.pow(q, m), processCount-m);
-      
-      // Para múltiples rondas, aplicamos la fórmula reiteradamente
-      let ampDiscrepancy, fvDiscrepancy;
-      
-      if (selectedRound <= 1) {
-        // AMP para n procesos - Fórmula de la ecuación 15
-        ampDiscrepancy = 1 - (meetingPoint*A + (1-meetingPoint)*B);
-        
-        // FV para n procesos
-        const C = Math.pow(q, m*(processCount-m));
-        fvDiscrepancy = 1 - (C*A + C*B);
-      } else {
-        // Para múltiples rondas, necesitamos simularlo
-        // Esto es una aproximación para múltiples rondas con n>2
-        let ampValue = 1 - (meetingPoint*A + (1-meetingPoint)*B);
-        let fvValue = 1 - (Math.pow(q, m*(processCount-m))*(A + B));
-        
-        // Aproximamos el comportamiento multi-ronda
-        // Nota: esta es una aproximación, no una fórmula exacta para n>2
-        for (let r = 1; r < selectedRound; r++) {
-          ampValue = ampValue * (1-p);
-          fvValue = fvValue * (p*p + q*q);
-        }
-        
-        ampDiscrepancy = ampValue;
-        fvDiscrepancy = fvValue;
-      }
-      
-      ampData.push({ p, discrepancy: ampDiscrepancy });
-      fvData.push({ p, discrepancy: fvDiscrepancy });
-    }
-  } else {
-    // Para 2 procesos, usamos las fórmulas originales
-    for (let p = 0; p <= 1; p += 0.02) {
-      // Calculate discrepancy for the selected round
-      const q = 1 - p;
-      const ampDiscrepancy = Math.pow(q, selectedRound);
-      const fvDiscrepancy = Math.pow(p*p + q*q, selectedRound);
-      
-      ampData.push({ p, discrepancy: ampDiscrepancy });
-      fvData.push({ p, discrepancy: fvDiscrepancy });
-    }
-  }
-
-  // Calculate current point theoretical value
-  let currentPointAMP, currentPointFV;
-  
-  if (processCount > 2) {
-    // Para n procesos
-    const q = 1 - currentP;
-    
-    // Variables comunes
-    const A = Math.pow(1 - Math.pow(q, processCount-m), m);
-    const B = Math.pow(1 - Math.pow(q, m), processCount-m);
-    
-    if (selectedRound <= 1) {
-      // AMP
-      currentPointAMP = 1 - (meetingPoint*A + (1-meetingPoint)*B);
-      
-      // FV
-      const C = Math.pow(q, m*(processCount-m));
-      currentPointFV = 1 - (C*A + C*B);
-    } else {
-      // Aproximación para múltiples rondas
-      let ampValue = 1 - (meetingPoint*A + (1-meetingPoint)*B);
-      let fvValue = 1 - (Math.pow(q, m*(processCount-m))*(A + B));
-      
-      for (let r = 1; r < selectedRound; r++) {
-        ampValue = ampValue * (1-currentP);
-        fvValue = fvValue * (currentP*currentP + q*q);
-      }
-      
-      currentPointAMP = ampValue;
-      currentPointFV = fvValue;
-    }
-  } else {
-    // Para 2 procesos
-    const q = 1 - currentP;
-    currentPointAMP = Math.pow(q, selectedRound);
-    currentPointFV = Math.pow(currentP*currentP + q*q, selectedRound);
-  }
-  
-  const currentPoint = {
-    p: currentP,
-    expectedDiscrepancy: currentP > 0.5 ? currentPointAMP : currentPointFV
-  };
-
-  const showAMP = displayCurves?.theoreticalAmp !== false;
-  const showFV = displayCurves?.theoreticalFv !== false;
-  const showExperimental = displayCurves?.experimental !== false && validExperimentalData.length > 0;
-
-  // Texto descriptivo para las fórmulas según el número de procesos
-  let formulaDescription;
-  if (processCount === 2) {
-    formulaDescription = (
-      <div className="text-xs text-gray-600 mb-2">
-
-        <ul className="list-disc pl-4">
-          <li>AMP: (1-p){selectedRound > 1 ? <sup>{selectedRound}</sup> : ''}</li>
-          <li>FV: (p²+q²){selectedRound > 1 ? <sup>{selectedRound}</sup> : ''}</li>
-        </ul>
-      </div>
-    );
-  } else {
-    formulaDescription = (
-      <div className="text-xs text-gray-600 mb-2">
-       <ul className="list-disc pl-4">
-          <li>AMP({meetingPoint.toFixed(2)}): 1 - ({meetingPoint.toFixed(2)}·A + {(1-meetingPoint).toFixed(2)}·B)</li>
-          <li>FV: 1 - (C·A + C·B)</li>
-          <li>Where: A = (1-q<sup>{processCount-m}</sup>)<sup>{m}</sup>, B = (1-q<sup>{m}</sup>)<sup>{processCount-m}</sup>, C = q<sup>{m*(processCount-m)}</sup></li>
-        </ul>
-        {selectedRound > 1 && (
-          <p className="text-yellow-600 mt-1">
-            Nota: Para {selectedRound} rondas con {processCount} procesos se usa una aproximación.
-          </p>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-white rounded-lg shadow p-4">
-      <div className="flex justify-between items-center mb-2">
-        <h3 className="text-lg font-semibold">Expected Discrepancy vs. Probability</h3>
-        
-        {rounds > 1 && (
-          <div className="flex items-center space-x-2">
-            <label className="text-sm">Round:</label>
-            <select
-              value={selectedRound}
-              onChange={(e) => setSelectedRound(parseInt(e.target.value))}
-              className="px-2 py-1 border rounded text-sm"
-            >
-              {[...Array(rounds)].map((_, i) => (
-                <option key={i+1} value={i+1}>Round {i+1}</option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
-
-      {formulaDescription}
-
-      <div className="mb-3 text-sm text-gray-600 flex flex-wrap items-center gap-4">
-        {showFV && (
-          <div className="flex items-center">
-            <span className="inline-block w-3 h-3 bg-red-500 mr-1 rounded-sm"></span>
-            <span>FV Algorithm</span>
-          </div>
-        )}
-        {showAMP && (
-          <div className="flex items-center">
-            <span className="inline-block w-3 h-3 bg-green-500 mr-1 rounded-sm"></span>
-            <span>AMP Algorithm</span>
-          </div>
-        )}
-        {showExperimental && (
-          <div className="flex items-center">
-            <span className="inline-block w-4 h-4 rounded-full bg-purple-500 mr-1"></span>
-            <span>Experimental Curve</span>
-          </div>
-        )}
-      </div>
-
-      <ResponsiveContainer width="100%" height={400}>
-        <ComposedChart margin={{ top: 5, right: 30, left: 20, bottom: 25 }}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis
-            type="number"
-            dataKey="p"
-            domain={[0, 1]}
-            label={{ value: 'Probability (p)', position: 'insideBottom', offset: -5 }}
-          />
-          <YAxis
-            type="number"
-            dataKey="discrepancy"
-            domain={[0, 1]}
-            label={{ value: 'Discrepancy', angle: -90, position: 'insideLeft', offset: -10 }}
-          />
-          <Tooltip 
-            formatter={(value) => value !== undefined && !isNaN(value) ? value.toFixed(4) : 'N/A'} 
-            labelFormatter={(value) => `Probability: ${value !== undefined && !isNaN(value) ? value.toFixed(2) : 'N/A'}`}
-          />
-          <Legend verticalAlign="top" height={36} />
-
-          {showAMP && (
-            <Line data={ampData} type="monotone" dataKey="discrepancy" name={`AMP Algorithm`} stroke="#2ecc71" strokeWidth={2} dot={false} connectNulls />
-          )}
-          {showFV && (
-            <Line data={fvData} type="monotone" dataKey="discrepancy" name={`FV Algorithm`} stroke="#e74c3c" strokeWidth={2} dot={false} connectNulls />
-          )}
-          {showExperimental && validExperimentalData.length > 0 && (
-            <Line data={validExperimentalData} type="monotone" dataKey="discrepancy" name="Experimental Curve" stroke="purple" strokeWidth={2} dot={{ r: 3, stroke: "purple", fill: "white" }} connectNulls />
-          )}
-          <ReferenceLine x={0.5} stroke="#666" strokeDasharray="3 3" />
-        </ComposedChart>
-      </ResponsiveContainer>
-      
-      {rounds > 1 && (
-        <div className="mt-4 bg-blue-50 p-3 rounded">
-          <h4 className="font-medium text-sm mb-1">Discrepancias esperadas para p={currentP.toFixed(2)}</h4>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-xs">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-1 px-2">Algoritmo</th>
-                  <th className="text-right py-1 px-2">Discrepancia teórica</th>
-                  <th className="text-right py-1 px-2">Óptimo para</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="bg-white">
-                  <td className="py-1 px-2">AMP</td>
-                  <td className="text-right py-1 px-2 font-mono">{currentPointAMP.toFixed(4)}</td>
-                  <td className="text-right py-1 px-2 font-medium">
-                    <span className={`px-1.5 py-0.5 rounded text-xs ${
-                      currentP > 0.5 ? 'bg-green-100 text-green-800' : ''
-                    }`}>
-                      {currentP > 0.5 ? "p > 0.5" : ""}
-                    </span>
-                  </td>
-                </tr>
-                <tr className="bg-gray-50">
-                  <td className="py-1 px-2">FV</td>
-                  <td className="text-right py-1 px-2 font-mono">{currentPointFV.toFixed(4)}</td>
-                  <td className="text-right py-1 px-2 font-medium">
-                    <span className={`px-1.5 py-0.5 rounded text-xs ${
-                      currentP <= 0.5 ? 'bg-red-100 text-red-800' : ''
-                    }`}>
-                      {currentP <= 0.5 ? "p ≤ 0.5" : ""}
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+/// Histogram plot con distribución binomial correcta para un valor específico de p
+function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, selectedP }) {
+    if (!discrepancies || !Array.isArray(discrepancies) || discrepancies.length === 0) {
+      return (
+        <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg">
+          <p className="text-gray-400">No data available</p>
         </div>
-      )}
-    </div>
-  );
-}
+      );
+    }
+
+    const validDiscrepancies = discrepancies.filter(d => typeof d === 'number' && !isNaN(d) && isFinite(d));
+
+    if (validDiscrepancies.length === 0) {
+      return (
+        <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg">
+          <p className="text-gray-400">No valid data points available</p>
+        </div>
+      );
+    }
+
+    // Calculate observed statistics
+    const observedMean = validDiscrepancies.reduce((a, b) => a + b, 0) / validDiscrepancies.length;
+    const observedVariance = validDiscrepancies.reduce((sum, d) => sum + Math.pow(d - observedMean, 2), 0) / validDiscrepancies.length;
+    const observedSD = Math.sqrt(observedVariance);
+
+    // Use theoretical expected discrepancy for binomial parameters
+    const expectedD = theoretical !== null && theoretical !== undefined ? theoretical : observedMean;
+    const n = repetitions || validDiscrepancies.length;
+    
+    // For binomial distribution of average discrepancy over n runs:
+    // Mean = expected discrepancy (D)
+    // Variance = D(1-D)/n (for averaging)
+    const theoreticalVariance = expectedD * (1 - expectedD) / n;
+    const theoreticalSD = Math.sqrt(theoreticalVariance);
+
+    // Create histogram bins
+    const min = Math.min(...validDiscrepancies);
+    const max = Math.max(...validDiscrepancies);
+
+    if (min === max) {
+      return (
+        <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg">
+          <p className="text-gray-400">All data points have the same value: {min.toFixed(4)}</p>
+        </div>
+      );
+    }
+
+    // Create bins
+    const binCount = Math.min(20, Math.max(10, Math.floor(Math.sqrt(validDiscrepancies.length))));
+    const binWidth = (max - min) / binCount;
+    const bins = Array(binCount).fill(0).map((_, i) => ({
+      x: min + (i + 0.5) * binWidth,
+      count: 0,
+      range: `${(min + i * binWidth).toFixed(4)}-${(min + (i + 1) * binWidth).toFixed(4)}`
+    }));
+
+    // Fill bins
+    validDiscrepancies.forEach(d => {
+      const binIndex = Math.min(Math.floor((d - min) / binWidth), binCount - 1);
+      if (binIndex >= 0) bins[binIndex].count++;
+    });
+
+    // Generate theoretical normal approximation curve
+    const binomialCurve = [];
+    const xRange = 6 * theoreticalSD; // Show ±3 SD
+    const xMin = Math.max(0, expectedD - xRange/2);
+    const xMax = Math.min(1, expectedD + xRange/2);
+    const steps = 100;
+    
+    for (let i = 0; i <= steps; i++) {
+      const x = xMin + (i / steps) * (xMax - xMin);
+      // Normal PDF approximation
+      const z = (x - expectedD) / theoreticalSD;
+      const pdf = (1 / (theoreticalSD * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * z * z);
+      // Scale to match histogram
+      const scaledDensity = pdf * binWidth * validDiscrepancies.length;
+      binomialCurve.push({
+        x: x,
+        expected: scaledDensity
+      });
+    }
+
+    const maxCount = Math.max(...bins.map(b => b.count));
+    const maxExpected = Math.max(...binomialCurve.map(b => b.expected));
+    const yMax = Math.max(maxCount, maxExpected) * 1.1;
+
+    return (
+      <div className="bg-white rounded-lg shadow p-4">
+        <h3 className="text-lg font-semibold mb-2">
+          Distribution of Final Discrepancies (p = {selectedP.toFixed(2)})
+        </h3>
+        <div className="text-xs text-gray-600 mb-2">
+          <p>Theoretical: Binomial with n = {n}, D = {expectedD.toFixed(4)}</p>
+          <p>Expected SD = {theoreticalSD.toFixed(4)}, Observed SD = {observedSD.toFixed(4)}</p>
+        </div>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart margin={{ top: 20, right: 30, left: 20, bottom: 40 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis 
+                dataKey="x" 
+                type="number"
+                domain={[min, max]}
+                tickFormatter={(value) => value?.toFixed(3)}
+                label={{ value: 'Average Discrepancy', position: 'insideBottom', offset: -10 }}
+              />
+              <YAxis 
+                domain={[0, yMax]}
+                label={{ value: 'Frequency', angle: -90, position: 'insideLeft' }}
+              />
+              <Tooltip 
+                content={({ active, payload }) => {
+                  if (active && payload && payload.length > 0) {
+                    const data = payload[0].payload;
+                    return (
+                      <div className="bg-white p-2 border rounded shadow-md">
+                        <p className="text-sm font-medium">{data.range || `x = ${data.x?.toFixed(4)}`}</p>
+                        {data.count !== undefined && (
+                          <p className="text-sm">Observed: {data.count}</p>
+                        )}
+                        {data.expected !== undefined && (
+                          <p className="text-sm">Expected: {data.expected.toFixed(2)}</p>
+                        )}
+                      </div>
+                    );
+                  }
+                  return null;
+                }}
+              />
+              <Bar 
+                data={bins}
+                dataKey="count" 
+                fill="#4ade80" 
+                opacity={0.7}
+                name="Observed"
+              />
+              <Line
+                data={binomialCurve}
+                type="monotone"
+                dataKey="expected"
+                stroke="#3b82f6"
+                strokeWidth={2}
+                dot={false}
+                name="Expected (Binomial)"
+              />
+              {theoretical !== null && theoretical !== undefined && (
+                <ReferenceLine 
+                  x={theoretical} 
+                  stroke="#ef4444" 
+                  strokeDasharray="5 5" 
+                  label={{ 
+                    value: `Theory: ${theoretical.toFixed(4)}`, 
+                    position: 'insideTopRight',
+                    offset: 5,
+                    style: { fill: '#ef4444', fontSize: '12px' }
+                  }}
+                />
+              )}
+              <ReferenceLine 
+                x={observedMean} 
+                stroke="#f59e0b" 
+                strokeDasharray="3 3" 
+                label={{ 
+                  value: `Observed: ${observedMean.toFixed(4)}`, 
+                  position: Math.abs(observedMean - theoretical) < 0.05 ? 'insideBottomRight' : 'insideTopLeft',
+                  offset: 5,
+                  style: { fill: '#f59e0b', fontSize: '12px' }
+                }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="mt-2 text-xs text-gray-600">
+          <p>Sample size: {validDiscrepancies.length} | Theoretical mean: {expectedD.toFixed(4)} | Observed mean: {observedMean.toFixed(4)}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Theory plot mejorado para n procesos
+  // Reemplaza desde: function TheoryPlot({ currentP, experimentalData, displayCurves, rounds = 1, processValues = [0,1], meetingPoint = 0.5 })
+  function TheoryPlot({
+    currentP,
+    experimentalData,
+    displayCurves,
+    rounds = 1,
+    processValues = [0, 1],
+    meetingPoint = 0.5,
+    steps = 51              // <-- default, pero será sobreescrito por la prop
+  }) {
+    // Default de currentP
+    if (currentP == null) currentP = 0.5;
+
+    const [selectedRound, setSelectedRound] = useState(rounds);
+    useEffect(() => setSelectedRound(rounds), [rounds]);
+
+    const validExperimentalData = Array.isArray(experimentalData)
+      ? experimentalData.filter(item =>
+          item && typeof item.p === 'number' && typeof item.discrepancy === 'number'
+        )
+      : [];
+
+    const n = processValues.length;
+    const m = processValues.filter(v => v === 0).length;
+
+    // Generar puntos de teoría con EXACTAMENTE `steps+1` valores entre 0 y 1
+    const ampData = [];
+    const fvData  = [];
+    for (let i = 0; i <= steps; i++) {
+      const p = i / steps;
+      const q = 1 - p;
+      let ampD, fvD;
+
+      if (n === 2) {
+        ampD = Math.pow(q, selectedRound);
+        fvD = Math.pow(p*p + q*q, selectedRound);
+      } else {
+        const A = Math.pow(1 - Math.pow(q, n - m), m);
+        const B = Math.pow(1 - Math.pow(q, m), n - m);
+        let ampV = 1 - (meetingPoint * A + (1 - meetingPoint) * B);
+        let fvV = 1 - (Math.pow(q, m*(n-m)) * (A + B));
+        for (let r = 1; r < selectedRound; r++) {
+          ampV *= (1 - p);
+          fvV  *= (p*p + q*q);
+        }
+        ampD = ampV;
+        fvD  = fvV;
+      }
+
+      ampData.push({ p, discrepancy: ampD });
+      fvData.push({ p, discrepancy: fvD });
+    }
+
+    const showAMP = displayCurves?.theoreticalAmp ?? true;
+    const showFV  = displayCurves?.theoreticalFv  ?? true;
+    const showExp = displayCurves?.experimental && validExperimentalData.length > 0;
+
+    return (
+      <div className="bg-white rounded-lg shadow p-4">
+        {/* … tu JSX de cabecera y selector de ronda … */}
+
+        <ResponsiveContainer width="100%" height={400}>
+          <ComposedChart margin={{ top: 5, right: 30, left: 20, bottom: 25 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis
+              dataKey="p"
+              type="number"
+              domain={[0, 1]}
+              ticks={[0, 0.25, 0.5, 0.75, 1]}
+              tickFormatter={v => v.toFixed(2)}
+              label={{ value: 'Probability (p)', position: 'insideBottom', offset: -5 }}
+            />
+            <YAxis
+              dataKey="discrepancy"
+              type="number"
+              domain={[0, 1]}
+              label={{ value: 'Discrepancy', angle: -90, position: 'insideLeft', offset: -10 }}
+            />
+            <Tooltip
+              formatter={val => (val != null && !isNaN(val) ? val.toFixed(4) : 'N/A')}
+              labelFormatter={val => `p = ${val != null && !isNaN(val) ? val.toFixed(2) : 'N/A'}`}
+            />
+            <Legend verticalAlign="top" height={36} />
+
+            {showAMP && (
+              <Line
+                data={ampData}
+                dataKey="discrepancy"
+                name="AMP Algorithm"
+                stroke="#2ecc71"
+                strokeWidth={2}
+                dot={false}
+              />
+            )}
+            {showFV && (
+              <Line
+                data={fvData}
+                dataKey="discrepancy"
+                name="FV Algorithm"
+                stroke="#e74c3c"
+                strokeWidth={2}
+                dot={false}
+              />
+            )}
+            {showExp && (
+              <Line
+                data={validExperimentalData}
+                dataKey="discrepancy"
+                name="Experimental Curve"
+                stroke="purple"
+                strokeWidth={2}
+                dot={{ r: 3, fill: 'white' }}
+                connectNulls
+              />
+            )}
+
+            <ReferenceLine x={0.5} stroke="#666" strokeDasharray="3 3" />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
+
+
 
 // FV method comparison chart
 function FVMethodComparisonChart({ comparisonResults }) {
@@ -1976,7 +1922,14 @@ function AnimationControls({ currentRound, totalRounds, onPlay, onPause, onReset
 }
 
 // Range experiments results table with correct formatting
-function RangeResultsTable({ results, processCount = 2, forcedAlgorithm, fvMethod, rounds = 1 }) {
+// Range experiments results table con espaciado reducido
+function RangeResultsTable({
+  results,
+  processCount = 2,
+  forcedAlgorithm,
+  fvMethod,
+  rounds = 1
+}) {
   if (!results || !Array.isArray(results) || results.length === 0) {
     return (
       <div className="bg-gray-100 p-4 rounded-lg text-center text-gray-500">
@@ -1985,12 +1938,13 @@ function RangeResultsTable({ results, processCount = 2, forcedAlgorithm, fvMetho
     );
   }
 
-  // Filter invalid results
-  const validResults = results.filter(result => 
-    result && 
-    typeof result.p === 'number' && 
-    typeof result.discrepancy === 'number' && 
-    typeof result.algorithm === 'string'
+  // Filtrar resultados inválidos
+  const validResults = results.filter(
+    (r) =>
+      r &&
+      typeof r.p === "number" &&
+      typeof r.discrepancy === "number" &&
+      typeof r.algorithm === "string"
   );
 
   if (validResults.length === 0) {
@@ -2001,61 +1955,74 @@ function RangeResultsTable({ results, processCount = 2, forcedAlgorithm, fvMetho
     );
   }
 
-  // Sort by probability
+  // Ordenar por probabilidad
   const sortedResults = [...validResults].sort((a, b) => a.p - b.p);
-  
-  // Recalculate theoretical values directly using the formulas
-  const resultsWithCorrectTheory = sortedResults.map(result => {
-    // Keep original result data
-    const newResult = {...result};
-    
-    // Only calculate theoretical for 2-process systems
-    if (processCount === 2) {
-      // Determine which algorithm is used
-      const algorithm = result.algorithm;
+
+  // Recalcular teóricos para 2 procesos
+  const resultsWithCorrectTheory = sortedResults.map((result) => {
+    const newResult = { ...result };
+    if (processCount === 2 && typeof result.theoretical !== "number") {
       const p = result.p;
       const q = 1 - p;
-      
-      // Calculate theoretical value based on algorithm and rounds
-      if (algorithm === "AMP") {
+      if (result.algorithm === "AMP") {
         newResult.theoretical = Math.pow(q, rounds);
-      } else { // FV algorithm
-        newResult.theoretical = Math.pow(p*p + q*q, rounds);
+      } else {
+        newResult.theoretical = Math.pow(p * p + q * q, rounds);
       }
     }
-    
     return newResult;
   });
 
   return (
     <div className="bg-white rounded-lg shadow-lg overflow-hidden border border-gray-200">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
+        <table className="min-w-full divide-y divide-gray-200 text-xs">
           <thead>
             <tr className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
-              <th scope="col" className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider">
+              <th
+                scope="col"
+                className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
+              >
                 Probability (p)
               </th>
-              <th scope="col" className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider">
+              <th
+                scope="col"
+                className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
+              >
                 Algorithm
               </th>
               {forcedAlgorithm === "FV" && processCount === 3 && (
-                <th scope="col" className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider">
+                <th
+                  scope="col"
+                  className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
+                >
                   FV Method
                 </th>
               )}
-              <th scope="col" className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider">
-                Experimental{rounds > 1 ? ` (${rounds} rounds)` : ''}
+              <th
+                scope="col"
+                className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
+              >
+                Experimental{rounds > 1 ? ` (${rounds} rounds)` : ""}
               </th>
-              <th scope="col" className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider">
+              <th
+                scope="col"
+                className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
+              >
                 Samples
               </th>
               {processCount === 2 && (
                 <>
-                  <th scope="col" className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider">
-                    Theoretical{rounds > 1 ? ` (${rounds} rounds)` : ''}
+                  <th
+                    scope="col"
+                    className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
+                  >
+                    Theoretical{rounds > 1 ? ` (${rounds} rounds)` : ""}
                   </th>
-                  <th scope="col" className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider">
+                  <th
+                    scope="col"
+                    className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
+                  >
                     Error
                   </th>
                 </>
@@ -2063,72 +2030,38 @@ function RangeResultsTable({ results, processCount = 2, forcedAlgorithm, fvMetho
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {resultsWithCorrectTheory.map((result, index) => {
-              // Calculate the error (difference between theoretical and experimental)
-              const error = processCount === 2 && typeof result.theoretical === 'number' ? 
-                Math.abs(result.theoretical - result.discrepancy) : null;
-              
-              // Error percentage calculation with protection against division by zero
-              let errorPercent = 0;
-              if (error !== null) {
-                if (result.theoretical !== 0) {
-                  errorPercent = (error / result.theoretical) * 100;
-                  
-                  // Cap extreme percentages to make them displayable
-                  if (errorPercent > 9999) errorPercent = 9999;
-                } else if (result.discrepancy === 0) {
-                  // Both theoretical and experimental are 0 - perfect match
-                  errorPercent = 0;
-                } else {
-                  // Theoretical is 0 but experimental isn't - large error
-                  errorPercent = 999;
-                }
-              }
-              
+            {resultsWithCorrectTheory.map((result, idx) => {
+              const error =
+                processCount === 2 && typeof result.theoretical === "number"
+                  ? Math.abs(result.theoretical - result.discrepancy)
+                  : null;
               return (
-                <tr key={index} className={index % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-bold text-gray-900">{result.p.toFixed(2)}</div>
+                <tr key={idx} className={idx % 2 === 0 ? "" : "bg-gray-50"}>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {result.p.toFixed(2)}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`px-3 py-1 text-xs font-medium rounded-full ${
-                      result.algorithm === 'AMP' 
-                        ? 'bg-green-100 text-green-800 border border-green-300' 
-                        : 'bg-red-100 text-red-800 border border-red-300'
-                    }`}>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                        result.algorithm === "AMP"
+                          ? "bg-green-100 text-green-800"
+                          : "bg-red-100 text-red-800"
+                      }`}
+                    >
                       {result.algorithm}
                     </span>
                   </td>
-                  {forcedAlgorithm === "FV" && processCount === 3 && (
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                      {result.fvMethod || fvMethod}
-                    </td>
-                  )}
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-mono text-gray-900">{result.discrepancy.toFixed(6)}</div>
+                  <td className="px-3 py-2 whitespace-nowrap font-mono">
+                    {result.discrepancy.toFixed(6)}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {result.samples || '?'}
-                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap">{result.samples}</td>
                   {processCount === 2 && (
                     <>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-mono text-gray-900">{result.theoretical ? result.theoretical.toFixed(6) : 'N/A'}</div>
+                      <td className="px-3 py-2 whitespace-nowrap font-mono">
+                        {result.theoretical.toFixed(6)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {error !== null && (
-                          <div className="flex items-center">
-                            <span className={`text-sm font-mono mr-2 ${
-                              errorPercent < 5 ? 'text-green-600' : 
-                              errorPercent < 10 ? 'text-yellow-600' : 'text-red-600'
-                            }`}>
-                              {error.toFixed(6)}
-                            </span>
-                            <span className="text-xs text-gray-500">
-                              ({errorPercent.toFixed(2)}%)
-                            </span>
-                          </div>
-                        )}
+                      <td className="px-3 py-2 whitespace-nowrap font-mono">
+                        {error.toFixed(6)}
                       </td>
                     </>
                   )}
@@ -2137,53 +2070,6 @@ function RangeResultsTable({ results, processCount = 2, forcedAlgorithm, fvMetho
             })}
           </tbody>
         </table>
-      </div>
-      
-      {rounds > 1 && (
-        <div className="bg-blue-50 px-6 py-3 border-t border-gray-200">
-          <p className="text-sm font-medium text-blue-700">Multi-Round Results</p>
-          <p className="text-xs text-gray-600 mt-1">
-            Shows discrepancies after {rounds} rounds of message exchange. Theoretical values use the formula:
-            {forcedAlgorithm === "auto" ? (
-              <> AMP: (1-p)<sup>{rounds}</sup> for p &gt; 0.5, FV: (p²+q²)<sup>{rounds}</sup> for p ≤ 0.5</>
-            ) : forcedAlgorithm === "AMP" ? (
-              <> AMP: (1-p)<sup>{rounds}</sup></>
-            ) : (
-              <> FV: (p²+q²)<sup>{rounds}</sup></>
-            )}
-            {processCount > 2 && (
-              <span className="text-yellow-600"> Note: For {processCount} processes, multi-round theoretical values are approximated.</span>
-            )}
-          </p>
-        </div>
-      )}
-      
-      <div className="bg-gray-50 px-6 py-3 border-t border-gray-200">
-        <div className="text-sm text-gray-500">
-          <span className="font-semibold">Total points:</span> {sortedResults.length}
-          {sortedResults.length > 0 && processCount === 2 && (
-            <>
-              <span className="ml-4 font-semibold">Average absolute error:</span> {
-                (() => {
-                  // Solo considerar entradas con valores teóricos válidos
-                  const validEntries = resultsWithCorrectTheory.filter(
-                    result => typeof result.theoretical === 'number' && !isNaN(result.theoretical)
-                  );
-                  
-                  // Calcular la suma de errores absolutos
-                  const totalError = validEntries.reduce((acc, result) => {
-                    const error = Math.abs(result.theoretical - result.discrepancy);
-                    return acc + error;
-                  }, 0);
-                  
-                  // Calcular el promedio solo si hay entradas válidas
-                  if (validEntries.length === 0) return "N/A";
-                  return (totalError / validEntries.length).toFixed(6);
-                })()
-              }
-            </>
-          )}
-        </div>
       </div>
     </div>
   );
@@ -2362,7 +2248,7 @@ function MultiRoundConvergenceChart({ analysisData, maxRounds = 3 }) {
   const [showExperimentalFV, setShowExperimentalFV] = useState(true);
   const [useLogScale, setUseLogScale] = useState(false);
   const [compareMode, setCompareMode] = useState('algorithms'); // 'algorithms' or 'theory-vs-practice'
-
+  
   // If no data, show informative message
   if (!analysisData || analysisData.length === 0) {
     return (
@@ -2974,48 +2860,46 @@ function TheoreticalVsExperimentalTable({ p, maxRounds = 3, repetitions = 100 })
           </div>
           
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
+            <table className="w-auto divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Round
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Theoretical Discrepancy
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Experimental Discrepancy
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Relative Error (%)
-                  </th>
+                  <th className="px-3 py-1 text-left font-medium text-gray-500 uppercase">p</th>
+                  <th className="px-3 py-1 text-left font-medium text-gray-500 uppercase">Algorithm</th>
+                  <th className="px-3 py-1 text-left font-medium text-gray-500 uppercase">Experimental</th>
+                  {experimentalResults[0].theoretical && (
+                    <>
+                      <th className="px-3 py-1 text-left font-medium text-gray-500 uppercase">Theoretical</th>
+                      <th className="px-3 py-1 text-left font-medium text-gray-500 uppercase">Error</th>
+                      <th className="px-3 py-1 text-left font-medium text-gray-500 uppercase">Error %</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {results.comparisonResults.map((result) => (
-                  <tr key={result.round}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {result.round}
+                {experimentalResults.sort((a, b) => a.p - b.p).map((result, idx) => (
+                  <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <td className="px-2 py-1 whitespace-nowrap">{result.p.toFixed(2)}</td>
+                    <td className="px-2 py-1 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium ${
+                        result.algorithm === 'AMP' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {result.algorithm}
+                      </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-                      {result.theoretical.toFixed(6)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-                      {result.experimental.toFixed(6)}
-                    </td>
-                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-mono ${
-                      result.relativeError < 5 ? 'text-green-600' :
-                      result.relativeError < 10 ? 'text-yellow-600' :
-                      'text-red-600'
-                    }`}>
-                      {result.relativeError.toFixed(2)}%
-                    </td>
+                    <td className="px-2 py-1 whitespace-nowrap font-mono">{result.discrepancy.toFixed(6)}</td>
+                    {result.theoretical && (
+                      <>
+                        <td className="px-2 py-1 whitespace-nowrap font-mono">{result.theoretical.toFixed(6)}</td>
+                        <td className="px-2 py-1 whitespace-nowrap font-mono">{Math.abs(result.discrepancy - result.theoretical).toFixed(6)}</td>
+                        <td className="px-2 py-1 whitespace-nowrap font-mono">{(Math.abs(result.discrepancy - result.theoretical)/result.theoretical*100).toFixed(2)}%</td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          
+
           <div className="mt-6 h-72">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
@@ -3368,11 +3252,13 @@ function CompleteDistributedComputingSimulator() {
   const [rangeExperiments, setRangeExperiments] = useState({
     minP: 0.0,
     maxP: 1.0,
-    steps: 51,
+    steps: 100,
     customSteps: false,
-    customStepValue: 51
+    customStepValue: 100
   });
-
+  const [useAdaptive, setUseAdaptive] = useState(false);
+  const [showCI, setShowCI]           = useState(true);
+  const [fixYAxis, setFixYAxis]       = useState(false);
   // States for saved experiments and modal
   const [savedExperiments, setSavedExperiments] = useState([]);
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -3396,6 +3282,8 @@ function CompleteDistributedComputingSimulator() {
     repetitions: 100
   });
   const [isRunningMultiRound, setIsRunningMultiRound] = useState(false);
+  
+
 
   // Visualization states
   const [experimentData, setExperimentData] = useState(null);
@@ -3409,6 +3297,31 @@ function CompleteDistributedComputingSimulator() {
   const [logs, setLogs] = useState(["Welcome to the simulator. Configure the parameters and click 'Start Simulation'."]);
   const [showLogs, setShowLogs] = useState(true);
   const [experimentalResults, setExperimentalResults] = useState([]);
+  // Estado para fijar o autoajustar los ejes Y en Error Analysis
+  const [selectedPForHistogram, setSelectedPForHistogram] = useState(null);
+  // --- Construcción de statsWithCI para Discrepancy y Error Analysis ---
+  const statsWithCI = experimentalResults
+    .sort((a, b) => a.p - b.p)
+    .map(r => {
+      const mean = r.discrepancy;
+      const arr = r.discrepancies || [];
+      const n = arr.length;
+      const variance = n > 0
+        ? arr.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / n
+        : 0;
+      const sd = Math.sqrt(variance);
+      return {
+        p: r.p,
+        mean,
+        lower: Math.max(0, mean - 2 * sd),
+        upper: mean + 2 * sd,
+        theoretical: r.theoretical,
+        error: r.theoretical != null ? Math.abs(mean - r.theoretical) : null,
+        errorPercent: r.theoretical != null ? Math.abs(mean - r.theoretical) / r.theoretical * 100 : null
+      };
+    });
+  // ---------------------------------------------------------------------
+
   const [rangeDisplayCurves, setRangeDisplayCurves] = useState({
     experimental: true,
     theoreticalAmp: true,
@@ -3416,8 +3329,91 @@ function CompleteDistributedComputingSimulator() {
   });
   const [comparisonResults, setComparisonResults] = useState(null);
   const animationTimerRef = useRef(null);
+  // al nivel superior de ApproximateLVL.jsx, junto al resto de useState:
+  const cancelRef = useRef(false);
+
+  function handleRunCancel() {
+    if (!isRunning) {
+      setIsRunning(true);
+      runRangeExperiments();       // tu función actual que arranca la simulación
+    } else {
+      setIsRunning(false);
+      cancelRangeExperiments();    // asegúrate de que esta función interrumpa runRangeExperiments
+    }
+  }
+
+  function cancelRangeExperiments() {
+  cancelRef.current = true;
+} 
+
+
+
+
 
   // Helper functions
+
+
+  // Obtener las discrepancias para un valor específico de p
+  function getDiscrepanciesForP(statsData, p) {
+    if (!statsData || !statsData.experimentResults) return [];
+    
+    // Buscar los resultados para este valor de p
+    const pResults = statsData.experimentResults.find(result => 
+      Math.abs(result.p - p) < 0.001 // Tolerancia para comparación de flotantes
+    );
+    
+    if (!pResults || !pResults.discrepancies) return [];
+    
+    return pResults.discrepancies;
+  }
+
+  // Obtener el valor teórico para un p específico
+  function getTheoreticalForP(experimentalResults, p) {
+    if (!experimentalResults || experimentalResults.length === 0) return null;
+    
+    const result = experimentalResults.find(r => 
+      Math.abs(r.p - p) < 0.001
+    );
+    
+    return result ? result.theoretical : null;
+  }
+
+  // Obtener la media experimental para un p específico
+  function getExperimentalMeanForP(statsData, p) {
+    const discrepancies = getDiscrepanciesForP(statsData, p);
+    if (discrepancies.length === 0) return null;
+    
+    return discrepancies.reduce((a, b) => a + b, 0) / discrepancies.length;
+  }
+
+
+  const prepareStatsData = (experimentalResults) => {
+    // Extraer valores únicos de p
+    const pValues = [...new Set(experimentalResults.map(r => r.p))].sort((a, b) => a - b);
+    
+    // Reorganizar los datos por p
+    const experimentResults = pValues.map(p => {
+      const resultsForP = experimentalResults.filter(r => Math.abs(r.p - p) < 0.001);
+      
+      // Si hay múltiples resultados para el mismo p, son repeticiones
+      const allDiscrepancies = resultsForP.map(r => r.discrepancy);
+      
+      return {
+        p,
+        discrepancies: allDiscrepancies,
+        mean: allDiscrepancies.reduce((a, b) => a + b, 0) / allDiscrepancies.length,
+        theoretical: resultsForP[0]?.theoretical || null,
+        algorithm: resultsForP[0]?.algorithm || null
+      };
+    });
+    
+    return {
+      experimentResults,
+      pValues,
+      usedRepetitions: experimentalResults.length / pValues.length
+    };
+  };
+
   function addLog(message, type = "info") {
     const timestamp = new Date().toLocaleTimeString();
     let prefix = "";
@@ -3456,13 +3452,16 @@ function CompleteDistributedComputingSimulator() {
   // Run range experiments with progressive visualization
   function runRangeExperiments() {
     if (isRunning) return;
-    
-    // Clear previous results
+
+    // Reset cancellation flag
+    cancelRef.current = false;
+
+    // Clear previous results & reset UI state
     setExperimentalResults([]);
     setIsRunning(true);
     setProgress(0);
     setCurrentRepetition(0);
-    
+
     // Get current configuration
     const initialProcessValues = getInitialValues();
     const { minP, maxP, steps, customSteps, customStepValue } = rangeExperiments;
@@ -3471,140 +3470,184 @@ function CompleteDistributedComputingSimulator() {
     const actualRepetitions = repetitions;
     const actualSteps = customSteps ? customStepValue : steps;
     const processCount = initialProcessValues.length;
-    
-    // Count processes with value 0 (for theoretical calculations)
+
+    // Count zero-valued processes
     let m = 0;
     initialProcessValues.forEach(val => {
-      if (val === 0 || val === 0.0) m++;
+      if (val === 0) m++;
     });
-    
-    // Log the start of the experiment
+
+    // Log start
     addLog(`Starting simulation with ${processCount} processes`);
-    addLog(`Values: [${initialProcessValues.map(v => v.toFixed(2)).join(", ")}], Rounds: ${actualRounds}, Repetitions: ${actualRepetitions}, Steps: ${actualSteps}`);
-    
-    // Warn about theoretical approximation for multi-round n > 2 processes
+    addLog(
+      `Values: [${initialProcessValues
+        .map(v => v.toFixed(2))
+        .join(", ")}], Rounds: ${actualRounds}, Repetitions: ${actualRepetitions}, Steps: ${actualSteps}`
+    );
     if (actualRounds > 1 && processCount > 2) {
-      addLog(`Note: Theoretical values for ${processCount} processes with ${actualRounds} rounds use approximation`, "warning");
+      addLog(
+        `Note: Theoretical values for ${processCount} processes with ${actualRounds} rounds use approximation`,
+        "warning"
+      );
     }
-    
-    // Generate probability points to test
-    const stepSize = (maxP - minP) / (Math.max(actualSteps - 1, 1));
+
+    // Generate probability points
+    const stepSize = (maxP - minP) / Math.max(actualSteps - 1, 1);
     const allProbabilities = [];
     for (let i = 0; i < actualSteps; i++) {
       allProbabilities.push(minP + i * stepSize);
     }
-    
-    // Initialize results array
-    const results = [];
-    for (let i = 0; i < allProbabilities.length; i++) {
-      const p = allProbabilities[i];
-      const actualAlgorithm = forcedAlgorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : forcedAlgorithm;
-      
-      // Calculate theoretical discrepancy using n-process formula
-      // FIXED: Now correctly accounts for multiple rounds
+
+    // Pre-compute theoretical and prepare results array
+    const results = allProbabilities.map(p => {
+      const actualAlgorithm =
+        forcedAlgorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : forcedAlgorithm;
       let theoretical;
+
       if (processCount === 2) {
-        // For 2 processes, use exact multi-round formula
         theoretical = SimulationEngine.calculateExpectedDiscrepancyMultiRound(
-          p, actualRounds, actualAlgorithm
+          p,
+          actualRounds,
+          actualAlgorithm
         );
-        
-        // DEBUG: Let's see what's happening
-        console.log(`DEBUG: p=${p.toFixed(2)}, algorithm=${actualAlgorithm}, rounds=${actualRounds}, theoretical=${theoretical.toFixed(6)}`);
       } else {
-        // For n > 2 processes, theoretical formula is only available for 1 round
-        // For multiple rounds, we approximate by applying the reduction factor
-        const singleRoundTheoretical = SimulationEngine.calculateExpectedDiscrepancyNProcesses(
-          p, processCount, m, actualAlgorithm, actualMeetingPoint
-        );
-        
+        const singleRoundTheoretical =
+          SimulationEngine.calculateExpectedDiscrepancyNProcesses(
+            p,
+            processCount,
+            m,
+            actualAlgorithm,
+            actualMeetingPoint
+          );
         if (actualRounds === 1) {
           theoretical = singleRoundTheoretical;
         } else {
-          // Approximate multi-round behavior for n > 2 processes
-          // Apply the theoretical reduction factor for each additional round
           const q = 1 - p;
-          const reductionFactor = actualAlgorithm === "AMP" ? q : (p*p + q*q);
-          theoretical = singleRoundTheoretical * Math.pow(reductionFactor, actualRounds - 1);
+          const reductionFactor =
+            actualAlgorithm === "AMP" ? q : p * p + q * q;
+          theoretical =
+            singleRoundTheoretical * Math.pow(reductionFactor, actualRounds - 1);
         }
-        
-        // DEBUG: Let's see what's happening for n>2
-        console.log(`DEBUG n>2: p=${p.toFixed(2)}, processCount=${processCount}, m=${m}, algorithm=${actualAlgorithm}, rounds=${actualRounds}, theoretical=${theoretical.toFixed(6)}`);
       }
-      
-      results.push({
+
+      return {
         p,
         algorithm: actualAlgorithm,
-        fvMethod: (actualAlgorithm === "FV" || (forcedAlgorithm === "auto" && p <= 0.5)) && processCount > 2 ? fvMethod : null,
+        fvMethod:
+          (actualAlgorithm === "FV" ||
+            (forcedAlgorithm === "auto" && p <= 0.5)) &&
+          processCount > 2
+            ? fvMethod
+            : null,
         theoretical,
         discrepancy: 0,
         samples: 0,
-        discrepancies: []
-      });
-    }
-    
-    // Show initial empty results
+        discrepancies: [] // Este array guardará todas las discrepancias para cada p
+      };
+    });
+
+    // Show initial empty curve
     setExperimentalResults(results);
-    
-    // Run repetitions one by one to see the curve evolve
+
+    // Begin repetitions
     let currentRep = 0;
-    
     function runNextRepetition() {
-      if (currentRep >= actualRepetitions) {
-        // All repetitions completed
+      // Check for cancellation
+      if (cancelRef.current) {
         setIsRunning(false);
-        setProgress(100);
-        addLog(`Simulation completed with ${results.length} data points x ${actualRepetitions} repetitions`, "success");
+        addLog("Simulation cancelled by user", "warning");
         return;
       }
-      
-      // Update current repetition in UI
-      setCurrentRepetition(currentRep + 1);
-      
-      // For each probability point, run one more repetition
-      for (let i = 0; i < allProbabilities.length; i++) {
-        const p = allProbabilities[i];
-        const result = results[i];
-        const actualAlgorithm = result.algorithm;
-        
-        // Run one repetition for this probability using n-process simulation
-        const history = SimulationEngine.runNProcessExperiment(
-          initialProcessValues,
-          p,
-          actualRounds,
-          actualAlgorithm,
-          actualMeetingPoint
+
+      // All done?
+      if (currentRep >= actualRepetitions) {
+        setIsRunning(false);
+        setProgress(100);
+        addLog(
+          `Simulation completed with ${results.length} data points x ${actualRepetitions} repetitions`,
+          "success"
         );
         
-        // Get the final discrepancy from the last round
-        const finalDiscrepancy = history[history.length - 1].discrepancy;
+        // PREPARAR DATOS PARA ESTADÍSTICAS Y HISTOGRAMA
+        // Crear la estructura de datos agrupada por p
+        const experimentResults = results.map(result => ({
+          p: result.p,
+          discrepancies: [...result.discrepancies], // Copiar el array de discrepancias
+          mean: result.discrepancy, // Ya está calculado como promedio
+          theoretical: result.theoretical,
+          algorithm: result.algorithm
+        }));
+
+        // Extraer valores únicos de p (ya están ordenados)
+        const pValues = experimentResults.map(r => r.p);
+
+        // Crear el objeto statsData con la estructura correcta
+        const statsData = {
+          experimentResults: experimentResults,
+          pValues: pValues,
+          usedRepetitions: actualRepetitions
+        };
+
+        setStatsData(statsData);
+
+        // Establecer el primer valor de p para el histograma si no hay uno seleccionado
+        if (!selectedPForHistogram || !pValues.includes(selectedPForHistogram)) {
+          setSelectedPForHistogram(pValues[0]);
+        }
+
+        // También actualizar los resultados experimentales para otras gráficas
+        setExperimentalResults([...results]);
         
-        // Update the result
-        result.discrepancies.push(finalDiscrepancy);
-        result.samples = result.discrepancies.length;
-        result.discrepancy = result.discrepancies.reduce((sum, val) => sum + val, 0) / result.samples;
+        return;
       }
-      
-      // Update UI to show the evolving curve
+
+      // Update UI
+      setCurrentRepetition(currentRep + 1);
+
+      // One pass over all probabilities
+      for (let i = 0; i < allProbabilities.length; i++) {
+        if (cancelRef.current) break;
+
+        const history = SimulationEngine.runNProcessExperiment(
+          initialProcessValues,
+          results[i].p,
+          actualRounds,
+          results[i].algorithm,
+          actualMeetingPoint
+        );
+        const finalDiscrepancy = history[history.length - 1].discrepancy;
+
+        // Accumulate - guardar cada discrepancia individual
+        results[i].discrepancies.push(finalDiscrepancy);
+        results[i].samples = results[i].discrepancies.length;
+        // Calcular el promedio actualizado
+        results[i].discrepancy =
+          results[i].discrepancies.reduce((s, x) => s + x, 0) /
+          results[i].samples;
+      }
+
+      // Refresh chart and progress
       setExperimentalResults([...results]);
-      
-      // Update progress
-      const progressValue = Math.round(((currentRep + 1) / actualRepetitions) * 100);
+      const progressValue = Math.round(
+        ((currentRep + 1) / actualRepetitions) * 100
+      );
       setProgress(progressValue);
-      
-      // Increment repetition counter
+
       currentRep++;
-      
-      // Run next repetition after a small delay so the UI can update
-      setTimeout(() => {
-        runNextRepetition();
-      }, 10); // Reduced delay from 50ms to 10ms for faster execution
+      // Schedule next repetition
+      setTimeout(runNextRepetition, 10);
     }
-    
-    // Start with the first repetition
-    setTimeout(() => {
-      runNextRepetition();
-    }, 5);
+
+    // Kick off first repetition
+    setTimeout(runNextRepetition, 5);
+  }
+
+
+
+  function cancelRangeExperiment() {
+  if (!isRunning) return;
+  cancelRef.current = true;   // Señala a runRangeExperiments que detenga el bucle
+  setIsRunning(false);        // Actualiza el estado para ocultar “Running…”
   }
 
   // Compare FV methods (only for 3+ processes)
@@ -4000,272 +4043,250 @@ function CompleteDistributedComputingSimulator() {
       {/* Main Content */}
       <main className="mb-8">
         <div className="flex flex-col lg:flex-row gap-4">
-          {/* Sidebar */}
-          <div className="lg:w-1/4">
-            <div className="bg-white rounded-lg shadow p-4 mb-4">
-              <h2 className="text-lg font-semibold mb-4">🎛️ Simulation Parameters</h2>
-              
-              {/* Process controller */}
-              <NProcessesControl />
-              
-             
-              <div className="mb-4">
-                <h4 className="text-xs font-semibold mb-1">Algorithm Settings:</h4>
-                  <div className="mb-3">
+        {/* Sidebar */}
+        <div className="lg:w-1/4 flex-shrink-0">
+          <div className="bg-white rounded-lg shadow p-6 mb-6 space-y-6">
+            <h2 className="text-lg font-semibold">🎛️ Simulation Parameters</h2>
+            
+            {/* Process controller */}
+            <NProcessesControl />
+
+            {/* Algorithm Settings */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold">Algorithm Settings:</h4>
+              <div className="space-y-2">
+                <div>
                   <label className="block text-xs mb-1">Select algorithm:</label>
-                    <select
-                      value={forcedAlgorithm}
-                      onChange={(e) => {
-                        setForcedAlgorithm(e.target.value);
-                        handleCurveDisplayChange('algorithmChange');
-                      }}
-                      className="w-full p-1 text-sm border border-gray-300 rounded-md"
-                      disabled={isRunning}
-                    >
-                      <option value="auto">Optimized based on probability</option>
-                      <option value="AMP">Use only AMP Algorithm</option>
-                      <option value="FV">Use only FV Algorithm</option>
-                    </select>
-                  </div>
-                  
-                  
-                  <div className="flex items-center mb-4">
-                    <label className="text-sm mr-2">Meeting Point:</label>
+                  <select
+                    value={forcedAlgorithm}
+                    onChange={(e) => {
+                      setForcedAlgorithm(e.target.value);
+                      handleCurveDisplayChange('algorithmChange');
+                    }}
+                    className="w-full p-1 text-sm border border-gray-300 rounded-md"
+                    disabled={isRunning}
+                  >
+                    <option value="auto">Optimized based on probability</option>
+                    <option value="AMP">Use only AMP Algorithm</option>
+                    <option value="FV">Use only FV Algorithm</option>
+                  </select>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <label className="text-sm">Meeting Point:</label>
+                  <input 
+                    type="number" 
+                    min="0" 
+                    max="1" 
+                    step="0.01" 
+                    value={meetingPoint} 
+                    onChange={(e) => setMeetingPoint(Number(e.target.value))} 
+                    className="w-20 p-1 border border-gray-300 rounded-md" 
+                    disabled={isRunning}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Simulation Configuration */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold">Simulation Configuration</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs block mb-1">Rounds:</label>
+                  <div className="flex items-center space-x-2">
                     <input 
                       type="number" 
-                      min="0" 
-                      max="1" 
-                      step="0.01" 
-                      value={meetingPoint} 
-                      onChange={(e) => setMeetingPoint(Number(e.target.value))} 
-                      className="w-20 p-1 border border-gray-300 rounded-md" 
+                      min="1" 
+                      max="50" 
+                      value={rounds} 
+                      onChange={(e) => setRounds(Number(e.target.value))} 
+                      className="w-full p-1 text-sm border border-gray-300 rounded-md" 
                       disabled={isRunning}
                     />
-                  </div>
-                  
-                  
-                </div>
-                
-                <div className="mb-4">
-                  <h3 className="text-sm font-semibold mb-2 pb-1 border-b">Simulation Configuration</h3>
-                  
-                  <div className="grid grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <label className="text-xs block mb-1">Rounds:</label>
-                      <div className="flex items-center">
-                        <input 
-                          type="number" 
-                          min="1" 
-                          max="50" 
-                          value={rounds} 
-                          onChange={(e) => setRounds(Number(e.target.value))} 
-                          className="w-full p-1 text-sm border border-gray-300 rounded-md" 
-                          disabled={isRunning}
-                        />
-                        {rounds > 1 && (
-                          <div className="ml-1 text-xs text-blue-600 cursor-help" title="Simulation will run for multiple rounds, showing the final discrepancy">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                            </svg>
-                          </div>
-                        )}
+                    {rounds > 1 && (
+                      <div className="text-xs text-blue-600 cursor-help" title="Simulation will run for multiple rounds, showing the final discrepancy">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                        </svg>
                       </div>
-                    </div>
-                    <div>
-                      <label className="text-xs block mb-1">Repetitions:</label>
-                      <input 
-                        type="number" 
-                        min="1" 
-                        max="1000" 
-                        value={repetitions} 
-                        onChange={(e) => setRepetitions(Number(e.target.value))} 
-                        className="w-full p-1 text-sm border border-gray-300 rounded-md" 
-                        disabled={isRunning}
-                      />
-                    </div>
+                    )}
                   </div>
-                  
-                  {rounds > 1 && (
-                    <div className="mb-4 bg-blue-50 p-2 rounded text-xs">
-                      <p className="font-medium text-blue-700">Multi-Round Mode</p>
-                      <p className="mt-1">Running simulation for {rounds} rounds. Theory plots and results will show the final discrepancy after all rounds.</p>
-                    </div>
-                  )}
-                  
-                  <h4 className="text-xs font-semibold mb-1">Probability Range Settings:</h4>
-                  <div className="grid grid-cols-2 gap-2 mb-3">
-                    <div>
-                      <label className="block text-xs mb-1">Min Probability:</label>
-                      <input
-                        type="number"
-                        min="0.1"
-                        max="0.4"
-                        step="0.05"
-                        value={rangeExperiments.minP}
-                        onChange={(e) => {
-                          const newValue = parseFloat(e.target.value);
-                          setRangeExperiments((prev) => ({ ...prev, minP: newValue }));
-                        }}
-                        className="w-full p-1 text-sm border border-gray-300 rounded-md"
-                        disabled={isRunning}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs mb-1">Max Probability:</label>
-                      <input
-                        type="number"
-                        min="0.6"
-                        max="0.9"
-                        step="0.05"
-                        value={rangeExperiments.maxP}
-                        onChange={(e) => {
-                          const newValue = parseFloat(e.target.value);
-                          setRangeExperiments((prev) => ({ ...prev, maxP: newValue }));
-                        }}
-                        className="w-full p-1 text-sm border border-gray-300 rounded-md"
-                        disabled={isRunning}
-                      />
-                    </div>
-
+                </div>
                 <div>
-                    <label className="block text-xs mb-1">Steps:</label>
-                    <div className="grid grid-cols-2 gap-1">
-                      <select
-                        value={rangeExperiments.customSteps ? "custom" : rangeExperiments.steps.toString()}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          if (value === "custom") {
-                            setRangeExperiments((prev) => ({ 
-                              ...prev, 
-                              customSteps: true,
-                            }));
-                          } else {
-                            setRangeExperiments((prev) => ({ 
-                              ...prev, 
-                              steps: parseInt(value), 
-                              customSteps: false 
-                            }));
-                          }
-                        }}
-                        className="w-full p-1 text-sm border border-gray-300 rounded-md"
-                        disabled={isRunning}
-                      >
-                        <option value="51">Default</option>
-                        <option value="3">3 points</option>
-                        <option value="5">5 points</option>
-                        <option value="10">10 points</option>
-                        <option value="15">15 points</option>
-                        <option value="25">25 points</option>
-                        <option value="custom">Custom</option>
-                      </select>
-                      
-                      {rangeExperiments.customSteps && (
-                        <input
-                          type="number"
-                          min="2"
-                          max="100"
-                          value={rangeExperiments.customStepValue}
-                          onChange={(e) => {
-                            const value = Math.max(2, Math.min(100, parseInt(e.target.value) || 2));
-                            setRangeExperiments((prev) => ({ 
-                              ...prev, 
-                              customStepValue: value,
-                              steps: value
-                            }));
-                          }}
-                          className="w-full p-1 text-sm border border-gray-300 rounded-md"
-                          disabled={isRunning}
-                        />
-                      )}
-                    </div>
-                  </div>
-                </div>
-                
-                
-                <h4 className="text-xs font-semibold mb-1">Display Options:</h4>
-                <div className="grid grid-cols-1 gap-1 mb-3">
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      id="showExperimental"
-                      checked={rangeDisplayCurves.experimental}
-                      onChange={() => handleCurveDisplayChange('experimental')}
-                      className="mr-2"
-                      disabled={isRunning}
-                    />
-                    <label htmlFor="showExperimental" className="text-xs">Show Experimental Curve</label>
-                  </div>
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      id="showTheoreticalAmp"
-                      checked={rangeDisplayCurves.theoreticalAmp}
-                      onChange={() => handleCurveDisplayChange('theoreticalAmp')}
-                      className="mr-2"
-                      disabled={isRunning}
-                    />
-                    <label htmlFor="showTheoreticalAmp" className="text-xs">Show AMP Curve</label>
-                  </div>
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      id="showTheoreticalFv"
-                      checked={rangeDisplayCurves.theoreticalFv}
-                      onChange={() => handleCurveDisplayChange('theoreticalFv')}
-                      className="mr-2"
-                      disabled={isRunning}
-                    />
-                    <label htmlFor="showTheoreticalFv" className="text-xs">Show FV Curve</label>
-                  </div>
+                  <label className="text-xs block mb-1">Repetitions:</label>
+                  <input 
+                    type="number" 
+                    min="1" 
+                    max="1000" 
+                    value={repetitions} 
+                    onChange={(e) => setRepetitions(Number(e.target.value))} 
+                    className="w-full p-1 text-sm border border-gray-300 rounded-md" 
+                    disabled={isRunning}
+                  />
                 </div>
               </div>
-              
-              {activeTab === 'theory' && (
-                <button
-                  onClick={runRangeExperiments}
-                  disabled={isRunning}
-                  className={`w-full py-3 px-4 rounded-md font-semibold text-white ${isRunning ? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700'}`}
-                >
-                  {isRunning ? 'Running...' : 'Run'}
-                </button>
-              )}
-            </div>
-            
-            <div className="bg-white rounded-lg shadow p-4">
-              <div className="flex justify-between items-center mb-2">
-                <h3 className="text-sm font-semibold">Event Log</h3>
-                <button 
-                  onClick={() => setShowLogs(!showLogs)} 
-                  className="text-xs bg-gray-100 hover:bg-gray-200 py-1 px-2 rounded"
-                >
-                  {showLogs ? 'Hide' : 'Show'} Log
-                </button>
-              </div>
-              
-              {showLogs && (
-                <div className="h-40 overflow-y-auto bg-gray-50 p-2 rounded text-xs font-mono">
-                  {logs.map((log, index) => {
-                    // Determine log type for styling
-                    const isError = log.includes("ERROR");
-                    const isWarning = log.includes("WARNING");
-                    const isSuccess = log.includes("SUCCESS");
-                    
-                    let logStyle = "text-gray-700"; // default
-                    if (isError) logStyle = "text-red-600 font-semibold";
-                    if (isWarning) logStyle = "text-orange-600";
-                    if (isSuccess) logStyle = "text-green-600";
-                    
-                    return (
-                      <div key={index} className={`whitespace-pre-wrap mb-1 ${logStyle}`}>
-                        {log}
-                      </div>
-                    );
-                  })}
+              {rounds > 1 && (
+                <div className="bg-blue-50 p-2 rounded text-xs">
+                  <p className="font-medium text-blue-700">Multi-Round Mode</p>
+                  <p className="mt-1">Running simulation for {rounds} rounds. Theory plots and results will show the final discrepancy after all rounds.</p>
                 </div>
               )}
             </div>
+
+            {/* Probability Range Settings */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold">Probability Range Settings:</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs mb-1">Min Probability:</label>
+                  <input
+                    type="number"
+                    min="0.1"
+                    max="0.4"
+                    step="0.05"
+                    value={rangeExperiments.minP}
+                    onChange={(e) => {
+                      const newValue = parseFloat(e.target.value);
+                      setRangeExperiments((prev) => ({ ...prev, minP: newValue }));
+                    }}
+                    className="w-full p-1 text-sm border border-gray-300 rounded-md"
+                    disabled={isRunning}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1">Max Probability:</label>
+                  <input
+                    type="number"
+                    min="0.6"
+                    max="0.9"
+                    step="0.05"
+                    value={rangeExperiments.maxP}
+                    onChange={(e) => {
+                      const newValue = parseFloat(e.target.value);
+                      setRangeExperiments((prev) => ({ ...prev, maxP: newValue }));
+                    }}
+                    className="w-full p-1 text-sm border border-gray-300 rounded-md"
+                    disabled={isRunning}
+                  />
+                </div>
+                {/*
+                <div>
+                  <label className="block text-xs mb-1">Steps:</label>
+                  <input
+                    type="number"
+                    min="100"
+                    value={rangeExperiments.steps}
+                    onChange={(e) => {
+                      const v = Math.max(100, parseInt(e.target.value, 10) || 100);
+                      setRangeExperiments(prev => ({
+                        ...prev,
+                        steps: v,
+                        customSteps: false,
+                        customStepValue: v
+                      }));
+                    }}
+                    className="w-full p-1 text-sm border border-gray-300 rounded-md"
+                    disabled={isRunning}
+                  />
+                </div>
+                */}
+              </div>
+            </div>
+
+            {/* Display Options */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold">Display Options:</h4>
+              <div className="grid grid-cols-1 gap-2">
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="showExperimental"
+                    checked={rangeDisplayCurves.experimental}
+                    onChange={() => handleCurveDisplayChange('experimental')}
+                    className="mr-2"
+                    disabled={isRunning}
+                  />
+                  <label htmlFor="showExperimental" className="text-xs">Show Experimental Curve</label>
+                </div>
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="showTheoreticalAmp"
+                    checked={rangeDisplayCurves.theoreticalAmp}
+                    onChange={() => handleCurveDisplayChange('theoreticalAmp')}
+                    className="mr-2"
+                    disabled={isRunning}
+                  />
+                  <label htmlFor="showTheoreticalAmp" className="text-xs">Show AMP Curve</label>
+                </div>
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="showTheoreticalFv"
+                    checked={rangeDisplayCurves.theoreticalFv}
+                    onChange={() => handleCurveDisplayChange('theoreticalFv')}
+                    className="mr-2"
+                    disabled={isRunning}
+                  />
+                  <label htmlFor="showTheoreticalFv" className="text-xs">Show FV Curve</label>
+                </div>
+              </div>
+            </div>
+
+            {/* Run/Cancel Button */}
+            {/* Run/Cancel Button */}
+            {(activeTab === 'theory' || activeTab === 'statistics') && (
+              <button
+                onClick={() => {
+                  if (!isRunning) {
+                    runRangeExperiments();
+                  } else {
+                    cancelRangeExperiments();
+                  }
+                }}
+                className={`w-full py-3 px-4 rounded-md font-semibold text-white ${
+                  isRunning ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
+                }`}
+              >
+                {isRunning ? 'Cancel' : 'Run'}
+              </button>
+            )}
+
           </div>
+
+          {/* Event Log */}
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-sm font-semibold">Event Log</h3>
+              <button 
+                onClick={() => setShowLogs(!showLogs)} 
+                className="text-xs bg-gray-100 hover:bg-gray-200 py-1 px-2 rounded"
+              >
+                {showLogs ? 'Hide' : 'Show'} Log
+              </button>
+            </div>
+            {showLogs && (
+              <div className="h-40 overflow-y-auto bg-gray-50 p-2 rounded text-xs font-mono space-y-1">
+                {logs.map((log, index) => {
+                  const isError = log.includes("ERROR");
+                  const isWarning = log.includes("WARNING");
+                  const isSuccess = log.includes("SUCCESS");
+                  let logStyle = "text-gray-700";
+                  if (isError) logStyle = "text-red-600 font-semibold";
+                  if (isWarning) logStyle = "text-orange-600";
+                  if (isSuccess) logStyle = "text-green-600";
+                  return (
+                    <div key={index} className={`${logStyle}`}>
+                      {log}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+
           
           {/* Main Content Area */}
           <div className="lg:flex-1">
@@ -4474,6 +4495,7 @@ function CompleteDistributedComputingSimulator() {
               </div>
             )}
             
+
             {/* Statistical Analysis tab */}
             {activeTab === 'statistics' && (
               <div>
@@ -4536,136 +4558,399 @@ function CompleteDistributedComputingSimulator() {
                       
                       <div className="mb-4">
                         <h4 className="font-medium mb-2">Discrepancy Distribution</h4>
-                        <div className="h-64">
+                        <div className="h-72">
                           <ResponsiveContainer width="100%" height="100%">
-                            <LineChart
-                              data={experimentalResults.sort((a, b) => a.p - b.p)}
+                            <ComposedChart
+                              data={(() => {
+                                // Prepare data with confidence intervals
+                                const sortedData = experimentalResults.sort((a, b) => a.p - b.p);
+                                
+                                return sortedData.map(result => {
+                                  // Calculate statistics for confidence intervals
+                                  let mean = result.discrepancy;
+                                  let upperBound = mean;
+                                  let lowerBound = mean;
+                                  
+                                  if (result.discrepancies && result.discrepancies.length > 1) {
+                                    // Calculate standard deviation
+                                    const variance = result.discrepancies.reduce(
+                                      (sum, val) => sum + Math.pow(val - mean, 2), 0
+                                    ) / result.discrepancies.length;
+                                    const stdDev = Math.sqrt(variance);
+                                    
+                                    // 95% confidence interval (approximately mean ± 2*SD)
+                                    upperBound = mean + 2 * stdDev;
+                                    lowerBound = Math.max(0, mean - 2 * stdDev); // Ensure non-negative
+                                  }
+                                  
+                                  return {
+                                    ...result,
+                                    upperBound,
+                                    lowerBound,
+                                    // Para el área, necesitamos el "gap" entre los límites
+                                    bandLower: lowerBound,
+                                    bandGap: upperBound - lowerBound
+                                  };
+                                });
+                              })()}
                               margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
                             >
                               <CartesianGrid strokeDasharray="3 3" />
                               <XAxis 
                                 dataKey="p" 
+                                type="number"
+                                domain={[0, 1]}
+                                ticks={[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]}
+                                tickFormatter={v => v.toFixed(1)}
                                 label={{ value: 'Probability (p)', position: 'insideBottom', offset: -5 }}
                               />
                               <YAxis 
                                 label={{ value: 'Discrepancy', angle: -90, position: 'insideLeft', offset: -5 }}
                               />
-                              <Tooltip formatter={(value) => value.toFixed(6)} />
+                              <Tooltip 
+                                content={({ active, payload, label }) => {
+                                  if (active && payload && payload.length > 0) {
+                                    const data = payload[0].payload;
+                                    return (
+                                      <div className="bg-white p-2 border rounded shadow-md">
+                                        <p className="font-semibold">p = {label.toFixed(2)}</p>
+                                        <p>Experimental: {data.discrepancy.toFixed(6)}</p>
+                                        {data.theoretical && (
+                                          <p>Theoretical: {data.theoretical.toFixed(6)}</p>
+                                        )}
+                                        {data.discrepancies && data.discrepancies.length > 1 && (
+                                          <>
+                                            <p className="text-xs text-gray-600 mt-1">
+                                              95% CI: [{data.lowerBound.toFixed(6)}, {data.upperBound.toFixed(6)}]
+                                            </p>
+                                            <p className="text-xs text-gray-600">
+                                              Based on {data.discrepancies.length} repetitions
+                                            </p>
+                                          </>
+                                        )}
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                }}
+                              />
                               <Legend />
+
+                              {/* Banda de confianza mejorada */}
+                              <Area
+                                type="monotone"
+                                dataKey="bandLower"
+                                stackId="1"
+                                stroke="none"
+                                fill="#e3f2fd"
+                                fillOpacity={0}
+                              />
+                              <Area
+                                type="monotone"
+                                dataKey="bandGap"
+                                stackId="1"
+                                stroke="none"
+                                fill="#e3f2fd"
+                                fillOpacity={0.6}
+                              />
+                              
+                              {/* Líneas de límites para mayor claridad */}
+                              <Line
+                                type="monotone"
+                                dataKey="upperBound"
+                                stroke="#3498db"
+                                strokeWidth={1}
+                                strokeDasharray="5 5"
+                                dot={false}
+                                name="Upper 95% CI"
+                                opacity={0.7}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="lowerBound"
+                                stroke="#3498db"
+                                strokeWidth={1}
+                                strokeDasharray="5 5"
+                                dot={false}
+                                name="Lower 95% CI"
+                                opacity={0.7}
+                              />
+                              
+                              {/* Main experimental line con mejor contraste */}
                               <Line 
                                 type="monotone" 
                                 dataKey="discrepancy" 
                                 name="Experimental Discrepancy" 
-                                stroke="#8884d8" 
-                                dot={{ r: 3 }}
+                                stroke="#1976d2"  // Azul fuerte
+                                strokeWidth={3}    // Más gruesa
+                                dot={{ r: 4, fill: '#1976d2', strokeWidth: 0 }}
+                                zIndex={10}        // Para que esté encima
                               />
+                              
+                              {/* Theoretical line con mejor visibilidad */}
                               {experimentalResults[0].theoretical && (
                                 <Line 
                                   type="monotone" 
                                   dataKey="theoretical" 
                                   name="Theoretical Discrepancy" 
-                                  stroke="#82ca9d" 
+                                  stroke="#d32f2f"  // Rojo para mejor contraste
                                   strokeDasharray="5 5"
-                                  dot={{ r: 3 }}
+                                  strokeWidth={2.5}
+                                  dot={{ r: 3, fill: '#d32f2f', strokeWidth: 0 }}
+                                  zIndex={10}
                                 />
                               )}
-                            </LineChart>
+                            </ComposedChart>
                           </ResponsiveContainer>
                         </div>
                       </div>
                       
                       <div className="mb-4">
+                        <label className="flex items-center mb-4">
+                          <input
+                            type="checkbox"
+                            checked={fixYAxis}
+                            onChange={() => setFixYAxis(!fixYAxis)}
+                            className="mr-2"
+                          />
+                          Fixed Y-Axes
+                        </label>
+
                         <h4 className="font-medium mb-2">Error Analysis</h4>
                         {experimentalResults[0].theoretical ? (
-                          <div className="h-64">
+                          <div className="h-72">
                             <ResponsiveContainer width="100%" height="100%">
                               <ComposedChart
-                                data={experimentalResults.map(r => ({
-                                  ...r,
-                                  error: Math.abs(r.discrepancy - r.theoretical),
-                                  errorPercent: r.theoretical ? 
-                                    Math.abs(r.discrepancy - r.theoretical) / r.theoretical * 100 : 0
-                                })).sort((a, b) => a.p - b.p)}
+                                data={(() => {
+                                  const errorData = experimentalResults.map(r => {
+                                    const error = Math.abs(r.discrepancy - r.theoretical);
+                                    const errorPercent = r.theoretical !== 0 ? (error / r.theoretical) * 100 : 0;
+                                    
+                                    let errorUpperBound = error;
+                                    let errorLowerBound = error;
+                                    let errorPercentUpperBound = errorPercent;
+                                    let errorPercentLowerBound = errorPercent;
+                                    
+                                    if (r.discrepancies && r.discrepancies.length > 1 && r.theoretical !== null) {
+                                      const mean = r.discrepancies.reduce((a, b) => a + b, 0) / r.discrepancies.length;
+                                      const variance = r.discrepancies.reduce(
+                                        (sum, val) => sum + Math.pow(val - mean, 2), 0
+                                      ) / (r.discrepancies.length - 1);
+                                      const stdDev = Math.sqrt(variance);
+                                      
+                                      const upperDiscrepancy = mean + 2 * stdDev;
+                                      const lowerDiscrepancy = mean - 2 * stdDev;
+                                      
+                                      const errorFromUpper = Math.abs(r.theoretical - upperDiscrepancy);
+                                      const errorFromLower = Math.abs(r.theoretical - lowerDiscrepancy);
+                                      
+                                      if (r.theoretical >= lowerDiscrepancy && r.theoretical <= upperDiscrepancy) {
+                                        errorLowerBound = 0;
+                                        errorUpperBound = Math.max(errorFromUpper, errorFromLower);
+                                      } else {
+                                        errorLowerBound = Math.min(errorFromUpper, errorFromLower);
+                                        errorUpperBound = Math.max(errorFromUpper, errorFromLower);
+                                      }
+                                      
+                                      if (r.theoretical !== 0) {
+                                        errorPercentLowerBound = (errorLowerBound / Math.abs(r.theoretical)) * 100;
+                                        errorPercentUpperBound = (errorUpperBound / Math.abs(r.theoretical)) * 100;
+                                      }
+                                    }
+                                    
+                                    return {
+                                      ...r,
+                                      error,
+                                      errorPercent,
+                                      errorUpperBound,
+                                      errorLowerBound,
+                                      errorPercentUpperBound,
+                                      errorPercentLowerBound
+                                    };
+                                  }).sort((a, b) => a.p - b.p);
+                                  
+                                  return errorData;
+                                })()}
                                 margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
                               >
                                 <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis dataKey="p" />
-                                <YAxis 
-                                  yAxisId="left" 
+                                <XAxis 
+                                  dataKey="p" 
+                                  type="number"
+                                  domain={[0, 1]}
+                                  ticks={[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]}
+                                  tickFormatter={v => v.toFixed(1)}
+                                  label={{ value: 'Probability (p)', position: 'insideBottom', offset: -5 }}
+                                />
+
+                                <YAxis
+                                  yAxisId="left"
+                                  domain={fixYAxis ? [0, 1] : [0, (dataMax) => {
+                                    // Calcular el factor de escala basado en el eje derecho
+                                    const errorPercentValues = experimentalResults.map(r => {
+                                      const error = Math.abs(r.discrepancy - r.theoretical);
+                                      const errorPercent = r.theoretical !== 0 ? (error / r.theoretical) * 100 : 0;
+                                      return errorPercent;
+                                    });
+                                    
+                                    const validData = errorPercentValues.filter(d => !isNaN(d) && isFinite(d));
+                                    const maxErrorPercent = validData.length > 0 ? Math.max(...validData) : 10;
+                                    
+                                    // Factor de escala: qué proporción del 100% estamos mostrando
+                                    const scaleFactor = (maxErrorPercent * 1.1) / 100;
+                                    
+                                    // Aplicar el mismo factor de escala al eje izquierdo
+                                    return scaleFactor;
+                                  }]}
                                   label={{ value: 'Absolute Error', angle: -90, position: 'insideLeft', offset: -5 }}
                                 />
-                                <YAxis 
-                                  yAxisId="right" 
-                                  orientation="right" 
-                                  label={{ value: 'Error %', angle: 90, position: 'insideRight', offset: -5 }}
-                                />
-                                <Tooltip formatter={(value) => value.toFixed(6)} />
-                                <Legend />
-                                <Line 
-                                  yAxisId="left"
-                                  type="monotone" 
-                                  dataKey="error" 
-                                  name="Absolute Error" 
-                                  stroke="#ff7300" 
-                                />
-                                <Bar 
+
+                                <YAxis
                                   yAxisId="right"
-                                  dataKey="errorPercent" 
-                                  name="Error %" 
-                                  fill="#8884d8" 
+                                  orientation="right"
+                                  domain={fixYAxis ? [0, 100] : [0, (dataMax) => {
+                                    const errorPercentValues = experimentalResults.map(r => {
+                                      const error = Math.abs(r.discrepancy - r.theoretical);
+                                      const errorPercent = r.theoretical !== 0 ? (error / r.theoretical) * 100 : 0;
+                                      return errorPercent;
+                                    });
+                                    
+                                    const validData = errorPercentValues.filter(d => !isNaN(d) && isFinite(d));
+                                    const maxValue = validData.length > 0 ? Math.max(...validData) : 10;
+                                    
+                                    return Math.ceil(maxValue * 1.1);
+                                  }]}
+                                  label={{ value: 'Error %', angle: 90, position: 'insideRight', offset: -5 }}
+                                  tickFormatter={v => `${v.toFixed(0)}%`}
+                                />
+
+                                <Tooltip 
+                                  content={({ active, payload, label }) => {
+                                    if (active && payload && payload.length > 0) {
+                                      const data = payload[0].payload;
+                                      return (
+                                        <div className="bg-white p-2 border rounded shadow-md">
+                                          <p className="font-semibold">p = {label.toFixed(2)}</p>
+                                          <p>Experimental: {data.discrepancy.toFixed(6)}</p>
+                                          {data.theoretical && (
+                                            <p>Theoretical: {data.theoretical.toFixed(6)}</p>
+                                          )}
+                                          <hr className="my-1" />
+                                          <p>Absolute Error: {data.error.toFixed(6)}</p>
+                                          {data.errorUpperBound !== data.error && (
+                                            <p className="text-xs text-gray-600">
+                                              95% CI: [{data.errorLowerBound.toFixed(6)}, {data.errorUpperBound.toFixed(6)}]
+                                            </p>
+                                          )}
+                                          <p>Error %: {data.errorPercent.toFixed(2)}%</p>
+                                          {data.errorPercentUpperBound !== data.errorPercent && (
+                                            <p className="text-xs text-gray-600">
+                                              95% CI: [{data.errorPercentLowerBound.toFixed(2)}%, {data.errorPercentUpperBound.toFixed(2)}%]
+                                            </p>
+                                          )}
+                                        </div>
+                                      );
+                                    }
+                                    return null;
+                                  }}
+                                />
+                                <Legend />
+
+                                <Area
+                                  yAxisId="left"
+                                  type="monotone"
+                                  dataKey="errorUpperBound"
+                                  stroke="none"
+                                  fill="#ff7300"
+                                  fillOpacity={0.2}
+                                />
+                                <Area
+                                  yAxisId="left"
+                                  type="monotone"
+                                  dataKey="errorLowerBound"
+                                  stroke="none"
+                                  fill="white"
+                                  fillOpacity={1}
+                                />
+
+                                <Line
+                                  yAxisId="left"
+                                  type="monotone"
+                                  dataKey="errorUpperBound"
+                                  stroke="#ff7300"
+                                  strokeWidth={1}
+                                  strokeDasharray="5 5"
+                                  dot={false}
+                                  name="Upper 95% CI"
+                                  opacity={0.5}
+                                />
+                                <Line
+                                  yAxisId="left"
+                                  type="monotone"
+                                  dataKey="errorLowerBound"
+                                  stroke="#ff7300"
+                                  strokeWidth={1}
+                                  strokeDasharray="5 5"
+                                  dot={false}
+                                  name="Lower 95% CI"
+                                  opacity={0.5}
+                                />
+
+                                <Line
+                                  yAxisId="left"
+                                  type="monotone"
+                                  dataKey="error"
+                                  name="Absolute Error"
+                                  stroke="#ff7300"
+                                  strokeWidth={2}
+                                  dot={{ r: 3 }}
+                                />
+
+                                <Bar
+                                  yAxisId="right"
+                                  dataKey="errorPercent"
+                                  name="Error %"
+                                  fill="#8884d8"
+                                  fillOpacity={0.6}
                                 />
                               </ComposedChart>
                             </ResponsiveContainer>
                           </div>
                         ) : (
-                          <p className="text-gray-500 italic">Theoretical predictions are not available for comparison with {processValues.length} processes with this distribution.</p>
+                          <p className="text-gray-500 italic">
+                            Theoretical predictions are not available for comparison.
+                          </p>
                         )}
                       </div>
-                      
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">p</th>
-                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Algorithm</th>
-                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Experimental</th>
-                              {experimentalResults[0].theoretical && (
-                                <>
-                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Theoretical</th>
-                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Error</th>
-                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Error %</th>
-                                </>
-                              )}
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {experimentalResults.sort((a, b) => a.p - b.p).map((result, idx) => (
-                              <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                <td className="px-3 py-2 whitespace-nowrap text-sm">{result.p.toFixed(2)}</td>
-                                <td className="px-3 py-2 whitespace-nowrap text-sm">
-                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                    result.algorithm === 'AMP' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                                  }`}>
-                                    {result.algorithm}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-2 whitespace-nowrap text-sm font-mono">{result.discrepancy.toFixed(6)}</td>
-                                {result.theoretical && (
-                                  <>
-                                    <td className="px-3 py-2 whitespace-nowrap text-sm font-mono">{result.theoretical.toFixed(6)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-sm font-mono">
-                                      {Math.abs(result.discrepancy - result.theoretical).toFixed(6)}
-                                    </td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-sm font-mono">
-                                      {(Math.abs(result.discrepancy - result.theoretical) / result.theoretical * 100).toFixed(2)}%
-                                    </td>
-                                  </>
-                                )}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+
+                      {/* Distribution of Final Discrepancies Histogram */}
+                      {statsData && statsData.experimentResults && (
+                        <div className="mb-4">
+                          {/* Selector de p si hay múltiples valores */}
+                          {statsData.pValues && statsData.pValues.length > 1 && (
+                            <div className="mb-3 flex items-center">
+                              <label className="text-sm font-medium mr-2">Select p value to visualize:</label>
+                              <select 
+                                value={selectedPForHistogram || statsData.pValues[0]} 
+                                onChange={(e) => setSelectedPForHistogram(parseFloat(e.target.value))}
+                                className="border rounded px-3 py-1 text-sm"
+                              >
+                                {statsData.pValues.map(p => (
+                                  <option key={p} value={p}>p = {p.toFixed(2)}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          
+                          <HistogramPlot 
+                            discrepancies={getDiscrepanciesForP(statsData, selectedPForHistogram || statsData.pValues[0])}
+                            theoretical={getTheoreticalForP(experimentalResults, selectedPForHistogram || statsData.pValues[0])}
+                            experimental={getExperimentalMeanForP(statsData, selectedPForHistogram || statsData.pValues[0])}
+                            repetitions={statsData.usedRepetitions}
+                            selectedP={selectedPForHistogram || statsData.pValues[0]}
+                          />
+                        </div>
+                      )}
                       
                       <div className="mt-6 text-center">
                         <button
