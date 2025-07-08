@@ -1547,64 +1547,50 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
 
     // Use theoretical expected discrepancy for binomial parameters
     const expectedD = theoretical !== null && theoretical !== undefined ? theoretical : observedMean;
-    const n = repetitions || validDiscrepancies.length;
     
-    // For binomial distribution of average discrepancy over n runs:
-    // Mean = expected discrepancy (D)
-    // Variance = D(1-D)/n (for averaging)
-    const theoreticalVariance = expectedD * (1 - expectedD) / n;
-    const theoreticalSD = Math.sqrt(theoreticalVariance);
+    // Calculate theoretical SD for binomial: sqrt(D(1-D)/n)
+    const theoreticalSD = Math.sqrt(expectedD * (1 - expectedD) / validDiscrepancies.length);
 
-    // Create histogram bins
+    // Create bins for histogram
+    const numBins = Math.min(30, Math.ceil(Math.sqrt(validDiscrepancies.length)));
     const min = Math.min(...validDiscrepancies);
     const max = Math.max(...validDiscrepancies);
+    const binWidth = (max - min) / numBins || 0.01;
 
-    if (min === max) {
-      return (
-        <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg">
-          <p className="text-gray-400">All data points have the same value: {min.toFixed(4)}</p>
-        </div>
-      );
-    }
-
-    // Create bins
-    const binCount = Math.min(20, Math.max(10, Math.floor(Math.sqrt(validDiscrepancies.length))));
-    const binWidth = (max - min) / binCount;
-    const bins = Array(binCount).fill(0).map((_, i) => ({
-      x: min + (i + 0.5) * binWidth,
-      count: 0,
-      range: `${(min + i * binWidth).toFixed(4)}-${(min + (i + 1) * binWidth).toFixed(4)}`
-    }));
-
-    // Fill bins
-    validDiscrepancies.forEach(d => {
-      const binIndex = Math.min(Math.floor((d - min) / binWidth), binCount - 1);
-      if (binIndex >= 0) bins[binIndex].count++;
-    });
-
-    // Generate theoretical normal approximation curve
-    const binomialCurve = [];
-    const xRange = 6 * theoreticalSD; // Show ±3 SD
-    const xMin = Math.max(0, expectedD - xRange/2);
-    const xMax = Math.min(1, expectedD + xRange/2);
-    const steps = 100;
-    
-    for (let i = 0; i <= steps; i++) {
-      const x = xMin + (i / steps) * (xMax - xMin);
-      // Normal PDF approximation
-      const z = (x - expectedD) / theoreticalSD;
-      const pdf = (1 / (theoreticalSD * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * z * z);
-      // Scale to match histogram
-      const scaledDensity = pdf * binWidth * validDiscrepancies.length;
-      binomialCurve.push({
-        x: x,
-        expected: scaledDensity
+    // Create histogram data
+    const bins = [];
+    for (let i = 0; i < numBins; i++) {
+      const binStart = min + i * binWidth;
+      const binEnd = binStart + binWidth;
+      const binCenter = (binStart + binEnd) / 2;
+      
+      const count = validDiscrepancies.filter(d => 
+        d >= binStart && (i === numBins - 1 ? d <= binEnd : d < binEnd)
+      ).length;
+      
+      bins.push({
+        x: binCenter,
+        count: count,
+        frequency: count / validDiscrepancies.length, // Normalized frequency
+        binStart: binStart,
+        binEnd: binEnd
       });
     }
 
-    const maxCount = Math.max(...bins.map(b => b.count));
-    const maxExpected = Math.max(...binomialCurve.map(b => b.expected));
-    const yMax = Math.max(maxCount, maxExpected) * 1.1;
+    // Calculate normal distribution overlay (approximation for large n)
+    const normalCurve = bins.map(bin => {
+      const z = (bin.x - expectedD) / theoreticalSD;
+      const density = (1 / (theoreticalSD * Math.sqrt(2 * Math.PI))) * 
+                     Math.exp(-0.5 * z * z);
+      return {
+        x: bin.x,
+        theoretical: density * binWidth // Scale to match histogram
+      };
+    });
+
+    const maxFrequency = Math.max(...bins.map(b => b.frequency));
+    const maxTheoretical = Math.max(...normalCurve.map(n => n.theoretical));
+    const yMax = Math.max(maxFrequency, maxTheoretical) * 1.2;
 
     return (
       <div className="bg-white rounded-lg shadow p-4">
@@ -1612,37 +1598,45 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
           Distribution of Final Discrepancies (p = {selectedP.toFixed(2)})
         </h3>
         <div className="text-xs text-gray-600 mb-2">
-          <p>Theoretical: Binomial with n = {n}, D = {expectedD.toFixed(4)}</p>
-          <p>Expected SD = {theoreticalSD.toFixed(4)}, Observed SD = {observedSD.toFixed(4)}</p>
+          <p>Sample size: {validDiscrepancies.length} | Theoretical mean: {expectedD.toFixed(4)} | Observed mean: {observedMean.toFixed(4)}</p>
+          <p>Theoretical SD: {theoreticalSD.toFixed(4)} | Observed SD: {observedSD.toFixed(4)}</p>
+          <p>Number of bins: {numBins}</p>
         </div>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart margin={{ top: 20, right: 30, left: 20, bottom: 40 }}>
+            <ComposedChart 
+              data={bins}
+              margin={{ top: 20, right: 30, left: 20, bottom: 40 }}
+            >
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis 
                 dataKey="x" 
                 type="number"
-                domain={[min, max]}
-                tickFormatter={(value) => value?.toFixed(3)}
-                label={{ value: 'Average Discrepancy', position: 'insideBottom', offset: -10 }}
+                domain={[min - binWidth, max + binWidth]}
+                tickFormatter={(value) => value.toFixed(3)}
+                label={{ value: 'Discrepancy', position: 'insideBottom', offset: -10 }}
               />
               <YAxis 
                 domain={[0, yMax]}
-                label={{ value: 'Frequency', angle: -90, position: 'insideLeft' }}
+                label={{ value: 'Probability Density', angle: -90, position: 'insideLeft' }}
+                tickFormatter={(value) => value.toFixed(3)}
               />
               <Tooltip 
-                content={({ active, payload }) => {
+                formatter={(value, name) => {
+                  if (name === 'frequency') return [`Probability: ${(value * 100).toFixed(1)}%`, ''];
+                  if (name === 'count') return [`Count: ${value}`, ''];
+                  return [value.toFixed(4), name];
+                }}
+                labelFormatter={(value) => `Discrepancy: ${parseFloat(value).toFixed(4)}`}
+                content={({ active, payload, label }) => {
                   if (active && payload && payload.length > 0) {
                     const data = payload[0].payload;
                     return (
                       <div className="bg-white p-2 border rounded shadow-md">
-                        <p className="text-sm font-medium">{data.range || `x = ${data.x?.toFixed(4)}`}</p>
-                        {data.count !== undefined && (
-                          <p className="text-sm">Observed: {data.count}</p>
-                        )}
-                        {data.expected !== undefined && (
-                          <p className="text-sm">Expected: {data.expected.toFixed(2)}</p>
-                        )}
+                        <p className="font-semibold">Bin center: {data.x.toFixed(4)}</p>
+                        <p>Range: [{data.binStart.toFixed(4)}, {data.binEnd.toFixed(4)})</p>
+                        <p>Count: {data.count}</p>
+                        <p>Probability: {(data.frequency * 100).toFixed(2)}%</p>
                       </div>
                     );
                   }
@@ -1650,20 +1644,20 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
                 }}
               />
               <Bar 
-                data={bins}
-                dataKey="count" 
+                dataKey="frequency" 
                 fill="#4ade80" 
                 opacity={0.7}
                 name="Observed"
               />
+              {/* Normal approximation overlay */}
               <Line
-                data={binomialCurve}
+                data={normalCurve}
                 type="monotone"
-                dataKey="expected"
+                dataKey="theoretical"
                 stroke="#3b82f6"
                 strokeWidth={2}
                 dot={false}
-                name="Expected (Binomial)"
+                name="Normal Approximation"
               />
               {theoretical !== null && theoretical !== undefined && (
                 <ReferenceLine 
@@ -1689,11 +1683,13 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
                   style: { fill: '#f59e0b', fontSize: '12px' }
                 }}
               />
+              <Legend />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
         <div className="mt-2 text-xs text-gray-600">
-          <p>Sample size: {validDiscrepancies.length} | Theoretical mean: {expectedD.toFixed(4)} | Observed mean: {observedMean.toFixed(4)}</p>
+          <p>The blue curve shows the theoretical normal approximation N({expectedD.toFixed(4)}, {theoreticalSD.toFixed(4)}²)</p>
+          <p>Based on the binomial distribution with n={validDiscrepancies.length} and p={expectedD.toFixed(4)}</p>
         </div>
       </div>
     );
@@ -3906,7 +3902,7 @@ function CompleteDistributedComputingSimulator() {
       } finally {
         setIsRunningMultiRound(false);
       }
-    }, 50); // Small delay to prevent UI freeze
+    }, 20); // delay 
   }
 
   // Analyze convergence rates
@@ -4235,7 +4231,6 @@ function CompleteDistributedComputingSimulator() {
             </div>
 
             {/* Run/Cancel Button */}
-            {/* Run/Cancel Button */}
             {(activeTab === 'theory' || activeTab === 'statistics') && (
               <button
                 onClick={() => {
@@ -4546,7 +4541,8 @@ function CompleteDistributedComputingSimulator() {
                                 <li><span className="font-medium">Average Discrepancy:</span> {avgDiscrepancy.toFixed(6)}</li>
                                 <li><span className="font-medium">Minimum Discrepancy:</span> {minDiscrepancy.toFixed(6)}</li>
                                 <li><span className="font-medium">Maximum Discrepancy:</span> {maxDiscrepancy.toFixed(6)}</li>
-                                <li><span className="font-medium">Standard Deviation:</span> {stdDev.toFixed(6)}</li>
+                                <li><span className="font-medium">Standard Deviation s(p):</span> {stdDev.toFixed(6)}</li>
+                                <li><span className="font-medium">Absolute uncertainty (standard error) &sigma;̄(p):</span> {(stdDev/Math.sqrt(repetitions)).toFixed(6)}</li>
                                 {avgErrorPercent !== null && (
                                   <li><span className="font-medium">Avg. Error vs Theory:</span> {avgErrorPercent.toFixed(2)}%</li>
                                 )}
