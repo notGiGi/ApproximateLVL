@@ -13,6 +13,7 @@ import {
   Bar,
   Cell,
   ReferenceLine,
+  ReferenceArea,
   ComposedChart,
   ScatterChart,
   ZAxis,
@@ -1545,13 +1546,52 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
     const observedVariance = validDiscrepancies.reduce((sum, d) => sum + Math.pow(d - observedMean, 2), 0) / validDiscrepancies.length;
     const observedSD = Math.sqrt(observedVariance);
 
-    // Use theoretical expected discrepancy for binomial parameters
-    const expectedD = theoretical !== null && theoretical !== undefined ? theoretical : observedMean;
+    // p = E[D] (theoretical expected discrepancy)
+    const p = theoretical !== null && theoretical !== undefined ? theoretical : observedMean;
+    const n = repetitions; // número de simulaciones
     
-    // Calculate theoretical SD for binomial: sqrt(D(1-D)/n)
-    const theoreticalSD = Math.sqrt(expectedD * (1 - expectedD) / validDiscrepancies.length);
+    // Calcular desviación estándar teórica
+    const sigma = Math.sqrt(p * (1 - p) / n);
+    
+    // Límites del intervalo de confianza 95%
+    const ci95Lower = p - 1.96 * sigma;
+    const ci95Upper = p + 1.96 * sigma;
 
-    // Create bins for histogram
+    // Función para calcular coeficiente binomial C(n,k)
+    function binomialCoeff(n, k) {
+      if (k > n || k < 0) return 0;
+      if (k === 0 || k === n) return 1;
+      
+      // Usar logaritmos para evitar overflow
+      let logResult = 0;
+      for (let i = 0; i < k; i++) {
+        logResult += Math.log(n - i) - Math.log(i + 1);
+      }
+      return Math.exp(logResult);
+    }
+
+    // Generar PMF de Binomial(n, p)
+    const binomialPMF = [];
+    
+    // Para visualización, solo calculamos puntos alrededor de la media
+    // (calcular todos los n puntos sería muy costoso para n grande)
+    const meanK = Math.round(n * p);
+    const rangeSD = 5; // Mostrar ±5 desviaciones estándar
+    const kMin = Math.max(0, Math.floor(meanK - rangeSD * Math.sqrt(n * p * (1 - p))));
+    const kMax = Math.min(n, Math.ceil(meanK + rangeSD * Math.sqrt(n * p * (1 - p))));
+    
+    for (let k = kMin; k <= kMax; k++) {
+      const prob = binomialCoeff(n, k) * Math.pow(p, k) * Math.pow(1 - p, n - k);
+      const xBar = k / n; // X̄ = X/n
+      
+      binomialPMF.push({
+        x: xBar,
+        probability: prob * n, // Escalar para que sea densidad
+        k: k
+      });
+    }
+
+    // Create bins for histogram empírico
     const numBins = Math.min(30, Math.ceil(Math.sqrt(validDiscrepancies.length)));
     const min = Math.min(...validDiscrepancies);
     const max = Math.max(...validDiscrepancies);
@@ -1571,129 +1611,169 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
       bins.push({
         x: binCenter,
         count: count,
-        frequency: count / validDiscrepancies.length, // Normalized frequency
+        frequency: count / validDiscrepancies.length / binWidth, // Densidad
         binStart: binStart,
         binEnd: binEnd
       });
     }
 
-    // Calculate normal distribution overlay (approximation for large n)
-    const normalCurve = bins.map(bin => {
-      const z = (bin.x - expectedD) / theoreticalSD;
-      const density = (1 / (theoreticalSD * Math.sqrt(2 * Math.PI))) * 
-                     Math.exp(-0.5 * z * z);
-      return {
-        x: bin.x,
-        theoretical: density * binWidth // Scale to match histogram
-      };
-    });
-
+    // Encontrar máximo para escala Y
     const maxFrequency = Math.max(...bins.map(b => b.frequency));
-    const maxTheoretical = Math.max(...normalCurve.map(n => n.theoretical));
-    const yMax = Math.max(maxFrequency, maxTheoretical) * 1.2;
+    const maxPMF = Math.max(...binomialPMF.map(p => p.probability));
+    const yMax = Math.max(maxFrequency, maxPMF) * 1.2;
 
     return (
       <div className="bg-white rounded-lg shadow p-4">
         <h3 className="text-lg font-semibold mb-2">
-          Distribution of Final Discrepancies (p = {selectedP.toFixed(2)})
+          Distribution of Discrepancies: Binomial Model vs Empirical (p = {selectedP.toFixed(2)})
         </h3>
-        <div className="text-xs text-gray-600 mb-2">
-          <p>Sample size: {validDiscrepancies.length} | Theoretical mean: {expectedD.toFixed(4)} | Observed mean: {observedMean.toFixed(4)}</p>
-          <p>Theoretical SD: {theoreticalSD.toFixed(4)} | Observed SD: {observedSD.toFixed(4)}</p>
-          <p>Number of bins: {numBins}</p>
+        
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="bg-blue-50 p-3 rounded">
+            <h4 className="font-medium text-sm mb-2">Theoretical Statistics</h4>
+            <ul className="text-xs space-y-1">
+              <li><span className="font-medium">E[D]:</span> {p.toFixed(6)}</li>
+              <li><span className="font-medium">σ:</span> {sigma.toFixed(6)}</li>
+              <li><span className="font-medium">95% CI:</span> [{ci95Lower.toFixed(6)}, {ci95Upper.toFixed(6)}]</li>
+              <li><span className="font-medium">n (simulations):</span> {n}</li>
+            </ul>
+          </div>
+          
+          <div className="bg-green-50 p-3 rounded">
+            <h4 className="font-medium text-sm mb-2">Empirical Statistics</h4>
+            <ul className="text-xs space-y-1">
+              <li><span className="font-medium">Mean:</span> {observedMean.toFixed(6)}</li>
+              <li><span className="font-medium">SD:</span> {observedSD.toFixed(6)}</li>
+              <li><span className="font-medium">Min:</span> {min.toFixed(6)}</li>
+              <li><span className="font-medium">Max:</span> {max.toFixed(6)}</li>
+            </ul>
+          </div>
         </div>
-        <div className="h-64">
+        
+        <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart 
-              data={bins}
               margin={{ top: 20, right: 30, left: 20, bottom: 40 }}
             >
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
-                dataKey="x" 
                 type="number"
-                domain={[min - binWidth, max + binWidth]}
+                domain={[Math.min(min, ci95Lower - 0.05), Math.max(max, ci95Upper + 0.05)]}
                 tickFormatter={(value) => value.toFixed(3)}
-                label={{ value: 'Discrepancy', position: 'insideBottom', offset: -10 }}
+                label={{ value: 'Discrepancy (X̄ = X/n)', position: 'insideBottom', offset: -10 }}
               />
               <YAxis 
                 domain={[0, yMax]}
-                label={{ value: 'Probability Density', angle: -90, position: 'insideLeft' }}
-                tickFormatter={(value) => value.toFixed(3)}
+                label={{ value: 'Density', angle: -90, position: 'insideLeft' }}
+                tickFormatter={(value) => value.toFixed(2)}
               />
-              <Tooltip 
-                formatter={(value, name) => {
-                  if (name === 'frequency') return [`Probability: ${(value * 100).toFixed(1)}%`, ''];
-                  if (name === 'count') return [`Count: ${value}`, ''];
-                  return [value.toFixed(4), name];
+              
+              {/* Histograma empírico */}
+              <Bar 
+                data={bins}
+                dataKey="frequency" 
+                fill="#10b981" 
+                opacity={0.6}
+                name="Empirical Histogram"
+              />
+              
+              {/* PMF Binomial teórica */}
+              <Line
+                data={binomialPMF}
+                type="stepAfter"
+                dataKey="probability"
+                stroke="#3b82f6"
+                strokeWidth={2}
+                dot={{ r: 2 }}
+                name="Binomial PMF"
+              />
+              
+              {/* Banda de confianza 95% */}
+              <ReferenceArea
+                x1={ci95Lower}
+                x2={ci95Upper}
+                fill="#3b82f6"
+                fillOpacity={0.1}
+                label={{ value: "95% CI", position: "insideTop" }}
+              />
+              
+              {/* Media teórica */}
+              <ReferenceLine 
+                x={p} 
+                stroke="#ef4444" 
+                strokeWidth={2}
+                strokeDasharray="5 5" 
+                label={{ 
+                  value: `E[D] = ${p.toFixed(4)}`, 
+                  position: 'insideTopRight',
+                  offset: 10,
+                  style: { fill: '#ef4444', fontSize: '12px', fontWeight: 'bold' }
                 }}
-                labelFormatter={(value) => `Discrepancy: ${parseFloat(value).toFixed(4)}`}
+              />
+              
+              {/* Media observada */}
+              <ReferenceLine 
+                x={observedMean} 
+                stroke="#f59e0b" 
+                strokeWidth={2}
+                strokeDasharray="3 3" 
+                label={{ 
+                  value: `Observed = ${observedMean.toFixed(4)}`, 
+                  position: observedMean > p ? 'insideTopLeft' : 'insideBottomRight',
+                  offset: 10,
+                  style: { fill: '#f59e0b', fontSize: '12px', fontWeight: 'bold' }
+                }}
+              />
+              
+              <Tooltip 
                 content={({ active, payload, label }) => {
                   if (active && payload && payload.length > 0) {
                     const data = payload[0].payload;
-                    return (
-                      <div className="bg-white p-2 border rounded shadow-md">
-                        <p className="font-semibold">Bin center: {data.x.toFixed(4)}</p>
-                        <p>Range: [{data.binStart.toFixed(4)}, {data.binEnd.toFixed(4)})</p>
-                        <p>Count: {data.count}</p>
-                        <p>Probability: {(data.frequency * 100).toFixed(2)}%</p>
-                      </div>
-                    );
+                    if (data.k !== undefined) {
+                      // PMF point
+                      return (
+                        <div className="bg-white p-2 border rounded shadow-md">
+                          <p className="font-semibold">Binomial PMF</p>
+                          <p>k = {data.k}, X̄ = {data.x.toFixed(6)}</p>
+                          <p>P(X = k) = {(data.probability / n).toFixed(8)}</p>
+                        </div>
+                      );
+                    } else {
+                      // Histogram bin
+                      return (
+                        <div className="bg-white p-2 border rounded shadow-md">
+                          <p className="font-semibold">Empirical Bin</p>
+                          <p>Range: [{data.binStart.toFixed(4)}, {data.binEnd.toFixed(4)})</p>
+                          <p>Count: {data.count}</p>
+                          <p>Density: {data.frequency.toFixed(4)}</p>
+                        </div>
+                      );
+                    }
                   }
                   return null;
                 }}
               />
-              <Bar 
-                dataKey="frequency" 
-                fill="#4ade80" 
-                opacity={0.7}
-                name="Observed"
-              />
-              {/* Normal approximation overlay */}
-              <Line
-                data={normalCurve}
-                type="monotone"
-                dataKey="theoretical"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                dot={false}
-                name="Normal Approximation"
-              />
-              {theoretical !== null && theoretical !== undefined && (
-                <ReferenceLine 
-                  x={theoretical} 
-                  stroke="#ef4444" 
-                  strokeDasharray="5 5" 
-                  label={{ 
-                    value: `Theory: ${theoretical.toFixed(4)}`, 
-                    position: 'insideTopRight',
-                    offset: 5,
-                    style: { fill: '#ef4444', fontSize: '12px' }
-                  }}
-                />
-              )}
-              <ReferenceLine 
-                x={observedMean} 
-                stroke="#f59e0b" 
-                strokeDasharray="3 3" 
-                label={{ 
-                  value: `Observed: ${observedMean.toFixed(4)}`, 
-                  position: Math.abs(observedMean - theoretical) < 0.05 ? 'insideBottomRight' : 'insideTopLeft',
-                  offset: 5,
-                  style: { fill: '#f59e0b', fontSize: '12px' }
-                }}
-              />
+              
               <Legend />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-        <div className="mt-2 text-xs text-gray-600">
-          <p>The blue curve shows the theoretical normal approximation N({expectedD.toFixed(4)}, {theoreticalSD.toFixed(4)}²)</p>
-          <p>Based on the binomial distribution with n={validDiscrepancies.length} and p={expectedD.toFixed(4)}</p>
+        
+        <div className="mt-4 p-3 bg-gray-50 rounded text-xs">
+          <p className="font-semibold mb-2">Model Details:</p>
+          <p>• X ~ Binomial(n={n}, p={p.toFixed(6)})</p>
+          <p>• X̄ = X/n has mean p and standard deviation σ = √(p(1-p)/n) = {sigma.toFixed(6)}</p>
+          <p>• 95% CI: [p - 1.96σ, p + 1.96σ] = [{ci95Lower.toFixed(6)}, {ci95Upper.toFixed(6)}]</p>
+          <p>• The blue line shows P(X̄ = k/n) for k = {kMin} to {kMax}</p>
+          {Math.abs(observedMean - p) > 2 * sigma && (
+            <p className="text-orange-600 font-semibold mt-2">
+              ⚠️ Observed mean is {((Math.abs(observedMean - p) / sigma).toFixed(2))}σ away from theoretical mean
+            </p>
+          )}
         </div>
       </div>
     );
-  }
+}
 
   // Theory plot mejorado para n procesos
   // Reemplaza desde: function TheoryPlot({ currentP, experimentalData, displayCurves, rounds = 1, processValues = [0,1], meetingPoint = 0.5 })
