@@ -104,8 +104,6 @@ export const SimulationEngine = {
         }
       }
       
-      // IMPLEMENTACIÓN CORRECTA SEGÚN EL PAPER
-      // Buscar si se recibió algún valor diferente al propio
       const receivedDifferentValue = receivedMessages.find(val => val !== values[i]);
       
       if (receivedDifferentValue !== undefined) {
@@ -114,14 +112,10 @@ export const SimulationEngine = {
           newValues[i] = decMeetingPoint.toNumber();
         } else { // FV
           // FV: Si se recibe un valor x' diferente del propio, adoptar x'
-          // CORRECCIÓN CRÍTICA: NO invertir, sino ADOPTAR el valor recibido
           newValues[i] = receivedDifferentValue;
         }
       }
-      // Si no se recibió ningún valor diferente, mantener el valor original
-      // Esto incluye:
-      // - No se recibió ningún mensaje
-      // - Solo se recibieron mensajes con el mismo valor que el propio
+
     }
     
     // Calcular discrepancia máxima usando Decimal para precisión
@@ -203,7 +197,7 @@ export const SimulationEngine = {
     return history;
   },
 
-  // Run multiple experiments for statistical analysis
+
  // Run multiple experiments for statistical analysis
 runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
   const allDiscrepancies = [];
@@ -507,5 +501,88 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
     // For n > 2, always use meeting point 0.5 for AMP
     const actualMeetingPoint = initialValues.length > 2 ? 0.5 : meetingPoint;
     return this.runMultipleExperiments(initialValues, p, rounds, repetitions, algorithm, actualMeetingPoint);
+  },
+
+  // Agregar al SimulationEngine.js
+
+// Calcular varianza teórica de D(p)
+  calculateTheoreticalVariance: function(p, n, m, algorithm, rounds = 1) {
+    const q = 1 - p;
+    
+    if (n === 2) {
+      // Fórmulas exactas para 2 procesos
+      if (algorithm === "AMP") {
+        // Para 1 ronda: Var[D] = 0.5 * p * (1-p)
+        // Para k rondas: aproximación
+        const varOneRound = 0.5 * p * q;
+        // La varianza disminuye con las rondas pero no tan rápido como E[D]
+        return varOneRound * Math.pow(q, rounds - 1);
+      } else { // FV
+        const pSquaredPlusQSquared = p*p + q*q;
+        // Para 1 ronda: Var[D] = q(1-q) donde q = p² + (1-p)²
+        const varOneRound = pSquaredPlusQSquared * (1 - pSquaredPlusQSquared);
+        return varOneRound * Math.pow(pSquaredPlusQSquared, rounds - 1);
+      }
+    } else {
+      // Para n > 2: aproximación basada en la estructura
+      // La varianza depende de la probabilidad de consenso parcial
+      
+      if (algorithm === "AMP") {
+        // Aproximación: la varianza es máxima cuando p ≈ 0.5
+        // y decrece hacia los extremos
+        const baseVar = 0.25 * Math.sqrt(n/2); // Factor de escala con n
+        const pFactor = 4 * p * q; // Máximo en p=0.5
+        const varOneRound = baseVar * pFactor;
+        return varOneRound * Math.pow(q, rounds - 1);
+      } else { // FV
+        // Para FV la varianza tiene comportamiento más complejo
+        const pSquaredPlusQSquared = p*p + q*q;
+        const baseVar = 0.3 * Math.sqrt(n/2);
+        const pFactor = pSquaredPlusQSquared * (1 - pSquaredPlusQSquared);
+        const varOneRound = baseVar * pFactor;
+        return varOneRound * Math.pow(pSquaredPlusQSquared, rounds - 1);
+      }
+    }
+  },
+
+  // Calcular coeficiente de variación teórico
+  calculateTheoreticalCV: function(p, n, m, algorithm, rounds = 1) {
+    const expectedD = this.calculateExpectedDiscrepancyNProcesses(p, n, m, algorithm, 0.5);
+    const variance = this.calculateTheoreticalVariance(p, n, m, algorithm, rounds);
+    const stdDev = Math.sqrt(variance);
+    
+    if (expectedD === 0) return Infinity;
+    return stdDev / Math.abs(expectedD);
+  },
+
+  // Calcular error relativo esperado
+  calculateExpectedRelativeError: function(p, n, m, algorithm, rounds, repetitions) {
+    const cv = this.calculateTheoreticalCV(p, n, m, algorithm, rounds);
+    return cv / Math.sqrt(repetitions);
+  },
+
+  // Identificar zonas de alto error relativo
+  identifyHighErrorZones: function(minP, maxP, n, m, algorithm, rounds, repetitions, threshold = 0.2) {
+    const zones = [];
+    const steps = 100;
+    const stepSize = (maxP - minP) / steps;
+    
+    for (let i = 0; i <= steps; i++) {
+      const p = minP + i * stepSize;
+      const expectedRelError = this.calculateExpectedRelativeError(p, n, m, algorithm, rounds, repetitions);
+      
+      if (expectedRelError > threshold) {
+        // Inicio de zona de alto error
+        if (zones.length === 0 || p - zones[zones.length - 1].end > stepSize * 2) {
+          zones.push({ start: p, end: p, maxError: expectedRelError });
+        } else {
+          // Extender zona actual
+          zones[zones.length - 1].end = p;
+          zones[zones.length - 1].maxError = Math.max(zones[zones.length - 1].maxError, expectedRelError);
+        }
+      }
+    }
+    
+    return zones;
   }
 };

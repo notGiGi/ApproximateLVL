@@ -3610,7 +3610,7 @@ function CompleteDistributedComputingSimulator() {
       return {
         p,
         algorithm: actualAlgorithm,
-        fvMethod:
+        fvMethod: // DEPRECADO YA PERO NO LO MUEVO
           (actualAlgorithm === "FV" ||
             (forcedAlgorithm === "auto" && p <= 0.5)) &&
           processCount > 2
@@ -3650,7 +3650,7 @@ function CompleteDistributedComputingSimulator() {
         const experimentResults = results.map(result => ({
           p: result.p,
           discrepancies: [...result.discrepancies], // Copiar el array de discrepancias
-          mean: result.discrepancy, // Ya está calculado como promedio
+          mean: result.discrepancy, 
           theoretical: result.theoretical,
           algorithm: result.algorithm
         }));
@@ -3676,11 +3676,14 @@ function CompleteDistributedComputingSimulator() {
         setExperimentalResults([...results]);
         
         return;
-      }
+      } // Ponemos todos los resultados juntos
 
       // Update UI
       setCurrentRepetition(currentRep + 1);
 
+
+
+      //Nucleo principal, aqui ocurre que todas las probabilidades del rango se les calculara el resulta
       // One pass over all probabilities
       for (let i = 0; i < allProbabilities.length; i++) {
         if (cancelRef.current) break;
@@ -3702,6 +3705,7 @@ function CompleteDistributedComputingSimulator() {
           results[i].discrepancies.reduce((s, x) => s + x, 0) /
           results[i].samples;
       }
+
 
       // Refresh chart and progress
       setExperimentalResults([...results]);
@@ -3727,7 +3731,7 @@ function CompleteDistributedComputingSimulator() {
   setIsRunning(false);        // Actualiza el estado para ocultar “Running…”
   }
 
-  // Compare FV methods (only for 3+ processes)
+
   function runFVMethodComparison() {
     // Only allow for 3+ processes
     if (processValues.length < 3) {
@@ -4881,6 +4885,7 @@ function CompleteDistributedComputingSimulator() {
                                   label={{ value: 'Error %', angle: 90, position: 'insideRight', offset: -5 }}
                                   tickFormatter={v => `${v.toFixed(0)}%`}
                                 />
+                                
 
                                 <Tooltip 
                                   content={({ active, payload, label }) => {
