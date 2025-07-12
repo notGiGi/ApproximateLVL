@@ -131,6 +131,59 @@ function findInterestingPoints(experiments) {
 }
 
 // Helper function for color interpolation
+// Función para mostrar detalles de una probabilidad específica
+
+
+function MessageDeliveryTable({ messages, processNames, selectedProcess, finalValues }) {
+  // Filtrar mensajes relevantes si hay un proceso seleccionado
+  const filteredMessages = selectedProcess !== null 
+    ? messages.filter(m => m.from === selectedProcess || m.to === selectedProcess)
+    : messages;
+    
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead>
+          <tr className="bg-gray-100">
+            <th className="px-2 py-1 text-left">From</th>
+            <th className="px-2 py-1 text-left">To</th>
+            <th className="px-2 py-1 text-left">Sent Value</th>
+            <th className="px-2 py-1 text-center">Delivered</th>
+            <th className="px-2 py-1 text-left">New Value (To)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredMessages.map((msg, i) => {
+            const previousValue = messages[0]?.value !== undefined ? 
+              (msg.to === msg.from ? msg.value : (1 - msg.value)) : msg.value;
+            const changed = finalValues && finalValues[msg.to] !== previousValue;
+            
+            return (
+              <tr key={i} className={msg.delivered ? 'bg-green-50' : 'bg-red-50'}>
+                <td className="px-2 py-1">{processNames[msg.from]}</td>
+                <td className="px-2 py-1">{processNames[msg.to]}</td>
+                <td className="px-2 py-1">{msg.value.toFixed(3)}</td>
+                <td className="px-2 py-1 text-center">
+                  {msg.delivered ? '✓' : '✗'}
+                </td>
+                <td className="px-2 py-1">
+                  {finalValues ? (
+                    <span className={changed ? 'font-bold text-blue-600' : ''}>
+                      {finalValues[msg.to].toFixed(3)}
+                      {changed && ''}
+                    </span>
+                  ) : '-'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+
 function interpolateColor(color1, color2, factor) {
   // Convert hexadecimal colors to RGB components
   const hex1 = color1.replace('#', '');
@@ -159,7 +212,7 @@ function interpolateColor(color1, color2, factor) {
 }
 
 // Componente para manejar n procesos
-function NProcessesControl({ processValues, setProcessValues, maxProcesses = 10 }) {
+function NProcessesControl({ processValues, setProcessValues, maxProcesses = 30 }) {
   const n = processValues.length;
   
   // Agregar un nuevo proceso
@@ -3323,7 +3376,8 @@ function CompleteDistributedComputingSimulator() {
   const [meetingPoint, setMeetingPoint] = useState(0.5);
   const [rounds, setRounds] = useState(1);
   const [repetitions, setRepetitions] = useState(50);
-
+  // En ApproximateLVL, después de los otros useState, agrega:
+  const [lastRunData, setLastRunData] = useState(null);
   // Range experiments states
   const [rangeExperiments, setRangeExperiments] = useState({
     minP: 0.0,
@@ -3347,7 +3401,10 @@ function CompleteDistributedComputingSimulator() {
   const [selectedExperiments, setSelectedExperiments] = useState([]);
   const [comparisonView, setComparisonView] = useState('chart'); // 'chart', 'table', 'details'
   const [forcedAlgorithm, setForcedAlgorithm] = useState("auto");
+  
 
+
+  const [selectedProbabilityForDetails, setSelectedProbabilityForDetails] = useState(null);
   // Multi-round analysis states
   const [multiRoundAnalysisData, setMultiRoundAnalysisData] = useState(null);
   const [convergenceRatesData, setConvergenceRatesData] = useState(null);
@@ -3428,6 +3485,193 @@ function CompleteDistributedComputingSimulator() {
 
 
   // Helper functions
+  
+function showDetailsForProbability(p) {
+  // Buscar si ya tenemos un historial guardado para esta probabilidad
+  const resultForP = experimentalResults.find(r => Math.abs(r.p - p) < 0.0001);
+  
+  if (resultForP) {
+    // Ejecutar un nuevo experimento con los mismos parámetros
+    const initialValues = getInitialValues();
+    const history = SimulationEngine.runNProcessExperiment(
+      initialValues,
+      p,
+      rounds,
+      resultForP.algorithm,
+      meetingPoint
+    );
+    
+    setLastRunData(history);
+    setSelectedProbabilityForDetails(p);
+    addLog(`Generated detailed view for p=${p.toFixed(3)}`, "info");
+  }
+}
+
+// Función para ejecutar un experimento individual
+function runSingleExperimentForDetails(p) {
+  const initialValues = getInitialValues();
+  const actualAlgorithm = forcedAlgorithm === "auto" 
+    ? (p > 0.5 ? "AMP" : "FV") 
+    : forcedAlgorithm;
+  
+  const history = SimulationEngine.runNProcessExperiment(
+    initialValues,
+    p,
+    rounds,
+    actualAlgorithm,
+    meetingPoint
+  );
+  
+  setLastRunData(history);
+  setSelectedProbabilityForDetails(p);
+  addLog(`Generated detailed view for p=${p.toFixed(3)}`, "info");
+}
+// Componente para visualización detallada del experimento
+function ExperimentDetailViewer({ experimentHistory, algorithm, meetingPoint, probability }) {
+  const [expandedRound, setExpandedRound] = useState(0);
+  const [selectedProcess, setSelectedProcess] = useState(null);
+  
+  if (!experimentHistory || experimentHistory.length === 0) {
+    return (
+      <div className="p-4 bg-gray-100 rounded-lg text-center">
+        <p className="text-gray-500">No experiment data available</p>
+        <p className="text-sm text-gray-400 mt-2">Run a simulation first to see detailed results</p>
+      </div>
+    );
+  }
+  
+  const processCount = experimentHistory[0].values.length;
+  const processNames = Array.from({ length: processCount }, (_, i) => 
+    i < 3 ? ["Alice", "Bob", "Charlie"][i] : `P${i+1}`
+  );
+  
+  // Función para obtener el color de un proceso
+  const getProcessColor = (index) => {
+    const colors = ["#3498db", "#e67e22", "#2ecc71", "#9b59b6", "#e74c3c", 
+                    "#f39c12", "#1abc9c", "#34495e", "#d35400", "#27ae60"];
+    return colors[index % colors.length];
+  };
+  
+  return (
+    <div className="space-y-4">
+      {/* Resumen general */}
+      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+        <h3 className="font-semibold text-lg mb-2">Experiment Summary</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div>
+            <span className="text-gray-600">Processes:</span>
+            <span className="ml-2 font-medium">{processCount}</span>
+          </div>
+          <div>
+            <span className="text-gray-600">Rounds:</span>
+            <span className="ml-2 font-medium">{experimentHistory.length - 1}</span>
+          </div>
+          <div>
+            <span className="text-gray-600">Algorithm:</span>
+            <span className="ml-2 font-medium">{algorithm}</span>
+          </div>
+          <div>
+            <span className="text-gray-600">Probability:</span>
+            <span className="ml-2 font-medium">{probability?.toFixed(2) || 'N/A'}</span>
+          </div>
+        </div>
+        <div className="mt-3">
+          <span className="text-gray-600">Final Discrepancy:</span>
+          <span className="ml-2 font-bold text-lg text-blue-600">
+            {experimentHistory[experimentHistory.length - 1].discrepancy.toFixed(4)}
+          </span>
+        </div>
+      </div>
+      
+      {/* Vista por rondas */}
+      <div className="space-y-2">
+        {experimentHistory.map((round, index) => (
+          <div key={index} className="bg-white rounded-lg shadow border border-gray-200">
+            {/* Encabezado de la ronda */}
+            <div 
+              className="p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+              onClick={() => setExpandedRound(expandedRound === index ? -1 : index)}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <span>{expandedRound === index ? '▼' : '▶'}</span>
+                  <h4 className="font-semibold">Round {round.round}</h4>
+                  <span className="text-sm text-gray-500">
+                    Discrepancy: {round.discrepancy.toFixed(4)}
+                  </span>
+                </div>
+                {/* Mini visualización de valores */}
+                <div className="flex space-x-1">
+                  {round.values.slice(0, Math.min(10, processCount)).map((val, i) => (
+                    <div
+                      key={i}
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-white"
+                      style={{ backgroundColor: getProcessColor(i) }}
+                      title={`${processNames[i]}: ${val.toFixed(3)}`}
+                    >
+                      {val}
+                    </div>
+                  ))}
+                  {processCount > 10 && (
+                    <div className="text-gray-400 text-sm">+{processCount - 10}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            {/* Contenido expandido */}
+            {expandedRound === index && (
+              <div className="border-t border-gray-200 p-4 bg-gray-50">
+                {/* Valores de procesos */}
+                <div className="mb-4">
+                  <h5 className="font-medium mb-2">Process Values:</h5>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    {round.values.map((val, i) => (
+                      <div 
+                        key={i}
+                        className={`p-2 rounded cursor-pointer transition-all ${
+                          selectedProcess === i ? 'ring-2 ring-blue-500 bg-white' : 'bg-white hover:shadow-md'
+                        }`}
+                        onClick={() => setSelectedProcess(selectedProcess === i ? null : i)}
+                      >
+                        <div className="flex items-center space-x-2">
+                          <div 
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: getProcessColor(i) }}
+                          />
+                          <span className="text-sm font-medium">{processNames[i]}</span>
+                        </div>
+                        <div className="text-lg font-mono mt-1">{val.toFixed(3)}</div>
+                        {index > 0 && experimentHistory[index-1].values[i] !== val && (
+                          <div className="text-xs text-green-600 mt-1">
+                            Changed from {experimentHistory[index-1].values[i].toFixed(3)}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Matriz de mensajes (solo para rondas > 0) */}
+                {index > 0 && round.messages && (
+                  <div>
+                    <h5 className="font-medium mb-2">Message Delivery:</h5>
+                    <MessageDeliveryTable 
+                      messages={round.messages}
+                      processNames={processNames}
+                      selectedProcess={selectedProcess}
+                      finalValues={round.values} // Pasar los valores finales de esta ronda
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 
   // Obtener las discrepancias para un valor específico de p
@@ -3527,201 +3771,209 @@ function CompleteDistributedComputingSimulator() {
   }
   
   // Run range experiments with progressive visualization
-  function runRangeExperiments() {
-    if (isRunning) return;
+function runRangeExperiments() {
+  if (isRunning) return;
 
-    // Reset cancellation flag
-    cancelRef.current = false;
+  // Reset cancellation flag
+  cancelRef.current = false;
 
-    // Clear previous results & reset UI state
-    setExperimentalResults([]);
-    setIsRunning(true);
-    setProgress(0);
-    setCurrentRepetition(0);
+  // Clear previous results & reset UI state
+  setExperimentalResults([]);
+  setIsRunning(true);
+  setProgress(0);
+  setCurrentRepetition(0);
 
-    // Get current configuration
-    const initialProcessValues = getInitialValues();
-    const { minP, maxP, steps, customSteps, customStepValue } = rangeExperiments;
-    const actualMeetingPoint = meetingPoint;
-    const actualRounds = rounds;
-    const actualRepetitions = repetitions;
-    const actualSteps = customSteps ? customStepValue : steps;
-    const processCount = initialProcessValues.length;
+  // Get current configuration
+  const initialProcessValues = getInitialValues();
+  const { minP, maxP, steps, customSteps, customStepValue } = rangeExperiments;
+  const actualMeetingPoint = meetingPoint;
+  const actualRounds = rounds;
+  const actualRepetitions = repetitions;
+  const actualSteps = customSteps ? customStepValue : steps;
+  const processCount = initialProcessValues.length;
 
-    // Count zero-valued processes
-    let m = 0;
-    initialProcessValues.forEach(val => {
-      if (val === 0) m++;
-    });
+  // Count zero-valued processes
+  let m = 0;
+  initialProcessValues.forEach(val => {
+    if (val === 0) m++;
+  });
 
-    // Log start
-    addLog(`Starting simulation with ${processCount} processes`);
+  // Log start
+  addLog(`Starting simulation with ${processCount} processes`);
+  addLog(
+    `Values: [${initialProcessValues
+      .map(v => v.toFixed(2))
+      .join(", ")}], Rounds: ${actualRounds}, Repetitions: ${actualRepetitions}, Steps: ${actualSteps}`
+  );
+  if (actualRounds > 1 && processCount > 2) {
     addLog(
-      `Values: [${initialProcessValues
-        .map(v => v.toFixed(2))
-        .join(", ")}], Rounds: ${actualRounds}, Repetitions: ${actualRepetitions}, Steps: ${actualSteps}`
+      `Note: Theoretical values for ${processCount} processes with ${actualRounds} rounds use approximation`,
+      "warning"
     );
-    if (actualRounds > 1 && processCount > 2) {
-      addLog(
-        `Note: Theoretical values for ${processCount} processes with ${actualRounds} rounds use approximation`,
-        "warning"
-      );
-    }
+  }
 
-    // Generate probability points
-    const stepSize = (maxP - minP) / Math.max(actualSteps - 1, 1);
-    const allProbabilities = [];
-    for (let i = 0; i < actualSteps; i++) {
-      allProbabilities.push(minP + i * stepSize);
-    }
+  // Generate probability points
+  const stepSize = (maxP - minP) / Math.max(actualSteps - 1, 1);
+  const allProbabilities = [];
+  for (let i = 0; i < actualSteps; i++) {
+    allProbabilities.push(minP + i * stepSize);
+  }
 
-    // Pre-compute theoretical and prepare results array
-    const results = allProbabilities.map(p => {
-      const actualAlgorithm =
-        forcedAlgorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : forcedAlgorithm;
-      let theoretical;
+  // Pre-compute theoretical and prepare results array
+  const results = allProbabilities.map(p => {
+    const actualAlgorithm =
+      forcedAlgorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : forcedAlgorithm;
+    let theoretical;
 
-      if (processCount === 2) {
-        theoretical = SimulationEngine.calculateExpectedDiscrepancyMultiRound(
-          p,
-          actualRounds,
-          actualAlgorithm
-        );
-      } else {
-        const singleRoundTheoretical =
-          SimulationEngine.calculateExpectedDiscrepancyNProcesses(
-            p,
-            processCount,
-            m,
-            actualAlgorithm,
-            actualMeetingPoint
-          );
-        if (actualRounds === 1) {
-          theoretical = singleRoundTheoretical;
-        } else {
-          const q = 1 - p;
-          const reductionFactor =
-            actualAlgorithm === "AMP" ? q : p * p + q * q;
-          theoretical =
-            singleRoundTheoretical * Math.pow(reductionFactor, actualRounds - 1);
-        }
-      }
-
-      return {
+    if (processCount === 2) {
+      theoretical = SimulationEngine.calculateExpectedDiscrepancyMultiRound(
         p,
-        algorithm: actualAlgorithm,
-        fvMethod: // DEPRECADO YA PERO NO LO MUEVO
-          (actualAlgorithm === "FV" ||
-            (forcedAlgorithm === "auto" && p <= 0.5)) &&
-          processCount > 2
-            ? fvMethod
-            : null,
-        theoretical,
-        discrepancy: 0,
-        samples: 0,
-        discrepancies: [] // Este array guardará todas las discrepancias para cada p
-      };
-    });
-
-    // Show initial empty curve
-    setExperimentalResults(results);
-
-    // Begin repetitions
-    let currentRep = 0;
-    function runNextRepetition() {
-      // Check for cancellation
-      if (cancelRef.current) {
-        setIsRunning(false);
-        addLog("Simulation cancelled by user", "warning");
-        return;
-      }
-
-      // All done?
-      if (currentRep >= actualRepetitions) {
-        setIsRunning(false);
-        setProgress(100);
-        addLog(
-          `Simulation completed with ${results.length} data points x ${actualRepetitions} repetitions`,
-          "success"
-        );
-        
-        // PREPARAR DATOS PARA ESTADÍSTICAS Y HISTOGRAMA
-        // Crear la estructura de datos agrupada por p
-        const experimentResults = results.map(result => ({
-          p: result.p,
-          discrepancies: [...result.discrepancies], // Copiar el array de discrepancias
-          mean: result.discrepancy, 
-          theoretical: result.theoretical,
-          algorithm: result.algorithm
-        }));
-
-        // Extraer valores únicos de p (ya están ordenados)
-        const pValues = experimentResults.map(r => r.p);
-
-        // Crear el objeto statsData con la estructura correcta
-        const statsData = {
-          experimentResults: experimentResults,
-          pValues: pValues,
-          usedRepetitions: actualRepetitions
-        };
-
-        setStatsData(statsData);
-
-        // Establecer el primer valor de p para el histograma si no hay uno seleccionado
-        if (!selectedPForHistogram || !pValues.includes(selectedPForHistogram)) {
-          setSelectedPForHistogram(pValues[0]);
-        }
-
-        // También actualizar los resultados experimentales para otras gráficas
-        setExperimentalResults([...results]);
-        
-        return;
-      } // Ponemos todos los resultados juntos
-
-      // Update UI
-      setCurrentRepetition(currentRep + 1);
-
-
-
-      //Nucleo principal, aqui ocurre que todas las probabilidades del rango se les calculara el resulta
-      // One pass over all probabilities
-      for (let i = 0; i < allProbabilities.length; i++) {
-        if (cancelRef.current) break;
-
-        const history = SimulationEngine.runNProcessExperiment(
-          initialProcessValues,
-          results[i].p,
-          actualRounds,
-          results[i].algorithm,
+        actualRounds,
+        actualAlgorithm
+      );
+    } else {
+      const singleRoundTheoretical =
+        SimulationEngine.calculateExpectedDiscrepancyNProcesses(
+          p,
+          processCount,
+          m,
+          actualAlgorithm,
           actualMeetingPoint
         );
-        const finalDiscrepancy = history[history.length - 1].discrepancy;
-
-        // Accumulate - guardar cada discrepancia individual
-        results[i].discrepancies.push(finalDiscrepancy);
-        results[i].samples = results[i].discrepancies.length;
-        // Calcular el promedio actualizado
-        results[i].discrepancy =
-          results[i].discrepancies.reduce((s, x) => s + x, 0) /
-          results[i].samples;
+      if (actualRounds === 1) {
+        theoretical = singleRoundTheoretical;
+      } else {
+        const q = 1 - p;
+        const reductionFactor =
+          actualAlgorithm === "AMP" ? q : p * p + q * q;
+        theoretical =
+          singleRoundTheoretical * Math.pow(reductionFactor, actualRounds - 1);
       }
-
-
-      // Refresh chart and progress
-      setExperimentalResults([...results]);
-      const progressValue = Math.round(
-        ((currentRep + 1) / actualRepetitions) * 100
-      );
-      setProgress(progressValue);
-
-      currentRep++;
-      // Schedule next repetition
-      setTimeout(runNextRepetition, 10);
     }
 
-    // Kick off first repetition
-    setTimeout(runNextRepetition, 5);
+    return {
+      p,
+      algorithm: actualAlgorithm,
+      fvMethod: // DEPRECADO YA PERO NO LO MUEVO
+        (actualAlgorithm === "FV" ||
+          (forcedAlgorithm === "auto" && p <= 0.5)) &&
+        processCount > 2
+          ? fvMethod
+          : null,
+      theoretical,
+      discrepancy: 0,
+      samples: 0,
+      discrepancies: [] // Este array guardará todas las discrepancias para cada p
+    };
+  });
+
+  // Show initial empty curve
+  setExperimentalResults(results);
+
+  // Variable para guardar si ya hemos capturado el primer historial
+  let firstHistoryCaptured = false;
+
+  // Begin repetitions
+  let currentRep = 0;
+  function runNextRepetition() {
+    // Check for cancellation
+    if (cancelRef.current) {
+      setIsRunning(false);
+      addLog("Simulation cancelled by user", "warning");
+      return;
+    }
+
+    // All done?
+    if (currentRep >= actualRepetitions) {
+      setIsRunning(false);
+      setProgress(100);
+      addLog(
+        `Simulation completed with ${results.length} data points x ${actualRepetitions} repetitions`,
+        "success"
+      );
+      
+      // PREPARAR DATOS PARA ESTADÍSTICAS Y HISTOGRAMA
+      // Crear la estructura de datos agrupada por p
+      const experimentResults = results.map(result => ({
+        p: result.p,
+        discrepancies: [...result.discrepancies], // Copiar el array de discrepancias
+        mean: result.discrepancy, 
+        theoretical: result.theoretical,
+        algorithm: result.algorithm
+      }));
+
+      // Extraer valores únicos de p (ya están ordenados)
+      const pValues = experimentResults.map(r => r.p);
+
+      // Crear el objeto statsData con la estructura correcta
+      const statsData = {
+        experimentResults: experimentResults,
+        pValues: pValues,
+        usedRepetitions: actualRepetitions
+      };
+
+      setStatsData(statsData);
+
+      // Establecer el primer valor de p para el histograma si no hay uno seleccionado
+      if (!selectedPForHistogram || !pValues.includes(selectedPForHistogram)) {
+        setSelectedPForHistogram(pValues[0]);
+      }
+
+      // También actualizar los resultados experimentales para otras gráficas
+      setExperimentalResults([...results]);
+      
+      return;
+    } // Ponemos todos los resultados juntos
+
+    // Update UI
+    setCurrentRepetition(currentRep + 1);
+
+    //Nucleo principal, aqui ocurre que todas las probabilidades del rango se les calculara el resulta
+    // One pass over all probabilities
+    for (let i = 0; i < allProbabilities.length; i++) {
+      if (cancelRef.current) break;
+
+      const history = SimulationEngine.runNProcessExperiment(
+        initialProcessValues,
+        results[i].p,
+        actualRounds,
+        results[i].algorithm,
+        actualMeetingPoint
+      );
+      
+      
+      if (currentRep === 0 && i === Math.floor(allProbabilities.length / 2)) {
+        setLastRunData(history);
+        setSelectedProbabilityForDetails(results[i].p);
+        addLog(`Saved initial detailed view for p=${results[i].p.toFixed(3)}`, "info");
+      }
+      
+      const finalDiscrepancy = history[history.length - 1].discrepancy;
+
+      // Accumulate - guardar cada discrepancia individual
+      results[i].discrepancies.push(finalDiscrepancy);
+      results[i].samples = results[i].discrepancies.length;
+      // Calcular el promedio actualizado
+      results[i].discrepancy =
+        results[i].discrepancies.reduce((s, x) => s + x, 0) /
+        results[i].samples;
+    }
+
+    // Refresh chart and progress
+    setExperimentalResults([...results]);
+    const progressValue = Math.round(
+      ((currentRep + 1) / actualRepetitions) * 100
+    );
+    setProgress(progressValue);
+
+    currentRep++;
+    // Schedule next repetition
+    setTimeout(runNextRepetition, 10);
   }
+
+  // Kick off first repetition
+  setTimeout(runNextRepetition, 5);
+}
 
 
 
@@ -4011,7 +4263,7 @@ function CompleteDistributedComputingSimulator() {
     const processCount = processValues.length;
     
     const addProcess = () => {
-      if (processCount < 10) { // Limitar a 10 procesos para la usabilidad
+      if (processCount < 30) { // Limitar a 10 procesos para la usabilidad
         // Valor por defecto para nuevo proceso: alternar 0 y 1
         setProcessValues([...processValues, processCount % 2]);
       }
@@ -4039,9 +4291,9 @@ function CompleteDistributedComputingSimulator() {
             </button>
             <button
               onClick={addProcess}
-              disabled={processCount >= 10 || isRunning}
+              disabled={processCount >= 30 || isRunning}
               className={`px-2 py-1 rounded ${
-                processCount >= 10 || isRunning ? 'bg-gray-300 text-gray-500' : 'bg-green-100 text-green-600 hover:bg-green-200'
+                processCount >= 30 || isRunning ? 'bg-gray-300 text-gray-500' : 'bg-green-100 text-green-600 hover:bg-green-200'
               }`}
             >
               +
@@ -4475,6 +4727,49 @@ function CompleteDistributedComputingSimulator() {
                     </div>
                   )}
 
+                  {/* Reemplaza la sección que dice {lastRunData && (...)} con esto: */}
+                  {experimentalResults && experimentalResults.length > 0 && (
+                    <div className="mt-6">
+                      <h3 className="text-xl font-semibold mb-4">Detailed Experiment Analysis</h3>
+                      
+                      {/* Selector simple de probabilidad */}
+                      <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Select probability to view details:
+                        </label>
+                        <div className="flex items-center gap-4">
+                          <select
+                            className="flex-1 p-2 border border-gray-300 rounded-md"
+                            value={selectedProbabilityForDetails || ''}
+                            onChange={(e) => {
+                              const p = parseFloat(e.target.value);
+                              if (!isNaN(p)) {
+                                showDetailsForProbability(p); // Cambiar runSingleExperimentForDetails por showDetailsForProbability
+                              }
+                            }}
+                          >
+                            <option value="">Select a probability...</option>
+                            {experimentalResults.map((result, idx) => (
+                              <option key={idx} value={result.p}>
+                                p = {result.p.toFixed(3)} ({result.algorithm})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      
+                      {/* Visualizador de detalles */}
+                      {lastRunData && (
+                        <ExperimentDetailViewer 
+                          experimentHistory={lastRunData}
+                          algorithm={getDisplayAlgorithm(forcedAlgorithm, selectedProbabilityForDetails || probability)}
+                          meetingPoint={meetingPoint}
+                          probability={selectedProbabilityForDetails || probability}
+                        />
+                      )}
+                    </div>
+                  )}
+
                   {experimentalResults && experimentalResults.length > 0 && (
                     <div className="mt-4">
                       <h4 className="font-medium mb-2">Results Summary:</h4>
@@ -4573,6 +4868,8 @@ function CompleteDistributedComputingSimulator() {
                   </div>
                 </div>
               </div>
+
+              
             )}
             
 

@@ -211,7 +211,7 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
     : algorithm;
   
   // For n > 2, always use meeting point 0.5 for AMP
-  const actualMeetingPoint = processCount > 2 ? 0.5 : meetingPoint;
+   const actualMeetingPoint = meetingPoint;
   
   // Run multiple simulations
   for (let i = 0; i < repetitions; i++) {
@@ -492,14 +492,14 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
   // Run experiment with n processes
   runNProcessExperiment: function(initialValues, p, rounds, algorithm = "auto", meetingPoint = 0.5) {
     // For n > 2, always use meeting point 0.5 for AMP
-    const actualMeetingPoint = initialValues.length > 2 ? 0.5 : meetingPoint;
+    const actualMeetingPoint = meetingPoint;
     return this.runExperiment(initialValues, p, rounds, algorithm, actualMeetingPoint);
   },
 
   // Run multiple experiments with n processes
   runMultipleNProcessExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
     // For n > 2, always use meeting point 0.5 for AMP
-    const actualMeetingPoint = initialValues.length > 2 ? 0.5 : meetingPoint;
+    const actualMeetingPoint = meetingPoint;
     return this.runMultipleExperiments(initialValues, p, rounds, repetitions, algorithm, actualMeetingPoint);
   },
 
