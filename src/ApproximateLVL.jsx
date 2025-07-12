@@ -1645,7 +1645,8 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
     }
 
     // Create bins for histogram empírico
-    const numBins = Math.min(30, Math.ceil(Math.sqrt(validDiscrepancies.length)));
+    // En HistogramPlot, agregar límite de bins para datasets grandes:
+    const numBins = Math.min(30, Math.max(10, Math.ceil(Math.sqrt(validDiscrepancies.length))));
     const min = Math.min(...validDiscrepancies);
     const max = Math.max(...validDiscrepancies);
     const binWidth = (max - min) / numBins || 0.01;
@@ -4940,10 +4941,19 @@ function runRangeExperiments() {
                           <ResponsiveContainer width="100%" height="100%">
                             <ComposedChart
                               data={(() => {
-                                // Prepare data with confidence intervals
                                 const sortedData = experimentalResults.sort((a, b) => a.p - b.p);
                                 
-                                return sortedData.map(result => {
+                                // Para muchos procesos, podríamos necesitar reducir los puntos mostrados
+                                const maxPoints = 200;
+                                let dataToShow = sortedData;
+                                
+                                if (sortedData.length > maxPoints) {
+                                  // Muestrear uniformemente
+                                  const step = Math.ceil(sortedData.length / maxPoints);
+                                  dataToShow = sortedData.filter((_, idx) => idx % step === 0);
+                                }
+                                
+                                return dataToShow.map(result => {
                                   // Calculate statistics for confidence intervals
                                   let mean = result.discrepancy;
                                   let upperBound = mean;

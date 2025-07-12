@@ -266,7 +266,7 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
       actualAlgorithm
     );
   } else if (processCount === 3) {
-    theoretical = this.calculateExpectedDiscrepancy3Players(p, initialValues);
+    theoretical = this.calculateExpectedDiscrepancy3Players(p, initialValues, meetingPoint);
     if (rounds > 1) {
       const reductionFactor = this.getReductionFactor3Players(p);
       theoretical = theoretical * Math.pow(reductionFactor, rounds - 1);
@@ -353,7 +353,7 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
   },
 
   // Calculate expected discrepancy for 3 players according to paper
-  calculateExpectedDiscrepancy3Players: function(p, initialValues) {
+  calculateExpectedDiscrepancy3Players: function(p, initialValues, meetingPoint) {
     const decP = toDecimal(p);
     const q = toDecimal(1).minus(decP);
     
@@ -376,7 +376,7 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
       const term4 = pow(decP, 2).mul(pow(q, 2));
       const term5 = pow(q, 2).mul(toDecimal(1).minus(pow(decP, 2)));
       
-      return toDecimal(0.5).mul(term1.plus(term2).plus(term3).plus(term4)).plus(term5).toNumber();
+      return toDecimal(meetingPoint).mul(term1.plus(term2).plus(term3).plus(term4)).plus(term5).toNumber();
     } else {
       // For p < θ
       // E[D] = p(1-p²) + q²(1-pq)
@@ -456,7 +456,7 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
     }
     
     // For n > 3, always use meeting point 0.5 for AMP
-    const a = n > 3 ? toDecimal(0.5) : toDecimal(meetingPoint);
+    const a = toDecimal(meetingPoint);  // respeta el valor pasado para todos n
     
     // For large n, the paper shows discrepancy → 0 as n → ∞
     // For practical purposes, we use the formulas but note they have limitations
@@ -498,7 +498,7 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
 
   // Run multiple experiments with n processes
   runMultipleNProcessExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
-    // For n > 2, always use meeting point 0.5 for AMP
+    
     const actualMeetingPoint = meetingPoint;
     return this.runMultipleExperiments(initialValues, p, rounds, repetitions, algorithm, actualMeetingPoint);
   },
@@ -546,8 +546,8 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
   },
 
   // Calcular coeficiente de variación teórico
-  calculateTheoreticalCV: function(p, n, m, algorithm, rounds = 1) {
-    const expectedD = this.calculateExpectedDiscrepancyNProcesses(p, n, m, algorithm, 0.5);
+  calculateTheoreticalCV: function(p, n, m, algorithm, meetingPoint, rounds = 1) {
+    const expectedD = this.calculateExpectedDiscrepancyNProcesses(p, n, m, algorithm, meetingPoint);
     const variance = this.calculateTheoreticalVariance(p, n, m, algorithm, rounds);
     const stdDev = Math.sqrt(variance);
     
