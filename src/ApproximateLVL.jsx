@@ -133,13 +133,45 @@ function findInterestingPoints(experiments) {
 // Helper function for color interpolation
 // Función para mostrar detalles de una probabilidad específica
 
+// Helper para detectar si los valores son binarios
+const isBinaryValues = () => {
+  return processValues.every(val => val === 0 || val === 1);
+};
 
-function MessageDeliveryTable({ messages, processNames, selectedProcess, finalValues }) {
-  // Filtrar mensajes relevantes si hay un proceso seleccionado
-  const filteredMessages = selectedProcess !== null 
+// Helper para obtener el rango de valores
+const getValueRange = () => {
+  const min = Math.min(...processValues);
+  const max = Math.max(...processValues);
+  return { min, max };
+};
+
+function MessageDeliveryTable({
+  messages,
+  processNames,
+  selectedProcess,
+  previousValues = [],
+  finalValues = [],
+  algorithm = null // Añadir prop para saber el algoritmo
+}) {
+  // Si hay un proceso seleccionado, filtra solo sus mensajes
+  const filtered = selectedProcess != null
     ? messages.filter(m => m.from === selectedProcess || m.to === selectedProcess)
     : messages;
-    
+
+  // Agrupar mensajes por receptor para ver qué recibió cada proceso
+  const messagesByReceiver = {};
+  messages.forEach(msg => {
+    if (!messagesByReceiver[msg.to]) {
+      messagesByReceiver[msg.to] = [];
+    }
+    if (msg.delivered) {
+      messagesByReceiver[msg.to].push({
+        from: msg.from,
+        value: msg.value
+      });
+    }
+  });
+
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
@@ -149,30 +181,75 @@ function MessageDeliveryTable({ messages, processNames, selectedProcess, finalVa
             <th className="px-2 py-1 text-left">To</th>
             <th className="px-2 py-1 text-left">Sent Value</th>
             <th className="px-2 py-1 text-center">Delivered</th>
-            <th className="px-2 py-1 text-left">New Value (To)</th>
+            <th className="px-2 py-1 text-left">To's Prev Value</th>
+            <th className="px-2 py-1 text-left">To's New Value</th>
+            <th className="px-2 py-1 text-left">Reason</th>
           </tr>
         </thead>
         <tbody>
-          {filteredMessages.map((msg, i) => {
-            const previousValue = messages[0]?.value !== undefined ? 
-              (msg.to === msg.from ? msg.value : (1 - msg.value)) : msg.value;
-            const changed = finalValues && finalValues[msg.to] !== previousValue;
-            
+          {filtered.map((msg, i) => {
+            const fromIdx = msg.from;
+            const toIdx = msg.to;
+            const sentVal = msg.value;
+            const isDelivered = msg.delivered;
+
+            const prevValueOfReceiver = previousValues[toIdx];
+            const newValueOfReceiver = finalValues[toIdx];
+            const changed = prevValueOfReceiver !== undefined && 
+                          newValueOfReceiver !== undefined && 
+                          prevValueOfReceiver !== newValueOfReceiver;
+
+            // Determinar la razón del cambio
+            let changeReason = "";
+            if (algorithm === "MIN") {
+              // Para MIN, el cambio ocurre al final cuando se decide el mínimo
+              if (changed) {
+                changeReason = "MIN: selected minimum from known values";
+              } else if (isDelivered) {
+                changeReason = "MIN: value added to known set";
+              }
+            } else if (changed) {
+              const receivedMessages = messagesByReceiver[toIdx] || [];
+              const differentValues = receivedMessages.filter(m => m.value !== prevValueOfReceiver);
+              
+              if (differentValues.length > 0) {
+                if (algorithm === "FV" && newValueOfReceiver === differentValues[0].value) {
+                  changeReason = `FV: adopted value from ${processNames[differentValues[0].from]}`;
+                } else if (algorithm === "AMP" && typeof newValueOfReceiver === 'number' && 
+                          newValueOfReceiver >= 0 && newValueOfReceiver <= 1) {
+                  changeReason = `AMP: moved to meeting point`;
+                }
+              }
+            } else if (!changed && isDelivered && sentVal !== prevValueOfReceiver) {
+              if (algorithm === "MIN") {
+                changeReason = "MIN: maintaining current value";
+              } else {
+                changeReason = "No change (algo else decided)";
+              }
+            }
+
             return (
-              <tr key={i} className={msg.delivered ? 'bg-green-50' : 'bg-red-50'}>
-                <td className="px-2 py-1">{processNames[msg.from]}</td>
-                <td className="px-2 py-1">{processNames[msg.to]}</td>
-                <td className="px-2 py-1">{msg.value.toFixed(3)}</td>
+              <tr key={i} className={isDelivered ? 'bg-green-50' : 'bg-red-50'}>
+                <td className="px-2 py-1">{processNames[fromIdx] || `P${fromIdx}`}</td>
+                <td className="px-2 py-1">{processNames[toIdx] || `P${toIdx}`}</td>
+                <td className="px-2 py-1">
+                  {typeof sentVal === 'number' ? sentVal.toFixed(3) : String(sentVal)}
+                </td>
                 <td className="px-2 py-1 text-center">
-                  {msg.delivered ? '✓' : '✗'}
+                  {isDelivered ? '✓' : '✗'}
                 </td>
                 <td className="px-2 py-1">
-                  {finalValues ? (
-                    <span className={changed ? 'font-bold text-blue-600' : ''}>
-                      {finalValues[msg.to].toFixed(3)}
-                      {changed && ''}
-                    </span>
-                  ) : '-'}
+                  {typeof prevValueOfReceiver === 'number' ? 
+                    prevValueOfReceiver.toFixed(3) : String(prevValueOfReceiver)}
+                </td>
+                <td className="px-2 py-1">
+                  <span className={changed ? 'font-bold text-blue-600' : ''}>
+                    {typeof newValueOfReceiver === 'number' ? 
+                      newValueOfReceiver.toFixed(3) : String(newValueOfReceiver)}
+                  </span>
+                </td>
+                <td className="px-2 py-1 text-xs text-gray-600">
+                  {changeReason}
                 </td>
               </tr>
             );
@@ -182,6 +259,10 @@ function MessageDeliveryTable({ messages, processNames, selectedProcess, finalVa
     </div>
   );
 }
+
+
+
+
 
 
 function interpolateColor(color1, color2, factor) {
@@ -212,14 +293,15 @@ function interpolateColor(color1, color2, factor) {
 }
 
 // Componente para manejar n procesos
-function NProcessesControl({ processValues, setProcessValues, maxProcesses = 30 }) {
+function NProcessesControl({ processValues, setProcessValues, maxProcesses = 100, valueMode, setValueMode, isRunning }) {
   const n = processValues.length;
   
   // Agregar un nuevo proceso
   const addProcess = () => {
     if (n < maxProcesses) {
-      // Alternamos valores 0 y 1 para nuevos procesos
-      setProcessValues([...processValues, n % 2]);
+      // Valor por defecto según el modo
+      const defaultValue = valueMode === 'binary' ? n % 2 : 0.5;
+      setProcessValues([...processValues, defaultValue]);
     }
   };
   
@@ -233,21 +315,28 @@ function NProcessesControl({ processValues, setProcessValues, maxProcesses = 30 
   // Actualizar el valor de un proceso específico
   const updateProcessValue = (index, value) => {
     const newValues = [...processValues];
-    // Asegurar que el valor esté entre 0 y 1
-    newValues[index] = Math.max(0, Math.min(1, parseFloat(value) || 0));
-    setProcessValues(newValues);
+    const val = parseFloat(value);
+    if (!isNaN(val)) {
+      // Validar según el modo
+      if (valueMode === 'binary') {
+        newValues[index] = val === 0 || val === 1 ? val : Math.round(val);
+      } else {
+        newValues[index] = Math.max(0, Math.min(1, val));
+      }
+      setProcessValues(newValues);
+    }
   };
   
   return (
     <div className="mb-4">
       <div className="flex justify-between items-center mb-2">
-        <h3 className="text-sm font-semibold">Valores iniciales ({n} procesos)</h3>
+        <h3 className="text-sm font-semibold">Initial Values ({n} processes)</h3>
         <div className="flex space-x-2">
           <button
             onClick={removeProcess}
-            disabled={n <= 2}
-            className={`p-1 rounded-md ${n <= 2 ? 'bg-gray-200 text-gray-400' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
-            title="Eliminar proceso"
+            disabled={n <= 2 || isRunning}
+            className={`p-1 rounded-md ${n <= 2 || isRunning ? 'bg-gray-200 text-gray-400' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
+            title="Remove process"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -255,15 +344,35 @@ function NProcessesControl({ processValues, setProcessValues, maxProcesses = 30 
           </button>
           <button
             onClick={addProcess}
-            disabled={n >= maxProcesses}
-            className={`p-1 rounded-md ${n >= maxProcesses ? 'bg-gray-200 text-gray-400' : 'bg-green-100 text-green-600 hover:bg-green-200'}`}
-            title="Agregar proceso"
+            disabled={n >= maxProcesses || isRunning}
+            className={`p-1 rounded-md ${n >= maxProcesses || isRunning ? 'bg-gray-200 text-gray-400' : 'bg-green-100 text-green-600 hover:bg-green-200'}`}
+            title="Add process"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
           </button>
         </div>
+      </div>
+      
+      {/* Selector de modo de valores */}
+      <div className="mb-2">
+        <label className="text-xs font-medium block mb-1">Value Mode:</label>
+        <select
+          value={valueMode}
+          onChange={(e) => {
+            setValueMode(e.target.value);
+            // Convertir valores existentes al nuevo modo
+            if (e.target.value === 'binary') {
+              setProcessValues(processValues.map(v => Math.round(v)));
+            }
+          }}
+          className="w-full p-1 text-sm border rounded-md"
+          disabled={isRunning}
+        >
+          <option value="binary">Binary (0 or 1)</option>
+          <option value="continuous">Continuous (0.0 to 1.0)</option>
+        </select>
       </div>
       
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
@@ -297,16 +406,24 @@ function NProcessesControl({ processValues, setProcessValues, maxProcesses = 30 
                 type="number"
                 min="0"
                 max="1"
-                step="1"
+                step={valueMode === 'binary' ? "1" : "0.1"}
                 value={value}
                 onChange={(e) => updateProcessValue(index, e.target.value)}
                 className="w-full p-1 text-sm border rounded-md"
                 style={{ borderColor: color }}
+                disabled={isRunning}
+                placeholder={valueMode === 'binary' ? "0 or 1" : "0.0-1.0"}
               />
             </div>
           );
         })}
       </div>
+      
+      {valueMode === 'continuous' && (
+        <div className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded">
+          ⚠️ Note: Continuous values are experimental. The paper focuses on binary values.
+        </div>
+      )}
     </div>
   );
 }
@@ -556,7 +673,16 @@ function ExperimentComparison({ experiments }) {
                   connectNulls 
                 />
               ))}
-              
+                <ReferenceLine 
+                  y={1e-6} 
+                  stroke="#666" 
+                  strokeDasharray="3 3" 
+                  label={{ 
+                    value: "Convergence threshold (10⁻⁶)", 
+                    position: "right",
+                    style: { fontSize: 12, fill: '#666' }
+                  }}
+                />
               {selectedMetric === 'theoretical' && experiments.map((experiment, index) => {
                 const expColor = colors[index % colors.length];
                 return (
@@ -1341,7 +1467,7 @@ function ExperimentVisualization({ experimentData, currentRound = 0, processCoun
       "#ff5722"  // naranja rojizo
     ];
     
-    // Si tenemos más procesos que colores, generamos colores adicionales
+
     if (count > baseColors.length) {
       const extraColors = [];
       for (let i = 0; i < count - baseColors.length; i++) {
@@ -2015,6 +2141,30 @@ function FVMethodComparisonChart({ comparisonResults }) {
             ))}
           </tbody>
         </table>
+        {experimentalResults.length > 0 && (
+        <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+          <h4 className="font-semibold mb-2">Convergence Analysis</h4>
+          <div className="text-sm space-y-1">
+            {(() => {
+              const convergedCount = experimentalResults.filter(r => r.discrepancy < 1e-10).length;
+              const nearConvergedCount = experimentalResults.filter(r => r.discrepancy < 1e-6).length;
+              const totalPoints = experimentalResults.length;
+              
+              return (
+                <>
+                  <p>• Fully converged: {convergedCount}/{totalPoints} points ({(convergedCount/totalPoints*100).toFixed(1)}%)</p>
+                  <p>• Nearly converged: {nearConvergedCount}/{totalPoints} points ({(nearConvergedCount/totalPoints*100).toFixed(1)}%)</p>
+                  {processCount > 2 && rounds > 1 && (
+                    <p className="text-orange-600 mt-2">
+                      Note: For {processCount} processes with {rounds} rounds, convergence is expected to be exponentially faster than single-round cases.
+                    </p>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );
@@ -2051,8 +2201,7 @@ function AnimationControls({ currentRound, totalRounds, onPlay, onPause, onReset
   );
 }
 
-// Range experiments results table with correct formatting
-// Range experiments results table con espaciado reducido
+
 function RangeResultsTable({
   results,
   processCount = 2,
@@ -2076,14 +2225,6 @@ function RangeResultsTable({
       typeof r.discrepancy === "number" &&
       typeof r.algorithm === "string"
   );
-
-  if (validResults.length === 0) {
-    return (
-      <div className="bg-gray-100 p-4 rounded-lg text-center text-gray-500">
-        No valid experimental results found.
-      </div>
-    );
-  }
 
   // Ordenar por probabilidad
   const sortedResults = [...validResults].sort((a, b) => a.p - b.p);
@@ -2109,67 +2250,54 @@ function RangeResultsTable({
         <table className="min-w-full divide-y divide-gray-200 text-xs">
           <thead>
             <tr className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
-              <th
-                scope="col"
-                className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
-              >
-                Probability (p)
-              </th>
-              <th
-                scope="col"
-                className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
-              >
-                Algorithm
-              </th>
-              {forcedAlgorithm === "FV" && processCount === 3 && (
-                <th
-                  scope="col"
-                  className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
-                >
-                  FV Method
-                </th>
-              )}
-              <th
-                scope="col"
-                className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
-              >
-                Experimental{rounds > 1 ? ` (${rounds} rounds)` : ""}
-              </th>
-              <th
-                scope="col"
-                className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
-              >
-                Samples
-              </th>
+              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Probability (p)</th>
+              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Algorithm</th>
+              <th className="px-6 py-4 text-left font-semibold uppercase tracking-wider">Experimental{rounds > 1 ? ` (${rounds} rounds)` : ""}</th>
+              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Samples</th>
               {processCount === 2 && (
                 <>
-                  <th
-                    scope="col"
-                    className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
-                  >
-                    Theoretical{rounds > 1 ? ` (${rounds} rounds)` : ""}
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-3 py-2 text-left font-semibold uppercase tracking-wider"
-                  >
-                    Error
-                  </th>
+                  <th className="px-6 py-4 text-left font-semibold uppercase tracking-wider">Theoretical{rounds > 1 ? ` (${rounds} rounds)` : ""}</th>
+                  <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Error Abs</th>
+                  <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Error %</th>
                 </>
               )}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {resultsWithCorrectTheory.map((result, idx) => {
+              // === MODIFICACIÓN 1: calcular error absoluto ===
               const error =
                 processCount === 2 && typeof result.theoretical === "number"
                   ? Math.abs(result.theoretical - result.discrepancy)
                   : null;
+
+              let errorPercent = 0;
+              let errorType = "normal";
+              let displayError = "";
+
+              if (error !== null) {
+                const epsilon = 1e-10;
+                const smallValueThreshold = 1e-6;
+
+                if (result.theoretical < epsilon && result.discrepancy < epsilon) {
+                  errorType = "both-zero";
+                  displayError = "≈0%";
+                } else if (result.theoretical < smallValueThreshold) {
+                  errorType = "absolute";
+                  displayError = `±${error.toExponential(2)}`;
+                } else {
+                  errorPercent = (error / result.theoretical) * 100;
+                  if (errorPercent > 999) {
+                    displayError = ">999%";
+                  } else {
+                    displayError = `${errorPercent.toFixed(1)}%`;
+                  }
+                }
+              }
+
               return (
                 <tr key={idx} className={idx % 2 === 0 ? "" : "bg-gray-50"}>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    {result.p.toFixed(2)}
-                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap">{result.p.toFixed(2)}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <span
                       className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
@@ -2181,17 +2309,51 @@ function RangeResultsTable({
                       {result.algorithm}
                     </span>
                   </td>
-                  <td className="px-3 py-2 whitespace-nowrap font-mono">
-                    {result.discrepancy.toFixed(6)}
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="font-mono text-sm">
+                      {result.discrepancy < 1e-6 && result.discrepancy > 0
+                        ? result.discrepancy.toExponential(3)
+                        : result.discrepancy.toFixed(6)}
+                    </div>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">{result.samples}</td>
+
                   {processCount === 2 && (
                     <>
-                      <td className="px-3 py-2 whitespace-nowrap font-mono">
-                        {result.theoretical.toFixed(6)}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="font-mono text-sm text-gray-600">
+                          {result.theoretical < 1e-6 && result.theoretical > 0
+                            ? result.theoretical.toExponential(3)
+                            : result.theoretical.toFixed(6)}
+                        </div>
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap font-mono">
-                        {error.toFixed(6)}
+
+                      {/* Error absoluto */}
+                      <td className="px-6 py-4 whitespace-nowrap font-mono">
+                        {error !== null
+                          ? (error < 1e-6 && error > 0
+                              ? error.toExponential(3)
+                              : error.toFixed(6))
+                          : "N/A"}
+                      </td>
+
+                      {/* Error porcentual (Modificación 3) */}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div
+                          className={`text-sm ${
+                            errorType === "both-zero"
+                              ? "text-gray-500"
+                              : errorType === "absolute"
+                              ? "text-blue-600"
+                              : errorPercent > 20
+                              ? "text-red-600 font-semibold"
+                              : errorPercent > 10
+                              ? "text-orange-600"
+                              : "text-green-600"
+                          }`}
+                        >
+                          {error !== null ? displayError : "N/A"}
+                        </div>
                       </td>
                     </>
                   )}
@@ -2204,6 +2366,7 @@ function RangeResultsTable({
     </div>
   );
 }
+
 
 // Improved modal for saving experiments
 function SaveExperimentModal({ showSaveModal, setShowSaveModal, experimentMetadata, setExperimentMetadata, currentExperimentToSave, setSavedExperiments, addLog }) {
@@ -3016,7 +3179,9 @@ function TheoreticalVsExperimentalTable({ p, maxRounds = 3, repetitions = 100 })
                         {result.algorithm}
                       </span>
                     </td>
-                    <td className="px-2 py-1 whitespace-nowrap font-mono">{result.discrepancy.toFixed(6)}</td>
+                    <td className="px-2 py-1 whitespace-nowrap font-mono">{result.discrepancy < 1e-6 && result.discrepancy > 0 
+                      ? result.discrepancy.toExponential(3)
+                      : result.discrepancy.toFixed(6)}</td>
                     {result.theoretical && (
                       <>
                         <td className="px-2 py-1 whitespace-nowrap font-mono">{result.theoretical.toFixed(6)}</td>
@@ -3377,8 +3542,9 @@ function CompleteDistributedComputingSimulator() {
   const [meetingPoint, setMeetingPoint] = useState(0.5);
   const [rounds, setRounds] = useState(1);
   const [repetitions, setRepetitions] = useState(50);
-  // En ApproximateLVL, después de los otros useState, agrega:
-  const [lastRunData, setLastRunData] = useState(null);
+
+  const [experimentRuns, setExperimentRuns] = useState({});
+  const [selectedRepetition, setSelectedRepetition] = useState(0);
   // Range experiments states
   const [rangeExperiments, setRangeExperiments] = useState({
     minP: 0.0,
@@ -3402,9 +3568,18 @@ function CompleteDistributedComputingSimulator() {
   const [selectedExperiments, setSelectedExperiments] = useState([]);
   const [comparisonView, setComparisonView] = useState('chart'); // 'chart', 'table', 'details'
   const [forcedAlgorithm, setForcedAlgorithm] = useState("auto");
-  
+  const [maxValue, setMaxValue] = useState(1); // Para valores no binarios
 
 
+
+  // Función helper para validar valores
+  const validateProcessValue = (value, mode) => {
+    if (mode === 'binary') {
+      return value === 0 || value === 1 ? value : Math.round(value);
+    } else {
+      return Math.max(0, Math.min(1, value));
+    }
+  };
   const [selectedProbabilityForDetails, setSelectedProbabilityForDetails] = useState(null);
   // Multi-round analysis states
   const [multiRoundAnalysisData, setMultiRoundAnalysisData] = useState(null);
@@ -3455,7 +3630,8 @@ function CompleteDistributedComputingSimulator() {
         errorPercent: r.theoretical != null ? Math.abs(mean - r.theoretical) / r.theoretical * 100 : null
       };
     });
-  // ---------------------------------------------------------------------
+
+  const [valueMode, setValueMode] = useState('binary'); // 'binary' o 'continuous'
 
   const [rangeDisplayCurves, setRangeDisplayCurves] = useState({
     experimental: true,
@@ -3464,16 +3640,16 @@ function CompleteDistributedComputingSimulator() {
   });
   const [comparisonResults, setComparisonResults] = useState(null);
   const animationTimerRef = useRef(null);
-  // al nivel superior de ApproximateLVL.jsx, junto al resto de useState:
+
   const cancelRef = useRef(false);
 
   function handleRunCancel() {
     if (!isRunning) {
       setIsRunning(true);
-      runRangeExperiments();       // tu función actual que arranca la simulación
+      runRangeExperiments();       
     } else {
       setIsRunning(false);
-      cancelRangeExperiments();    // asegúrate de que esta función interrumpa runRangeExperiments
+      cancelRangeExperiments();    
     }
   }
 
@@ -3485,28 +3661,48 @@ function CompleteDistributedComputingSimulator() {
 
 
 
-  // Helper functions
+ // Helper functions
   
 function showDetailsForProbability(p) {
-  // Buscar si ya tenemos un historial guardado para esta probabilidad
+  // Redondear p a 3 decimales para coincidencia exacta
+  p = Math.round(p * 1000) / 1000;
+  
+  // Manejar caso especial de p=0
+  if (p === 0) {
+    addLog("Note: With p=0, no messages are delivered. All processes maintain their initial values.", "warning");
+  }
+  
   const resultForP = experimentalResults.find(r => Math.abs(r.p - p) < 0.0001);
   
   if (resultForP) {
-    // Ejecutar un nuevo experimento con los mismos parámetros
-    const initialValues = getInitialValues();
-    const history = SimulationEngine.runNProcessExperiment(
-      initialValues,
-      p,
-      rounds,
-      resultForP.algorithm,
-      meetingPoint
-    );
-    
-    setLastRunData(history);
-    setSelectedProbabilityForDetails(p);
-    addLog(`Generated detailed view for p=${p.toFixed(3)}`, "info");
+    // Si ya tenemos runs guardados para esta p, mostrarlos
+    if (experimentRuns[p] && experimentRuns[p].length > 0) {
+      setSelectedProbabilityForDetails(p);
+      setSelectedRepetition(0);
+      addLog(`Showing ${experimentRuns[p].length} repetitions for p=${p.toFixed(3)}`, "info");
+    } else {
+      // Si no hay runs guardados (no debería pasar después de una simulación)
+      // Generar al menos una para mostrar algo
+      const initialValues = getInitialValues();
+      const history = SimulationEngine.runNProcessExperiment(
+        initialValues,
+        p,
+        rounds,
+        resultForP.algorithm,
+        meetingPoint
+      );
+      
+      setExperimentRuns(prev => ({
+        ...prev,
+        [p]: [history]
+      }));
+      setSelectedProbabilityForDetails(p);
+      setSelectedRepetition(0);
+      addLog(`Generated single view for p=${p.toFixed(3)}`, "info");
+    }
   }
 }
+
 
 // Función para ejecutar un experimento individual
 function runSingleExperimentForDetails(p) {
@@ -3528,9 +3724,17 @@ function runSingleExperimentForDetails(p) {
   addLog(`Generated detailed view for p=${p.toFixed(3)}`, "info");
 }
 // Componente para visualización detallada del experimento
-function ExperimentDetailViewer({ experimentHistory, algorithm, meetingPoint, probability }) {
+function ExperimentDetailViewer({ 
+  experimentHistory, 
+  algorithm, 
+  meetingPoint, 
+  probability,
+  repetitionIndex = 0,
+  allRepetitions = null
+}) {
   const [expandedRound, setExpandedRound] = useState(0);
   const [selectedProcess, setSelectedProcess] = useState(null);
+  const [showDeliveryStats, setShowDeliveryStats] = useState(false);
   
   if (!experimentHistory || experimentHistory.length === 0) {
     return (
@@ -3552,6 +3756,57 @@ function ExperimentDetailViewer({ experimentHistory, algorithm, meetingPoint, pr
                     "#f39c12", "#1abc9c", "#34495e", "#d35400", "#27ae60"];
     return colors[index % colors.length];
   };
+  
+  // Calcular estadísticas de entrega acumuladas
+  const calculateDeliveryStats = () => {
+    const stats = [];
+    let totalMessagesSent = 0;
+    let totalMessagesDelivered = 0;
+    
+    experimentHistory.forEach((round, roundIdx) => {
+      if (roundIdx === 0) {
+        stats.push({
+          round: 0,
+          sent: 0,
+          delivered: 0,
+          percentage: 0,
+          cumulativeSent: 0,
+          cumulativeDelivered: 0,
+          cumulativePercentage: 0
+        });
+        return;
+      }
+      
+      let roundSent = 0;
+      let roundDelivered = 0;
+      
+      if (round.messages) {
+        round.messages.forEach(senderMessages => {
+          senderMessages.forEach(msg => {
+            roundSent++;
+            if (msg.delivered) roundDelivered++;
+          });
+        });
+      }
+      
+      totalMessagesSent += roundSent;
+      totalMessagesDelivered += roundDelivered;
+      
+      stats.push({
+        round: roundIdx,
+        sent: roundSent,
+        delivered: roundDelivered,
+        percentage: roundSent > 0 ? (roundDelivered / roundSent * 100) : 0,
+        cumulativeSent: totalMessagesSent,
+        cumulativeDelivered: totalMessagesDelivered,
+        cumulativePercentage: totalMessagesSent > 0 ? (totalMessagesDelivered / totalMessagesSent * 100) : 0
+      });
+    });
+    
+    return stats;
+  };
+  
+  const deliveryStats = calculateDeliveryStats();
   
   return (
     <div className="space-y-4">
@@ -3576,13 +3831,72 @@ function ExperimentDetailViewer({ experimentHistory, algorithm, meetingPoint, pr
             <span className="ml-2 font-medium">{probability?.toFixed(2) || 'N/A'}</span>
           </div>
         </div>
-        <div className="mt-3">
-          <span className="text-gray-600">Final Discrepancy:</span>
-          <span className="ml-2 font-bold text-lg text-blue-600">
-            {experimentHistory[experimentHistory.length - 1].discrepancy.toFixed(4)}
-          </span>
+        <div className="mt-3 grid grid-cols-2 gap-4">
+          <div>
+            <span className="text-gray-600">Initial Discrepancy:</span>
+            <span className="ml-2 font-bold text-lg">
+              {experimentHistory[0].discrepancy.toFixed(4)}
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-600">Final Discrepancy:</span>
+            <span className="ml-2 font-bold text-lg text-blue-600">
+              {experimentHistory[experimentHistory.length - 1].discrepancy.toFixed(4)}
+            </span>
+          </div>
         </div>
+        
+        {/* Botón para mostrar/ocultar estadísticas de entrega */}
+        <button
+          onClick={() => setShowDeliveryStats(!showDeliveryStats)}
+          className="mt-3 text-sm text-blue-600 hover:text-blue-800 underline"
+        >
+          {showDeliveryStats ? 'Hide' : 'Show'} Delivery Statistics
+        </button>
       </div>
+      
+      {/* Estadísticas de entrega */}
+      {showDeliveryStats && (
+        <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+          <h4 className="font-semibold mb-3">Message Delivery Statistics</h4>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-green-300">
+                  <th className="text-left py-2">Round</th>
+                  <th className="text-right py-2">Messages Sent</th>
+                  <th className="text-right py-2">Delivered</th>
+                  <th className="text-right py-2">Delivery %</th>
+                  <th className="text-right py-2">Cumulative Sent</th>
+                  <th className="text-right py-2">Cumulative Delivered</th>
+                  <th className="text-right py-2">Overall %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deliveryStats.map((stat, idx) => (
+                  <tr key={idx} className={idx % 2 === 0 ? 'bg-white bg-opacity-50' : ''}>
+                    <td className="py-1">{stat.round}</td>
+                    <td className="text-right py-1">{stat.sent}</td>
+                    <td className="text-right py-1">{stat.delivered}</td>
+                    <td className="text-right py-1">{stat.percentage.toFixed(1)}%</td>
+                    <td className="text-right py-1 font-medium">{stat.cumulativeSent}</td>
+                    <td className="text-right py-1 font-medium">{stat.cumulativeDelivered}</td>
+                    <td className="text-right py-1 font-bold">
+                      {stat.cumulativePercentage.toFixed(1)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3 text-sm text-gray-600">
+            <p>Expected delivery rate: {(probability * 100).toFixed(1)}%</p>
+            <p>Actual overall delivery rate: {
+              deliveryStats[deliveryStats.length - 1]?.cumulativePercentage.toFixed(1)
+            }%</p>
+          </div>
+        </div>
+      )}
       
       {/* Vista por rondas */}
       <div className="space-y-2">
@@ -3600,17 +3914,24 @@ function ExperimentDetailViewer({ experimentHistory, algorithm, meetingPoint, pr
                   <span className="text-sm text-gray-500">
                     Discrepancy: {round.discrepancy.toFixed(4)}
                   </span>
+                  {index > 0 && deliveryStats[index] && (
+                    <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded">
+                      {deliveryStats[index].delivered}/{deliveryStats[index].sent} delivered ({deliveryStats[index].percentage.toFixed(0)}%)
+                    </span>
+                  )}
                 </div>
                 {/* Mini visualización de valores */}
                 <div className="flex space-x-1">
                   {round.values.slice(0, Math.min(10, processCount)).map((val, i) => (
                     <div
                       key={i}
-                      className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-white"
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium text-white"
                       style={{ backgroundColor: getProcessColor(i) }}
-                      title={`${processNames[i]}: ${val.toFixed(3)}`}
+                      title={`${processNames[i]}: ${typeof val === 'number' ? val.toFixed(3) : val}`}
                     >
-                      {val}
+                      {typeof val === 'number' ? 
+                        (val === Math.floor(val) ? val : val.toFixed(1)) : 
+                        String(val).substring(0, 3)}
                     </div>
                   ))}
                   {processCount > 10 && (
@@ -3626,43 +3947,80 @@ function ExperimentDetailViewer({ experimentHistory, algorithm, meetingPoint, pr
                 {/* Valores de procesos */}
                 <div className="mb-4">
                   <h5 className="font-medium mb-2">Process Values:</h5>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                    {round.values.map((val, i) => (
-                      <div 
-                        key={i}
-                        className={`p-2 rounded cursor-pointer transition-all ${
-                          selectedProcess === i ? 'ring-2 ring-blue-500 bg-white' : 'bg-white hover:shadow-md'
-                        }`}
-                        onClick={() => setSelectedProcess(selectedProcess === i ? null : i)}
-                      >
-                        <div className="flex items-center space-x-2">
-                          <div 
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: getProcessColor(i) }}
-                          />
-                          <span className="text-sm font-medium">{processNames[i]}</span>
-                        </div>
-                        <div className="text-lg font-mono mt-1">{val.toFixed(3)}</div>
-                        {index > 0 && experimentHistory[index-1].values[i] !== val && (
-                          <div className="text-xs text-green-600 mt-1">
-                            Changed from {experimentHistory[index-1].values[i].toFixed(3)}
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+                    {round.values.map((val, i) => {
+                      const prevValue = index > 0 ? experimentHistory[index-1].values[i] : null;
+                      const hasChanged = prevValue !== null && prevValue !== val;
+                      
+                      return (
+                        <div 
+                          key={i}
+                          className={`p-2 rounded cursor-pointer transition-all ${
+                            selectedProcess === i ? 'ring-2 ring-blue-500 bg-white' : 'bg-white hover:shadow-md'
+                          }`}
+                          onClick={() => setSelectedProcess(selectedProcess === i ? null : i)}
+                        >
+                          <div className="flex items-center space-x-2">
+                            <div 
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: getProcessColor(i) }}
+                            />
+                            <span className="text-sm font-medium">{processNames[i]}</span>
                           </div>
-                        )}
-                      </div>
-                    ))}
+                          <div className="text-lg font-mono mt-1">
+                            {typeof val === 'number' ? val.toFixed(3) : String(val)}
+                          </div>
+                          {hasChanged && (
+                            <div className="text-xs text-green-600 mt-1">
+                              Changed from {typeof prevValue === 'number' ? prevValue.toFixed(3) : String(prevValue)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
                 
+                {/* Mostrar conjuntos conocidos para algoritmo MIN */}
+                {round.knownValuesSets && (
+                  <div className="mt-4">
+                    <h5 className="font-medium mb-2 text-sm">Known Value Sets (MIN Algorithm):</h5>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {processNames.map((name, idx) => (
+                        <div key={idx} className="bg-yellow-50 p-2 rounded border border-yellow-200 text-sm">
+                          <span className="font-medium text-gray-700">{name}:</span>
+                          <span className="ml-2 font-mono text-gray-900">
+                            {"{" + (round.knownValuesSets[idx] || []).map(v => 
+                              typeof v === 'number' ? v.toFixed(2) : v
+                            ).join(", ") + "}"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
                 {/* Matriz de mensajes (solo para rondas > 0) */}
                 {index > 0 && round.messages && (
-                  <div>
-                    <h5 className="font-medium mb-2">Message Delivery:</h5>
-                    <MessageDeliveryTable 
-                      messages={round.messages}
-                      processNames={processNames}
-                      selectedProcess={selectedProcess}
-                      finalValues={round.values} // Pasar los valores finales de esta ronda
-                    />
+                  <div className="mt-4">
+                    <h5 className="font-medium mb-2">Message Delivery Matrix:</h5>
+                    {(() => {
+                      // Formatear mensajes para la tabla
+                      const formattedMessages = round.messages.flatMap((msgsFromSender, senderIdx) =>
+                        msgsFromSender.map(msg => ({ ...msg, from: senderIdx }))
+                      );
+                      
+                      return (
+                        <MessageDeliveryTable
+                          messages={formattedMessages}
+                          processNames={processNames}
+                          selectedProcess={selectedProcess}
+                          previousValues={experimentHistory[index - 1].values}
+                          finalValues={round.values}
+                          algorithm={algorithm} // Añadir esta línea
+                        />
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -3772,6 +4130,7 @@ function ExperimentDetailViewer({ experimentHistory, algorithm, meetingPoint, pr
   }
   
   // Run range experiments with progressive visualization
+// Range experiments results table con espaciado reducido
 function runRangeExperiments() {
   if (isRunning) return;
 
@@ -3792,7 +4151,21 @@ function runRangeExperiments() {
   const actualRepetitions = repetitions;
   const actualSteps = customSteps ? customStepValue : steps;
   const processCount = initialProcessValues.length;
-
+  const stepSize = (maxP - minP) / (actualSteps - 1);
+  const allProbabilities = [];
+  
+  for (let i = 0; i < actualSteps; i++) {
+    // Redondear a 3 decimales para evitar problemas de precisión flotante
+    const p = Math.round((minP + i * stepSize) * 1000) / 1000;
+    allProbabilities.push(p);
+  }
+  
+  // Crear estructura para guardar TODAS las repeticiones
+  const allRunsData = {};
+  allProbabilities.forEach(p => {
+    allRunsData[p] = [];
+  });
+  
   // Count zero-valued processes
   let m = 0;
   initialProcessValues.forEach(val => {
@@ -3811,13 +4184,6 @@ function runRangeExperiments() {
       `Note: Theoretical values for ${processCount} processes with ${actualRounds} rounds use approximation`,
       "warning"
     );
-  }
-
-  // Generate probability points
-  const stepSize = (maxP - minP) / Math.max(actualSteps - 1, 1);
-  const allProbabilities = [];
-  for (let i = 0; i < actualSteps; i++) {
-    allProbabilities.push(minP + i * stepSize);
   }
 
   // Pre-compute theoretical and prepare results array
@@ -3888,6 +4254,15 @@ function runRangeExperiments() {
     if (currentRep >= actualRepetitions) {
       setIsRunning(false);
       setProgress(100);
+      
+      // IMPORTANTE: Guardar todos los runs en experimentRuns
+      setExperimentRuns(allRunsData);
+      
+      // Si hay una probabilidad seleccionada, actualizar la repetición
+      if (selectedProbabilityForDetails && allRunsData[selectedProbabilityForDetails]) {
+        setSelectedRepetition(0);
+      }
+      
       addLog(
         `Simulation completed with ${results.length} data points x ${actualRepetitions} repetitions`,
         "success"
@@ -3924,12 +4299,12 @@ function runRangeExperiments() {
       setExperimentalResults([...results]);
       
       return;
-    } // Ponemos todos los resultados juntos
+    }
 
     // Update UI
     setCurrentRepetition(currentRep + 1);
 
-    //Nucleo principal, aqui ocurre que todas las probabilidades del rango se les calculara el resulta
+    // Nucleo principal, aqui ocurre que todas las probabilidades del rango se les calculara el resultado
     // One pass over all probabilities
     for (let i = 0; i < allProbabilities.length; i++) {
       if (cancelRef.current) break;
@@ -3942,11 +4317,14 @@ function runRangeExperiments() {
         actualMeetingPoint
       );
       
+      // IMPORTANTE: Guardar CADA historia en allRunsData
+      allRunsData[results[i].p].push(history);
       
+      // Si es la primera vez y es la probabilidad del medio, establecerla como seleccionada
       if (currentRep === 0 && i === Math.floor(allProbabilities.length / 2)) {
-        setLastRunData(history);
-        setSelectedProbabilityForDetails(results[i].p);
-        addLog(`Saved initial detailed view for p=${results[i].p.toFixed(3)}`, "info");
+        const p = results[i].p;
+        setSelectedProbabilityForDetails(p);
+        addLog(`Saved initial detailed view for p=${p.toFixed(3)}`, "info");
       }
       
       const finalDiscrepancy = history[history.length - 1].discrepancy;
@@ -4264,7 +4642,7 @@ function runRangeExperiments() {
     const processCount = processValues.length;
     
     const addProcess = () => {
-      if (processCount < 30) { // Limitar a 10 procesos para la usabilidad
+      if (processCount < 100) { // Limitar a 10 procesos para la usabilidad
         // Valor por defecto para nuevo proceso: alternar 0 y 1
         setProcessValues([...processValues, processCount % 2]);
       }
@@ -4292,9 +4670,9 @@ function runRangeExperiments() {
             </button>
             <button
               onClick={addProcess}
-              disabled={processCount >= 30 || isRunning}
+              disabled={processCount >= 100 || isRunning}
               className={`px-2 py-1 rounded ${
-                processCount >= 30 || isRunning ? 'bg-gray-300 text-gray-500' : 'bg-green-100 text-green-600 hover:bg-green-200'
+                processCount >= 100 || isRunning ? 'bg-gray-300 text-gray-500' : 'bg-green-100 text-green-600 hover:bg-green-200'
               }`}
             >
               +
@@ -4326,20 +4704,23 @@ function runRangeExperiments() {
                 <div className="flex justify-between items-center mb-1">
                   <label className="text-xs font-medium" style={{ color }}>{processName}</label>
                 </div>
-                <select
+                <input
+                  type="number"
                   value={value}
                   onChange={(e) => {
                     const newValues = [...processValues];
-                    newValues[index] = parseInt(e.target.value);
-                    setProcessValues(newValues);
+                    const val = parseFloat(e.target.value);
+                    if (!isNaN(val)) {
+                      newValues[index] = val;
+                      setProcessValues(newValues);
+                    }
                   }}
                   className="w-full p-1 text-sm border rounded-md"
                   style={{ borderColor: color }}
                   disabled={isRunning}
-                >
-                  <option value="0">0</option>
-                  <option value="1">1</option>
-                </select>
+                  step="0.1"
+                  placeholder="Value"
+                />
               </div>
             );
           })}
@@ -4383,8 +4764,15 @@ function runRangeExperiments() {
             <h2 className="text-lg font-semibold">🎛️ Simulation Parameters</h2>
             
             {/* Process controller */}
-            <NProcessesControl />
-
+            <NProcessesControl 
+              processValues={processValues}
+              setProcessValues={setProcessValues}
+              maxProcesses={100}
+              valueMode={valueMode}
+              setValueMode={setValueMode}
+              isRunning={isRunning}
+            />
+            
             {/* Algorithm Settings */}
             <div className="space-y-2">
               <h4 className="text-xs font-semibold">Algorithm Settings:</h4>
@@ -4403,6 +4791,7 @@ function runRangeExperiments() {
                     <option value="auto">Optimized based on probability</option>
                     <option value="AMP">Use only AMP Algorithm</option>
                     <option value="FV">Use only FV Algorithm</option>
+                    <option value="MIN">MIN (Minimum Value)</option>
                   </select>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -4417,9 +4806,13 @@ function runRangeExperiments() {
                     className="w-20 p-1 border border-gray-300 rounded-md" 
                     disabled={isRunning}
                   />
+
                 </div>
+                
               </div>
             </div>
+
+
 
             {/* Simulation Configuration */}
             <div className="space-y-2">
@@ -4728,80 +5121,152 @@ function runRangeExperiments() {
                     </div>
                   )}
 
-                  {/* Reemplaza la sección que dice {lastRunData && (...)} con esto: */}
                   {experimentalResults && experimentalResults.length > 0 && (
                     <div className="mt-6">
                       <h3 className="text-xl font-semibold mb-4">Detailed Experiment Analysis</h3>
                       
-                      {/* Selector simple de probabilidad */}
+                      {/* Selector de probabilidad y repetición */}
                       <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Select probability to view details:
-                        </label>
-                        <div className="flex items-center gap-4">
-                          <select
-                            className="flex-1 p-2 border border-gray-300 rounded-md"
-                            value={selectedProbabilityForDetails || ''}
-                            onChange={(e) => {
-                              const p = parseFloat(e.target.value);
-                              if (!isNaN(p)) {
-                                showDetailsForProbability(p); // Cambiar runSingleExperimentForDetails por showDetailsForProbability
-                              }
-                            }}
-                          >
-                            <option value="">Select a probability...</option>
-                            {experimentalResults.map((result, idx) => (
-                              <option key={idx} value={result.p}>
-                                p = {result.p.toFixed(3)} ({result.algorithm})
-                              </option>
-                            ))}
-                          </select>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Select probability to view details:
+                            </label>
+                            <select
+                              className="w-full p-2 border border-gray-300 rounded-md"
+                              value={selectedProbabilityForDetails || ''}
+                              onChange={(e) => {
+                                const p = parseFloat(e.target.value);
+                                if (!isNaN(p)) {
+                                  showDetailsForProbability(p);
+                                }
+                              }}
+                            >
+                              <option value="">Select a probability...</option>
+                              {experimentalResults.map((result, idx) => (
+                                <option key={idx} value={result.p}>
+                                  p = {result.p.toFixed(3)} ({result.algorithm})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          
+                          {/* Selector de repetición */}
+                          {selectedProbabilityForDetails !== null && experimentRuns[selectedProbabilityForDetails] && experimentRuns[selectedProbabilityForDetails].length > 0 && (
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Select repetition:
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <select
+                                  className="flex-1 p-2 border border-gray-300 rounded-md"
+                                  value={selectedRepetition}
+                                  onChange={(e) => setSelectedRepetition(parseInt(e.target.value))}
+                                >
+                                  {experimentRuns[selectedProbabilityForDetails].map((_, idx) => (
+                                    <option key={idx} value={idx}>
+                                      Repetition {idx + 1} of {experimentRuns[selectedProbabilityForDetails].length}
+                                    </option>
+                                  ))}
+                                </select>
+                                {experimentRuns[selectedProbabilityForDetails].length < repetitions && (
+                                  <button
+                                    onClick={() => {
+                                      // Generar más repeticiones
+                                      const p = selectedProbabilityForDetails;
+                                      const resultForP = experimentalResults.find(r => Math.abs(r.p - p) < 0.0001);
+                                      if (resultForP) {
+                                        const initialValues = getInitialValues();
+                                        const newRun = SimulationEngine.runNProcessExperiment(
+                                          initialValues,
+                                          p,
+                                          rounds,
+                                          resultForP.algorithm,
+                                          meetingPoint
+                                        );
+                                        setExperimentRuns(prev => ({
+                                          ...prev,
+                                          [p]: [...(prev[p] || []), newRun]
+                                        }));
+                                        setSelectedRepetition(experimentRuns[p].length);
+                                      }
+                                    }}
+                                    className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                    title="Generate another repetition"
+                                  >
+                                    +
+                                  </button>
+                                )}
+                              </div>
+                              {experimentRuns[selectedProbabilityForDetails].length === repetitions && (
+                                <p className="text-xs text-gray-600 mt-1">
+                                  Showing all {repetitions} repetitions from the simulation
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                      
-                      {/* Visualizador de detalles */}
-                      {lastRunData && (
-                        <ExperimentDetailViewer 
-                          experimentHistory={lastRunData}
-                          algorithm={getDisplayAlgorithm(forcedAlgorithm, selectedProbabilityForDetails || probability)}
-                          meetingPoint={meetingPoint}
-                          probability={selectedProbabilityForDetails || probability}
-                        />
-                      )}
-                    </div>
-                  )}
-
-                  {experimentalResults && experimentalResults.length > 0 && (
-                    <div className="mt-4">
-                      <h4 className="font-medium mb-2">Results Summary:</h4>
-                      <div className="bg-gray-50 p-3 rounded-lg border text-sm">
-                        <p>
-                          Tested {experimentalResults.length} probability points from {rangeExperiments.minP} to {rangeExperiments.maxP} with {processValues.length} processes.
-                        </p>
-                        <p className="mt-2">
-                          The algorithm {forcedAlgorithm === "auto" ? "automatically selected" : `was forced to use ${forcedAlgorithm}`} for each test.
-                          {forcedAlgorithm === "FV" && processValues.length > 2 && ` Using FV method: ${fvMethod}.`}
-                        </p>
-                        {rounds > 1 && (
-                          <p className="mt-2 text-blue-700">
-                            <strong>Multiple rounds:</strong> Results show discrepancy after {rounds} rounds of message exchange.
-                            {processValues.length === 2 ? (
-                              <span className="text-green-700"> Theoretical values use exact multi-round formulas.</span>
-                            ) : (
-                              <span className="text-yellow-700"> Theoretical values for {processValues.length} processes use approximation for multiple rounds.</span>
-                            )}
-                          </p>
+                        
+                        {/* Estadísticas de repeticiones */}
+                        {selectedProbabilityForDetails && experimentRuns[selectedProbabilityForDetails] && (
+                          <div className="mt-4 p-3 bg-blue-50 rounded">
+                            <h4 className="font-medium text-sm mb-2">Repetition Statistics:</h4>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                              <div>
+                                <span className="text-gray-600">Current Rep. Final Discrepancy:</span>
+                                <span className="ml-2 font-bold">
+                                  {experimentRuns[selectedProbabilityForDetails][selectedRepetition]?.slice(-1)[0]?.discrepancy.toFixed(4)}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-600">Average Final Discrepancy:</span>
+                                <span className="ml-2 font-bold">
+                                  {(experimentRuns[selectedProbabilityForDetails]
+                                    .map(run => run[run.length - 1]?.discrepancy || 0)
+                                    .reduce((a, b) => a + b, 0) / experimentRuns[selectedProbabilityForDetails].length
+                                  ).toFixed(4)}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-600">Min/Max Final:</span>
+                                <span className="ml-2 font-bold">
+                                  {Math.min(...experimentRuns[selectedProbabilityForDetails]
+                                    .map(run => run[run.length - 1]?.discrepancy || 0)).toFixed(4)} / 
+                                  {Math.max(...experimentRuns[selectedProbabilityForDetails]
+                                    .map(run => run[run.length - 1]?.discrepancy || 0)).toFixed(4)}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-600">Total Repetitions:</span>
+                                <span className="ml-2 font-bold">
+                                  {experimentRuns[selectedProbabilityForDetails].length}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
                         )}
                       </div>
                       
-                      <div className="mt-6 text-center">
-                        <button
-                          onClick={prepareRangeExperiment}
-                          className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 transition-colors"
-                        >
-                          💾 Save Experiment
-                        </button>
-                      </div>
+                      {/* Visualizador de detalles */}
+                      {selectedProbabilityForDetails !== null && experimentRuns[selectedProbabilityForDetails] && experimentRuns[selectedProbabilityForDetails][selectedRepetition] && (
+                        <>
+                          {selectedProbabilityForDetails === 0 && (
+                            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                              <p className="text-sm text-yellow-800">
+                                <strong>Note:</strong> With p=0, no messages are delivered. All processes maintain their initial values throughout all rounds.
+                              </p>
+                            </div>
+                          )}
+                          <ExperimentDetailViewer 
+                            experimentHistory={experimentRuns[selectedProbabilityForDetails][selectedRepetition]}
+                            algorithm={getDisplayAlgorithm(forcedAlgorithm, selectedProbabilityForDetails)}
+                            meetingPoint={meetingPoint}
+                            probability={selectedProbabilityForDetails}
+                            repetitionIndex={selectedRepetition}
+                            allRepetitions={experimentRuns[selectedProbabilityForDetails]}
+                          />
+                        </>
+                      )}
                     </div>
                   )}
                 </div>

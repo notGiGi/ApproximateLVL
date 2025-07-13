@@ -61,141 +61,243 @@ const THETA = 0.346;
 // Simulation engine
 export const SimulationEngine = {
     // Simulate one round of message exchange - CORRECT IMPLEMENTATION
-    simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5) {
-    if (algorithm === "auto") {
-      const decP = toDecimal(p);
-      algorithm = decP.gt(0.5) ? "AMP" : "FV";
-    }
-    
-    const processCount = values.length;
-    const newValues = [...values];
-    const messages = [];
-    const messageDelivery = {};
+    simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, knownValuesSets = null, originalValues = null) {
+  if (algorithm === "auto") {
     const decP = toDecimal(p);
-    const decMeetingPoint = toDecimal(meetingPoint);
+    algorithm = decP.gt(0.5) ? "AMP" : "FV";
+  }
+  
+  const decP = toDecimal(p);
+  const processCount = values.length;
+  const newValues = [...values];
+  const messages = [];
+  const messageDelivery = [];
+  
+  // Para algoritmo MIN: usar valores originales si se proporcionan
+  const valuesToSend = algorithm === "MIN" && originalValues ? originalValues : values;
+  
+  // Simular envío de mensajes
+  for (let i = 0; i < processCount; i++) {
+    const senderMessages = [];
+    const deliveryStatus = [];
     
-    // Generar matriz de entrega de mensajes
-    for (let i = 0; i < processCount; i++) {
-      for (let j = 0; j < processCount; j++) {
-        if (i !== j) {
-          const delivered = randomDecimal().lt(decP);
-          const key = `from${i}to${j}`;
-          messageDelivery[key] = delivered;
-          messages.push({
-            from: i,
-            to: j,
-            fromName: ["Alice", "Bob", "Charlie"][i] || `Process${i}`,
-            toName: ["Alice", "Bob", "Charlie"][j] || `Process${j}`,
-            delivered: delivered,
-            value: values[i]
-          });
-        }
+    for (let j = 0; j < processCount; j++) {
+      if (i !== j) {
+        // Para MIN: siempre enviar el valor original, no el actual
+        const messageValue = valuesToSend[i];
+        const delivered = randomDecimal().lte(decP);
+        
+        senderMessages.push({
+          to: j,
+          value: messageValue,
+          delivered
+        });
+        
+        deliveryStatus.push(delivered);
       }
     }
     
-    // Procesar mensajes para cada proceso
-    for (let i = 0; i < processCount; i++) {
-      const receivedMessages = [];
-      
-      // Recolectar mensajes recibidos
-      for (let j = 0; j < processCount; j++) {
-        if (i !== j && messageDelivery[`from${j}to${i}`]) {
-          receivedMessages.push(values[j]);
-        }
-      }
-      
-      const receivedDifferentValue = receivedMessages.find(val => val !== values[i]);
-      
-      if (receivedDifferentValue !== undefined) {
-        if (algorithm === "AMP") {
-          // AMP: Si se recibe un valor diferente, usar el punto de encuentro acordado
-          newValues[i] = decMeetingPoint.toNumber();
-        } else { // FV
-          // FV: Si se recibe un valor x' diferente del propio, adoptar x'
-          newValues[i] = receivedDifferentValue;
-        }
-      }
+    messages.push(senderMessages);
+    messageDelivery.push(deliveryStatus);
+  }
+  
+  // Procesar mensajes recibidos y actualizar valores
+  let updatedKnownValuesSets = knownValuesSets ? 
+    knownValuesSets.map(set => new Set(set)) : 
+    null;
+    
 
-    }
+  for (let i = 0; i < processCount; i++) {
+    const receivedMessages = [];
     
-    // Calcular discrepancia máxima usando Decimal para precisión
-    let maxDiscrepancy = new Decimal(0);
-    for (let i = 0; i < processCount; i++) {
-      for (let j = i+1; j < processCount; j++) {
-        const discrepancy = abs(toDecimal(newValues[i]).minus(toDecimal(newValues[j])));
-        if (discrepancy.gt(maxDiscrepancy)) {
-          maxDiscrepancy = discrepancy;
+    // Recolectar mensajes recibidos
+    for (let j = 0; j < processCount; j++) {
+      if (i !== j && messages[j]) {
+        const msgToI = messages[j].find(m => m.to === i);
+        if (msgToI && msgToI.delivered) {
+          receivedMessages.push(msgToI.value);
+          
+          // Para MIN: actualizar conjunto de valores conocidos
+          if (algorithm === "MIN" && updatedKnownValuesSets) {
+            updatedKnownValuesSets[i].add(msgToI.value);
+          }
         }
       }
     }
     
+    // Aplicar algoritmo correspondiente
+    if (algorithm === "MIN") {
+      // MIN no cambia valores durante las rondas, solo actualiza el conjunto
+      newValues[i] = values[i];
+    } else if (algorithm === "AMP") {
+      // AMP: si recibe cualquier valor diferente, va al meeting point
+      if (receivedMessages.length > 0) {
+        const receivedDifferentValue = receivedMessages.find(val => val !== values[i]);
+        if (receivedDifferentValue !== undefined) {
+          const decMeetingPoint = toDecimal(meetingPoint);
+          newValues[i] = decMeetingPoint.toNumber();
+        }
+      }
+    } else if (algorithm === "FV") {
+      // FV: adopta el primer valor diferente que recibe
+      if (receivedMessages.length > 0) {
+        // Buscar valores diferentes recibidos
+        const differentValues = receivedMessages.filter(val => val !== values[i]);
+        if (differentValues.length > 0) {
+          // FV toma el primer valor diferente recibido
+          newValues[i] = differentValues[0];
+        }
+        // Si solo recibe su propio valor, no cambia
+      }
+      // Si no recibe mensajes, mantiene su valor actual
+    }
+  }
+  
+  // Para MIN: devolver los conjuntos actualizados
+  if (algorithm === "MIN") {
     return {
       newValues,
       messages,
       messageDelivery,
-      discrepancy: maxDiscrepancy.toNumber()
+      discrepancy: 0, // Se calculará al final
+      knownValuesSets: updatedKnownValuesSets
     };
-  },
+  }
+  
+  // Calcular discrepancia para otros algoritmos
+  let maxDiscrepancy = new Decimal(0);
+  for (let i = 0; i < processCount; i++) {
+    for (let j = i+1; j < processCount; j++) {
+      const discrepancy = abs(toDecimal(newValues[i]).minus(toDecimal(newValues[j])));
+      if (discrepancy.gt(maxDiscrepancy)) {
+        maxDiscrepancy = discrepancy;
+      }
+    }
+  }
+  
+  return {
+    newValues,
+    messages,
+    messageDelivery,
+    discrepancy: maxDiscrepancy.toNumber()
+  };
+},
 
   // Run a complete experiment
   runExperiment: function(initialValues, p, rounds, algorithm = "auto", meetingPoint = 0.5) {
-    let values = [...initialValues];
-    const processCount = values.length;
-    const processNames = [];
-    
-    // Generate process names
-    for (let i = 0; i < processCount; i++) {
-      if (i < 3) {
-        processNames.push(["Alice", "Bob", "Charlie"][i]);
-      } else {
-        processNames.push(`Process${i+1}`);
-      }
+  let values = [...initialValues];
+  const processCount = values.length;
+  const processNames = [];
+  
+  // Para algoritmo MIN: mantener conjunto de valores conocidos y valores originales
+  let knownValuesSets = null;
+  const originalValues = [...initialValues];
+  
+
+  if (algorithm === "MIN") {
+    // Validar que todos los valores sean positivos para MIN
+    const hasNegativeValues = initialValues.some(v => v < 0);
+    if (hasNegativeValues) {
+      console.warn("MIN algorithm works best with non-negative values");
     }
     
-    // Calculate initial discrepancy
-    let initialDiscrepancy = new Decimal(0);
-    for (let i = 0; i < processCount; i++) {
-      for (let j = i+1; j < processCount; j++) {
-        const discrepancy = abs(toDecimal(values[i]).minus(toDecimal(values[j])));
-        if (discrepancy.gt(initialDiscrepancy)) {
-          initialDiscrepancy = discrepancy;
+    // Para MIN, el meeting point no se usa
+    if (meetingPoint !== 0.5) {
+      console.info("MIN algorithm ignores meeting point parameter");
+    }
+  }
+  if (algorithm === "MIN") {
+    // Inicializar conjuntos con el valor propio de cada proceso
+    knownValuesSets = initialValues.map(val => new Set([val]));
+  }
+  
+  // Generate process names
+  for (let i = 0; i < processCount; i++) {
+    if (i < 3) {
+      processNames.push(["Alice", "Bob", "Charlie"][i]);
+    } else {
+      processNames.push(`Process${i+1}`);
+    }
+  }
+  
+  // Calculate initial discrepancy
+  let initialDiscrepancy = new Decimal(0);
+  for (let i = 0; i < processCount; i++) {
+    for (let j = i+1; j < processCount; j++) {
+      const discrepancy = abs(toDecimal(values[i]).minus(toDecimal(values[j])));
+      if (discrepancy.gt(initialDiscrepancy)) {
+        initialDiscrepancy = discrepancy;
+      }
+    }
+  }
+  
+  // Simulation history
+  const history = [{
+    round: 0,
+    values: [...values],
+    processValues: values.reduce((obj, val, idx) => {
+      obj[processNames[idx].toLowerCase()] = val;
+      return obj;
+    }, {}),
+    discrepancy: initialDiscrepancy.toNumber(),
+    messages: [],
+    knownValuesSets: algorithm === "MIN" ? knownValuesSets.map(set => Array.from(set)) : null
+  }];
+  
+  // Execute rounds
+  for (let r = 1; r <= rounds; r++) {
+    const result = SimulationEngine.simulateRound(
+      values, 
+      p, 
+      algorithm, 
+      meetingPoint,
+      knownValuesSets,
+      originalValues // Para MIN: pasar valores originales
+    );
+    
+    values = result.newValues;
+    if (algorithm === "MIN") {
+      knownValuesSets = result.knownValuesSets;
+    }
+    
+    // Para la última ronda de MIN, decidir valores finales
+    if (algorithm === "MIN" && r === rounds) {
+      // Cada proceso decide el mínimo de su conjunto
+      for (let i = 0; i < processCount; i++) {
+        const minValue = Math.min(...Array.from(knownValuesSets[i]));
+        values[i] = minValue;
+      }
+      
+      // Calcular discrepancia final
+      let maxDiscrepancy = new Decimal(0);
+      for (let i = 0; i < processCount; i++) {
+        for (let j = i+1; j < processCount; j++) {
+          const discrepancy = abs(toDecimal(values[i]).minus(toDecimal(values[j])));
+          if (discrepancy.gt(maxDiscrepancy)) {
+            maxDiscrepancy = discrepancy;
+          }
         }
       }
+      result.discrepancy = maxDiscrepancy.toNumber();
     }
     
-    // Simulation history
-    const history = [{
-      round: 0,
+    // Record results for this round
+    history.push({
+      round: r,
       values: [...values],
       processValues: values.reduce((obj, val, idx) => {
         obj[processNames[idx].toLowerCase()] = val;
         return obj;
       }, {}),
-      discrepancy: initialDiscrepancy.toNumber(),
-      messages: []
-    }];
-    
-    // Execute rounds
-    for (let r = 1; r <= rounds; r++) {
-      const result = SimulationEngine.simulateRound(values, p, algorithm, meetingPoint);
-      values = result.newValues;
-      
-      // Record results for this round
-      history.push({
-        round: r,
-        values: [...values],
-        processValues: values.reduce((obj, val, idx) => {
-          obj[processNames[idx].toLowerCase()] = val;
-          return obj;
-        }, {}),
-        discrepancy: result.discrepancy,
-        messageDelivery: result.messageDelivery,
-        messages: result.messages
-      });
-    }
-    
-    return history;
-  },
+      discrepancy: result.discrepancy,
+      messageDelivery: result.messageDelivery,
+      messages: result.messages,
+      knownValuesSets: algorithm === "MIN" ? knownValuesSets.map(set => Array.from(set)) : null
+    });
+  }
+  
+  return history;
+},
 
 
  // Run multiple experiments for statistical analysis
@@ -319,25 +421,32 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
 
   // Calculate expected discrepancy for 2 processes
   calculateExpectedDiscrepancy: function(p, algorithm = "auto", rounds = 1) {
-    const decP = toDecimal(p);
-    
-    if (rounds === 1) {
-      if (algorithm === "auto") {
-        algorithm = decP.gt(0.5) ? "AMP" : "FV";
-      }
-      
-      const q = toDecimal(1).minus(decP);
-      const result = algorithm === "AMP" ? q : (pow(decP, 2).plus(pow(q, 2)));
-      return result.toNumber();
-    } else {
-      return this.calculateExpectedDiscrepancyMultiRound(p, rounds, algorithm);
+  const decP = toDecimal(p);
+  
+  // MIN no tiene fórmula teórica
+  if (algorithm === "MIN") {
+    return null; // o NaN para indicar que no hay valor teórico
+  }
+  
+  if (rounds === 1) {
+    if (algorithm === "auto") {
+      algorithm = decP.gt(0.5) ? "AMP" : "FV";
     }
-  },
+    
+    const q = toDecimal(1).minus(decP);
+    const result = algorithm === "AMP" ? q : (pow(decP, 2).plus(pow(q, 2)));
+    return result.toNumber();
+  } else {
+    return this.calculateExpectedDiscrepancyMultiRound(p, rounds, algorithm);
+  }
+},
   
   // Calculate expected discrepancy for multiple rounds (2 processes)
   calculateExpectedDiscrepancyMultiRound: function(p, rounds, algorithm = "auto") {
     const decP = toDecimal(p);
-    
+    if (algorithm === "MIN") {
+      return null;
+    }
     if (algorithm === "auto") {
       algorithm = decP.gt(0.5) ? "AMP" : "FV";
     }
