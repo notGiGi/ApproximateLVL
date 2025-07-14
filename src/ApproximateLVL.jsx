@@ -3690,7 +3690,7 @@ function decodeConfigCode(code) {
 
 const handleLoadConfig = () => {
   const cfg = decodeConfigCode(configCode);
-  if (!cfg) return alert("Código inválido");
+  if (!cfg) return alert("Bad code");
   setProcessValues(cfg.initialValues);
   setProbability(cfg.p);
   setRangeExperiments(re => ({ ...re, minP: cfg.minP, maxP: cfg.maxP }));
@@ -3719,7 +3719,7 @@ const handleGenerateConfig = () => {
       setTimeout(() => setCopyMessage(""), 2000);
     })
     .catch(() => {
-      setCopyMessage("Copy failed 😞");
+      setCopyMessage("Copy failed");
       setTimeout(() => setCopyMessage(""), 2000);
     });
 };
@@ -5290,7 +5290,7 @@ function runRangeExperiments() {
                               <option value="">Select a probability...</option>
                               {experimentalResults.map((result, idx) => (
                                 <option key={idx} value={result.p}>
-                                  p = {result.p.toFixed(3)} ({result.algorithm})
+                                  p = {Math.floor(result.p * 100) / 100} ({result.algorithm})
                                 </option>
                               ))}
                             </select>
@@ -5424,60 +5424,7 @@ function runRangeExperiments() {
                   rounds={rounds} 
                 />
                 
-                <div className="bg-white rounded-lg shadow p-4 mt-4">
-                  <h3 className="text-lg font-semibold mb-4">Algorithm Comparison</h3>
-                  <p className="mb-4">
-                    The theoretical analysis shows that:
-                  </p>
-                  <ul className="list-disc pl-5 mb-4 space-y-2">
-                    <li>For p &lt; 0.5, the Flip Value (FV) algorithm typically has lower expected discrepancy</li>
-                    <li>For p &gt; 0.5, the Agreed Meeting Point (AMP) algorithm performs better</li>
-                    <li>At p = 0.5, both algorithms often have similar expected discrepancy.</li>
-                    <li>The current probability p = {probability.toFixed(2)} suggests that <strong>{getOptimalAlgorithm(probability)}</strong> is the optimal algorithm.</li>
-                  </ul>
-                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <h4 className="font-semibold mb-2">For n processes:</h4>
-                    <p className="text-sm">For {processValues.length} processes with {processValues.filter(v => v === 0).length} having value 0 and {processValues.filter(v => v === 1).length} having value 1:</p>
-                    
-                    <div className="mt-3 p-3 bg-blue-50 rounded">
-                      <p className="font-medium">Theoretical discrepancy with p = {probability.toFixed(2)}:</p>
-                      <div className="flex justify-between mt-1">
-                        <span>
-                          <strong>AMP({meetingPoint}):</strong> {
-                            (() => {
-                              const p = probability;
-                              const q = 1 - p;
-                              const n = processValues.length;
-                              const m = processValues.filter(v => v === 0).length;
-                              const a = meetingPoint;
-                              
-                              const A = 1 - Math.pow(q, n-m);
-                              const B = 1 - Math.pow(q, m);
-                              
-                              return (1 - (a*A + (1-a)*B)).toFixed(6);
-                            })()
-                          }
-                        </span>
-                        <span>
-                          <strong>FV:</strong> {
-                            (() => {
-                              const p = probability;
-                              const q = 1 - p;
-                              const n = processValues.length;
-                              const m = processValues.filter(v => v === 0).length;
-                              
-                              const A = 1 - Math.pow(q, n-m);
-                              const B = 1 - Math.pow(q, m);
-                              const C = Math.pow(q, m*(n-m));
-                              
-                              return (1 - (C*A + C*B)).toFixed(6);
-                            })()
-                          }
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+
               </div>
 
               
