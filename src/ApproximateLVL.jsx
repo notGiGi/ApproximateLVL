@@ -3570,6 +3570,7 @@ function CompleteDistributedComputingSimulator() {
   const [forcedAlgorithm, setForcedAlgorithm] = useState("auto");
   const [maxValue, setMaxValue] = useState(1); // Para valores no binarios
 
+  const [configCode, setConfigCode] = useState("");
 
 
   // Función helper para validar valores
@@ -3657,12 +3658,108 @@ function CompleteDistributedComputingSimulator() {
   cancelRef.current = true;
 } 
 
+const [copyMessage, setCopyMessage] = useState("");
 
+
+function base64ToBase64Url(str) {
+  return str.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function base64UrlToBase64(str) {
+  str = str.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = str.length % 4;
+  if (pad) str += "=".repeat(4 - pad);
+  return str;
+}
+function encodeConfigCode(cfg) {
+  const json = JSON.stringify(cfg);
+  return base64ToBase64Url(btoa(json));
+}
+function decodeConfigCode(code) {
+  try {
+    const json = atob(base64UrlToBase64(code));
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
 
 
 
  // Helper functions
-  
+
+
+const handleLoadConfig = () => {
+  const cfg = decodeConfigCode(configCode);
+  if (!cfg) return alert("Código inválido");
+  setProcessValues(cfg.initialValues);
+  setProbability(cfg.p);
+  setRangeExperiments(re => ({ ...re, minP: cfg.minP, maxP: cfg.maxP }));
+  setForcedAlgorithm(cfg.algorithm);
+  setMeetingPoint(cfg.meetingPoint);
+  setRounds(cfg.rounds);
+  setRepetitions(cfg.repetitions);
+};
+
+const handleGenerateConfig = () => {
+  const cfg = {
+    processCount:   processValues.length,
+    initialValues:  processValues,
+    p:              probability,
+    minP:           rangeExperiments.minP,
+    maxP:           rangeExperiments.maxP,
+    algorithm:      forcedAlgorithm,
+    meetingPoint:   meetingPoint,
+    rounds:         rounds,
+    repetitions:    repetitions,
+  };
+  const code = encodeConfigCode(cfg);
+  navigator.clipboard.writeText(code)
+    .then(() => {
+      setCopyMessage("Code copied!");
+      setTimeout(() => setCopyMessage(""), 2000);
+    })
+    .catch(() => {
+      setCopyMessage("Copy failed 😞");
+      setTimeout(() => setCopyMessage(""), 2000);
+    });
+};
+
+
+// convierte Base64 normal → Base64URL
+function base64ToBase64Url(str) {
+  return str
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+// toma tu objeto de configuración y devuelve el código Base64URL
+function encodeConfigCode(cfg) {
+  const json    = JSON.stringify(cfg);
+  const b64     = btoa(json);
+  return base64ToBase64Url(b64);
+}
+
+function base64UrlToBase64(str) {
+  // re-inserta padding y cambia URL-safe a Base64 normal
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = str.length % 4;
+  if (pad) str += '='.repeat(4 - pad);
+  return str;
+}
+
+function decodeConfigCode(code) {
+  try {
+    const b64   = base64UrlToBase64(code);
+    const json  = atob(b64);
+    return JSON.parse(json);
+  } catch (err) {
+    console.error("Error decoding config:", err);
+    return null;
+  }
+}
+
+
 function showDetailsForProbability(p) {
   // Redondear p a 3 decimales para coincidencia exacta
   p = Math.round(p * 1000) / 1000;
@@ -4772,6 +4869,54 @@ function runRangeExperiments() {
               setValueMode={setValueMode}
               isRunning={isRunning}
             />
+
+            {/* Load/Generate config */}
+            <div className="mb-4 space-y-2">
+              <h4 className="text-xs font-semibold">Enter the code to load a simulation:</h4>
+              {/* 1. Textbox full width */}
+              <input
+                type="text"
+                placeholder="Configuration code"
+                value={configCode}
+                onChange={e => setConfigCode(e.target.value)}
+                className="w-full p-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-200"
+                disabled={isRunning}
+              />
+
+              {/* 2. Botones en dos columnas */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={handleLoadConfig}
+                  className="w-full p-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:opacity-50"
+                  disabled={isRunning}
+                >
+                  Load
+                </button>
+                <button
+                  onClick={handleGenerateConfig}
+                  className="w-full p-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-green-200 disabled:opacity-50"
+                  disabled={isRunning}
+                >
+                  Generate
+                </button>
+              </div>
+
+              {/* 3. Mensaje de confirmación */}
+              {copyMessage && (
+                <p className="text-xs text-green-600 font-medium">
+                  {copyMessage}
+                </p>
+              )}
+            </div>
+
+
+
+
+
+
+
+            
+
             
             {/* Algorithm Settings */}
             <div className="space-y-2">
