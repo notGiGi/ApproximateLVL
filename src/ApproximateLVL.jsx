@@ -3571,7 +3571,8 @@ function CompleteDistributedComputingSimulator() {
   const [maxValue, setMaxValue] = useState(1); // Para valores no binarios
 
   const [configCode, setConfigCode] = useState("");
-
+  const [convergenceFactor, setConvergenceFactor] = useState(0.5);
+  const [convergenceThreshold, setConvergenceThreshold] = useState(0.001);
 
   // Función helper para validar valores
   const validateProcessValue = (value, mode) => {
@@ -3636,8 +3637,8 @@ function CompleteDistributedComputingSimulator() {
 
   const [rangeDisplayCurves, setRangeDisplayCurves] = useState({
     experimental: true,
-    theoreticalAmp: true,
-    theoreticalFv: true
+    theoreticalAmp: false,
+    theoreticalFv: false
   });
   const [comparisonResults, setComparisonResults] = useState(null);
   const animationTimerRef = useRef(null);
@@ -3781,12 +3782,18 @@ function showDetailsForProbability(p) {
       // Si no hay runs guardados (no debería pasar después de una simulación)
       // Generar al menos una para mostrar algo
       const initialValues = getInitialValues();
+      const options = resultForP.algorithm === "RECURSIVE_AMP" ? {
+        convergenceFactor,
+        convergenceThreshold
+      } : {};
+      
       const history = SimulationEngine.runNProcessExperiment(
         initialValues,
         p,
         rounds,
         resultForP.algorithm,
-        meetingPoint
+        meetingPoint,
+        options
       );
       
       setExperimentRuns(prev => ({
@@ -3808,12 +3815,18 @@ function runSingleExperimentForDetails(p) {
     ? (p > 0.5 ? "AMP" : "FV") 
     : forcedAlgorithm;
   
+  const options = actualAlgorithm === "RECURSIVE_AMP" ? {
+    convergenceFactor,
+    convergenceThreshold
+  } : {};
+  
   const history = SimulationEngine.runNProcessExperiment(
     initialValues,
     p,
     rounds,
     actualAlgorithm,
-    meetingPoint
+    meetingPoint,
+    options
   );
   
   setLastRunData(history);
@@ -4027,7 +4040,7 @@ function ExperimentDetailViewer({
                       title={`${processNames[i]}: ${typeof val === 'number' ? val.toFixed(3) : val}`}
                     >
                       {typeof val === 'number' ? 
-                        (val === Math.floor(val) ? val : val.toFixed(1)) : 
+                        (val === Math.floor(val) ? val : val.toFixed(2)) : 
                         String(val).substring(0, 3)}
                     </div>
                   ))}
@@ -4406,12 +4419,18 @@ function runRangeExperiments() {
     for (let i = 0; i < allProbabilities.length; i++) {
       if (cancelRef.current) break;
 
+      const options = results[i].algorithm === "RECURSIVE_AMP" ? {
+        convergenceFactor,
+        convergenceThreshold
+      } : {};
+      
       const history = SimulationEngine.runNProcessExperiment(
         initialProcessValues,
         results[i].p,
         actualRounds,
         results[i].algorithm,
-        actualMeetingPoint
+        actualMeetingPoint,
+        options
       );
       
       // IMPORTANTE: Guardar CADA historia en allRunsData
@@ -4937,23 +4956,83 @@ function runRangeExperiments() {
                     <option value="AMP">Use only AMP Algorithm</option>
                     <option value="FV">Use only FV Algorithm</option>
                     <option value="MIN">MIN (Minimum Value)</option>
+                    <option value="RECURSIVE_AMP">Recursive AMP (Gradual Convergence)</option>
                   </select>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <label className="text-sm">Meeting Point:</label>
-                  <input 
-                    type="number" 
-                    min="0" 
-                    max="1" 
-                    step="0.01" 
-                    value={meetingPoint} 
-                    onChange={(e) => setMeetingPoint(Number(e.target.value))} 
-                    className="w-20 p-1 border border-gray-300 rounded-md" 
-                    disabled={isRunning}
-                  />
-
-                </div>
                 
+                {/* Meeting Point - Only show for algorithms that use it */}
+                {(forcedAlgorithm === "AMP" || forcedAlgorithm === "RECURSIVE_AMP" || forcedAlgorithm === "auto") && (
+                  <div className="flex items-center space-x-2">
+                    <label className="text-sm">Meeting Point:</label>
+                    <input 
+                      type="number" 
+                      min="0" 
+                      max="1" 
+                      step="0.01" 
+                      value={meetingPoint} 
+                      onChange={(e) => setMeetingPoint(Number(e.target.value))} 
+                      className="w-20 p-1 border border-gray-300 rounded-md" 
+                      disabled={isRunning}
+                    />
+                  </div>
+                )}
+                
+                {/* Recursive AMP specific parameters */}
+                {forcedAlgorithm === "RECURSIVE_AMP" && (
+                  <div className="mt-2 p-2 bg-blue-50 rounded-md space-y-2">
+                    <h5 className="text-xs font-semibold text-blue-800">Recursive AMP Parameters:</h5>
+                    
+                    <div>
+                      <label className="block text-xs mb-1">Convergence Factor (α):</label>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="number"
+                          min="0.1"
+                          max="1"
+                          step="0.01"
+                          value={convergenceFactor}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            if (!isNaN(val) && val >= 0.1 && val <= 1) {
+                              setConvergenceFactor(val);
+                            }
+                          }}
+                          className="w-24 p-1 text-sm border border-gray-300 rounded-md"
+                          disabled={isRunning}
+                        />
+                        <span className="text-xs text-gray-500">Range: 0.1 - 1.0</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        How fast to move towards meeting point (0.1 = slow, 1.0 = immediate)
+                      </p>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs mb-1">Convergence Threshold (ε):</label>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="number"
+                          min="0.0001"
+                          max="0.01"
+                          step="0.0001"
+                          value={convergenceThreshold}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            if (!isNaN(val) && val >= 0.0001 && val <= 0.01) {
+                              setConvergenceThreshold(val);
+                            }
+                          }}
+                          className="w-24 p-1 text-sm border border-gray-300 rounded-md"
+                          disabled={isRunning}
+                        />
+                        <span className="text-xs text-gray-500">Range: 0.0001 - 0.01</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Distance to meeting point considered as "arrived"
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -5322,12 +5401,18 @@ function runRangeExperiments() {
                                       const resultForP = experimentalResults.find(r => Math.abs(r.p - p) < 0.0001);
                                       if (resultForP) {
                                         const initialValues = getInitialValues();
+                                        const options = resultForP.algorithm === "RECURSIVE_AMP" ? {
+                                          convergenceFactor,
+                                          convergenceThreshold
+                                        } : {};
+                                        
                                         const newRun = SimulationEngine.runNProcessExperiment(
                                           initialValues,
                                           p,
                                           rounds,
                                           resultForP.algorithm,
-                                          meetingPoint
+                                          meetingPoint,
+                                          options
                                         );
                                         setExperimentRuns(prev => ({
                                           ...prev,

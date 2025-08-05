@@ -61,7 +61,7 @@ const THETA = 0.346;
 // Simulation engine
 export const SimulationEngine = {
     // Simulate one round of message exchange - CORRECT IMPLEMENTATION
-    simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, knownValuesSets = null, originalValues = null) {
+    simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, knownValuesSets = null, originalValues = null, options = {}) {
   if (algorithm === "auto") {
     const decP = toDecimal(p);
     algorithm = decP.gt(0.5) ? "AMP" : "FV";
@@ -72,7 +72,8 @@ export const SimulationEngine = {
   const newValues = [...values];
   const messages = [];
   const messageDelivery = [];
-  
+  const convergenceFactor = options?.convergenceFactor || 0.5;
+  const convergenceThreshold = options?.convergenceThreshold || 0.001;
   // Para algoritmo MIN: usar valores originales si se proporcionan
   const valuesToSend = algorithm === "MIN" && originalValues ? originalValues : values;
   
@@ -104,6 +105,7 @@ export const SimulationEngine = {
   // Procesar mensajes recibidos y actualizar valores
   let updatedKnownValuesSets = knownValuesSets ? 
     knownValuesSets.map(set => new Set(set)) : 
+    Array(processCount).fill(null).map(() => new Set());
     null;
     
 
@@ -129,6 +131,38 @@ export const SimulationEngine = {
     if (algorithm === "MIN") {
       // MIN no cambia valores durante las rondas, solo actualiza el conjunto
       newValues[i] = values[i];
+      
+    } else if (algorithm === "RECURSIVE_AMP") {
+      // NEW: Recursive AMP - gradual convergence to meeting point
+      const currentValue = toDecimal(values[i]);
+      const meetingPointDec = toDecimal(meetingPoint);
+      const distanceToMeetingPoint = abs(currentValue.minus(meetingPointDec));
+      
+      // Get parameters from options (with defaults)
+      const convergenceFactor = options?.convergenceFactor || 0.5;
+      const convergenceThreshold = options?.convergenceThreshold || 0.001;
+      
+      // Check if already at meeting point (within threshold)
+      if (distanceToMeetingPoint.lte(convergenceThreshold)) {
+        // Already converged, stay at meeting point
+        newValues[i] = meetingPointDec.toNumber();
+      } else {
+        // Not yet converged - check if received different value
+        if (receivedMessages.length > 0) {
+          const receivedDifferentValue = receivedMessages.find(val => 
+            Math.abs(val - values[i]) > 0.001
+          );
+          
+          if (receivedDifferentValue !== undefined) {
+            // Move towards meeting point by convergence factor
+            const movement = meetingPointDec.minus(currentValue).mul(convergenceFactor);
+            newValues[i] = currentValue.plus(movement).toNumber();
+          }
+          // If no different value received, maintain current value
+        }
+        // If no messages received, maintain current value
+      }
+      
     } else if (algorithm === "AMP") {
       // AMP: si recibe cualquier valor diferente, va al meeting point
       if (receivedMessages.length > 0) {
@@ -138,6 +172,7 @@ export const SimulationEngine = {
           newValues[i] = decMeetingPoint.toNumber();
         }
       }
+      
     } else if (algorithm === "FV") {
       // FV: adopta el primer valor diferente que recibe
       if (receivedMessages.length > 0) {
@@ -184,7 +219,7 @@ export const SimulationEngine = {
 },
 
   // Run a complete experiment
-  runExperiment: function(initialValues, p, rounds, algorithm = "auto", meetingPoint = 0.5) {
+  runExperiment: function(initialValues, p, rounds = 1, algorithm = "auto", meetingPoint = 0.5, options = {}) {
   let values = [...initialValues];
   const processCount = values.length;
   const processNames = [];
@@ -252,7 +287,8 @@ export const SimulationEngine = {
       algorithm, 
       meetingPoint,
       knownValuesSets,
-      originalValues // Para MIN: pasar valores originales
+      originalValues, // Para MIN: pasar valores originales
+      options // Pass options for RECURSIVE_AMP
     );
     
     values = result.newValues;
@@ -301,7 +337,7 @@ export const SimulationEngine = {
 
 
  // Run multiple experiments for statistical analysis
-runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
+runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5, options = {}) {
   const allDiscrepancies = [];
   const allRuns = [];
   const processCount = initialValues.length;
@@ -322,7 +358,8 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
       p,
       rounds,
       algorithm,
-      actualMeetingPoint
+      actualMeetingPoint,
+      options
     );
     
     const finalDiscrepancy = history[history.length - 1].discrepancy;
@@ -599,10 +636,10 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
   },
 
   // Run experiment with n processes
-  runNProcessExperiment: function(initialValues, p, rounds, algorithm = "auto", meetingPoint = 0.5) {
+  runNProcessExperiment: function(initialValues, p, rounds, algorithm = "auto", meetingPoint = 0.5, options = {}) {
     // For n > 2, always use meeting point 0.5 for AMP
     const actualMeetingPoint = meetingPoint;
-    return this.runExperiment(initialValues, p, rounds, algorithm, actualMeetingPoint);
+    return this.runExperiment(initialValues, p, rounds, algorithm, actualMeetingPoint, options);
   },
 
   // Run multiple experiments with n processes
