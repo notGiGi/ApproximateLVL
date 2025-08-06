@@ -132,7 +132,7 @@ export const SimulationEngine = {
       // MIN no cambia valores durante las rondas, solo actualiza el conjunto
       newValues[i] = values[i];
       
-    } else if (algorithm === "RECURSIVE_AMP") {
+    } else if (algorithm === "RECURSIVE AMP") {
       // NEW: Recursive AMP - gradual convergence to meeting point
       const currentValue = toDecimal(values[i]);
       const meetingPointDec = toDecimal(meetingPoint);

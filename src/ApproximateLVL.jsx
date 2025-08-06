@@ -3782,7 +3782,7 @@ function showDetailsForProbability(p) {
       // Si no hay runs guardados (no debería pasar después de una simulación)
       // Generar al menos una para mostrar algo
       const initialValues = getInitialValues();
-      const options = resultForP.algorithm === "RECURSIVE_AMP" ? {
+      const options = resultForP.algorithm === "RECURSIVE AMP" ? {
         convergenceFactor,
         convergenceThreshold
       } : {};
@@ -3815,7 +3815,7 @@ function runSingleExperimentForDetails(p) {
     ? (p > 0.5 ? "AMP" : "FV") 
     : forcedAlgorithm;
   
-  const options = actualAlgorithm === "RECURSIVE_AMP" ? {
+  const options = actualAlgorithm === "RECURSIVE AMP" ? {
     convergenceFactor,
     convergenceThreshold
   } : {};
@@ -4419,7 +4419,7 @@ function runRangeExperiments() {
     for (let i = 0; i < allProbabilities.length; i++) {
       if (cancelRef.current) break;
 
-      const options = results[i].algorithm === "RECURSIVE_AMP" ? {
+      const options = results[i].algorithm === "RECURSIVE AMP" ? {
         convergenceFactor,
         convergenceThreshold
       } : {};
@@ -4561,20 +4561,20 @@ function runRangeExperiments() {
       if (forcedAlgorithm === 'AMP') {
         newDisplayCurves = {
           experimental: true,
-          theoreticalAmp: true,
+          theoreticalAmp: false,
           theoreticalFv: false
         };
       } else if (forcedAlgorithm === 'FV') {
         newDisplayCurves = {
           experimental: true,
           theoreticalAmp: false,
-          theoreticalFv: true
+          theoreticalFv: false
         };
       } else {
         newDisplayCurves = {
           experimental: true,
-          theoreticalAmp: true,
-          theoreticalFv: true
+          theoreticalAmp: false,
+          theoreticalFv: false
         };
       }
       setRangeDisplayCurves(newDisplayCurves);
@@ -4956,12 +4956,12 @@ function runRangeExperiments() {
                     <option value="AMP">Use only AMP Algorithm</option>
                     <option value="FV">Use only FV Algorithm</option>
                     <option value="MIN">MIN (Minimum Value)</option>
-                    <option value="RECURSIVE_AMP">Recursive AMP (Gradual Convergence)</option>
+                    <option value="RECURSIVE AMP">Recursive AMP (Gradual Convergence)</option>
                   </select>
                 </div>
                 
                 {/* Meeting Point - Only show for algorithms that use it */}
-                {(forcedAlgorithm === "AMP" || forcedAlgorithm === "RECURSIVE_AMP" || forcedAlgorithm === "auto") && (
+                {(forcedAlgorithm === "AMP" || forcedAlgorithm === "RECURSIVE AMP" || forcedAlgorithm === "auto") && (
                   <div className="flex items-center space-x-2">
                     <label className="text-sm">Meeting Point:</label>
                     <input 
@@ -4978,7 +4978,7 @@ function runRangeExperiments() {
                 )}
                 
                 {/* Recursive AMP specific parameters */}
-                {forcedAlgorithm === "RECURSIVE_AMP" && (
+                {forcedAlgorithm === "RECURSIVE AMP" && (
                   <div className="mt-2 p-2 bg-blue-50 rounded-md space-y-2">
                     <h5 className="text-xs font-semibold text-blue-800">Recursive AMP Parameters:</h5>
                     
@@ -5345,6 +5345,15 @@ function runRangeExperiments() {
                     </div>
                   )}
 
+                  <div className="mt-6 text-center">
+                        <button
+                          onClick={prepareRangeExperiment}
+                          className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 transition-colors"
+                        >
+                          💾 Save Experiment
+                        </button>
+                      </div>
+
                   {experimentalResults && experimentalResults.length > 0 && (
                     <div className="mt-6">
                       <h3 className="text-xl font-semibold mb-4">Detailed Experiment Analysis</h3>
@@ -5401,7 +5410,7 @@ function runRangeExperiments() {
                                       const resultForP = experimentalResults.find(r => Math.abs(r.p - p) < 0.0001);
                                       if (resultForP) {
                                         const initialValues = getInitialValues();
-                                        const options = resultForP.algorithm === "RECURSIVE_AMP" ? {
+                                        const options = resultForP.algorithm === "RECURSIVE AMP" ? {
                                           convergenceFactor,
                                           convergenceThreshold
                                         } : {};
@@ -6213,223 +6222,14 @@ function runRangeExperiments() {
             )}
             
             {/* Saved Experiments tab */}
+            {/* Saved Experiments tab - LABORATORIO MEJORADO */}
             {activeTab === 'saved' && (
               <div>
-                <div className="bg-white rounded-lg shadow p-4 mb-4">
-                  <h3 className="text-lg font-semibold mb-2">Saved Experiments</h3>
-                  <p className="text-sm text-gray-600 mb-4">Save and compare your experiments to analyze different parameters and algorithms.</p>
-                  
-                  {savedExperiments.length === 0 ? (
-                    <div className="bg-blue-50 p-6 rounded-lg mb-4 text-center">
-                      <div className="flex justify-center mb-3">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                      <h4 className="font-semibold text-lg mb-2">No Experiments Saved Yet</h4>
-                      <p className="text-gray-600 mb-3">Run simulations and save them to analyze and compare results.</p>
-                      <div className="flex flex-col sm:flex-row gap-2 justify-center">
-                        <button
-                          onClick={() => setActiveTab('theory')}
-                          className="px-4 py-2 bg-blue-600 text-white rounded shadow hover:bg-blue-700 transition-colors"
-                        >
-                          Run Simulation
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="mb-4 border-b pb-2">
-                        <div className="flex justify-between items-center">
-                          <h4 className="font-medium">Available Experiments ({savedExperiments.length})</h4>
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => setComparisonView('chart')}
-                              className={`px-3 py-1 rounded-md text-sm ${comparisonView === 'chart' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}
-                            >
-                              Chart View
-                            </button>
-                            <button
-                              onClick={() => setComparisonView('details')}
-                              className={`px-3 py-1 rounded-md text-sm ${comparisonView === 'details' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}
-                            >
-                              Details
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="mb-4 bg-gray-50 p-3 rounded-lg">
-                        <h4 className="font-medium mb-2">Select Experiments to Compare</h4>
-                        <div className="max-h-64 overflow-y-auto">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                            {savedExperiments.map((exp) => (
-                              <div 
-                                key={exp.metadata.id} 
-                                className={`flex items-center justify-between bg-white p-3 rounded border ${
-                                  selectedExperiments.includes(exp.metadata.id) ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'
-                                } cursor-pointer hover:bg-blue-50 transition-colors`}
-                                onClick={() => {
-                                  if (selectedExperiments.includes(exp.metadata.id)) {
-                                    setSelectedExperiments(prev => prev.filter(id => id !== exp.metadata.id));
-                                  } else {
-                                    setSelectedExperiments(prev => [...prev, exp.metadata.id]);
-                                  }
-                                }}
-                              >
-                                <div className="flex items-center">
-                                  <input
-                                    type="checkbox"
-                                    id={`exp-${exp.metadata.id}`}
-                                    checked={selectedExperiments.includes(exp.metadata.id)}
-                                    onChange={(e) => {
-                                      e.stopPropagation();
-                                      if (selectedExperiments.includes(exp.metadata.id)) {
-                                        setSelectedExperiments(prev => prev.filter(id => id !== exp.metadata.id));
-                                      } else {
-                                        setSelectedExperiments(prev => [...prev, exp.metadata.id]);
-                                      }
-                                    }}
-                                    className="mr-2"
-                                  />
-                                  <div>
-                                    <label htmlFor={`exp-${exp.metadata.id}`} className="text-sm font-medium block">
-                                      {exp.metadata.name}
-                                    </label>
-                                    <div className="text-xs text-gray-500">
-                                      {exp.parameters.processCount} processes, {exp.parameters.algorithm}
-                                    </div>
-                                    <div className="flex mt-1 space-x-1">
-                                      {exp.metadata.tags && exp.metadata.tags.slice(0, 2).map((tag, i) => (
-                                        <span key={i} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
-                                          {tag}
-                                        </span>
-                                      ))}
-                                      {exp.metadata.tags && exp.metadata.tags.length > 2 && (
-                                        <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
-                                          +{exp.metadata.tags.length - 2}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {selectedExperiments.length === 0 ? (
-                        <div className="bg-yellow-50 p-4 rounded-lg mb-4 text-center">
-                          <p className="text-yellow-700">Select experiments to compare them</p>
-                        </div>
-                      ) : (
-                        <div className="mb-4">
-                          <div className="flex justify-between items-center mb-3">
-                            <h4 className="font-medium">Comparison ({selectedExperiments.length} selected)</h4>
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => setSelectedExperiments([])}
-                                className="px-3 py-1 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300"
-                              >
-                                Clear Selection
-                              </button>
-                            </div>
-                          </div>
-                          
-                          {(() => {
-                            const selectedExps = savedExperiments.filter(exp => 
-                              selectedExperiments.includes(exp.metadata.id)
-                            );
-                            
-                            if (selectedExps.length === 0) return null;
-                            
-                            if (comparisonView === 'chart') {
-                              return <ExperimentComparison experiments={selectedExps} />;
-                            } else if (comparisonView === 'details') {
-                              return (
-                                <div className="bg-white rounded-lg shadow p-4">
-                                  <h3 className="text-lg font-semibold mb-4">Experiment Details</h3>
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {selectedExps.map((exp) => (
-                                      <div key={exp.metadata.id} className="border rounded-lg p-4">
-                                        <h4 className="font-medium mb-2">{exp.metadata.name}</h4>
-                                        
-                                        <div className="mb-2">
-                                          <h5 className="text-sm font-medium">Configuration</h5>
-                                          <div className="text-xs space-y-1 mt-1">
-                                            <p><span className="font-medium">Processes:</span> {exp.parameters.processCount}</p>
-                                            <p><span className="font-medium">Algorithm:</span> {exp.parameters.algorithm}</p>
-                                            <p><span className="font-medium">Probability Range:</span> {exp.parameters.minP.toFixed(2)} - {exp.parameters.maxP.toFixed(2)}</p>
-                                            <p><span className="font-medium">Rounds:</span> {exp.parameters.rounds || 1}</p>
-                                            <p><span className="font-medium">Data Points:</span> {exp.results.length}</p>
-                                          </div>
-                                        </div>
-                                        
-                                        {exp.metadata.description && (
-                                          <div className="mb-2">
-                                            <h5 className="text-sm font-medium">Description</h5>
-                                            <p className="text-xs mt-1">{exp.metadata.description}</p>
-                                          </div>
-                                        )}
-                                        
-                                        <div className="mb-2">
-                                          <h5 className="text-sm font-medium">Tags</h5>
-                                          <div className="flex flex-wrap gap-1 mt-1">
-                                            {exp.metadata.tags && exp.metadata.tags.map((tag, i) => (
-                                              <span key={i} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
-                                                {tag}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        </div>
-                                        
-                                        <div className="text-xs text-gray-500 mt-2">
-                                          Created: {new Date(exp.metadata.createdAt).toLocaleString()}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              );
-                            }
-                          })()}
-                        </div>
-                      )}
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-white rounded-lg shadow p-4">
-                          <h3 className="text-lg font-semibold mb-3">Quick Analysis Guide</h3>
-                          <div className="space-y-2 text-sm">
-                            <div className="bg-gray-50 p-3 rounded-lg">
-                              <h4 className="font-medium mb-1 text-blue-700">1. Run Experiments</h4>
-                              <p>Run range experiments with different parameters to generate data.</p>
-                            </div>
-                            <div className="bg-gray-50 p-3 rounded-lg">
-                              <h4 className="font-medium mb-1 text-blue-700">2. Save Experiments</h4>
-                              <p>Save your experiments with meaningful names, tags, and descriptions for easy reference.</p>
-                            </div>
-                            <div className="bg-gray-50 p-3 rounded-lg">
-                              <h4 className="font-medium mb-1 text-blue-700">3. Compare Results</h4>
-                              <p>Select multiple experiments to visually compare their performance.</p>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div className="bg-white rounded-lg shadow p-4">
-                          <h3 className="text-lg font-semibold mb-3">Analysis Tips</h3>
-                          <ul className="list-disc pl-5 space-y-2 text-sm">
-                            <li><span className="font-medium">Compare algorithms:</span> Run experiments with different algorithms using the same probability.</li>
-                            <li><span className="font-medium">Study convergence:</span> Analyze how different process counts affect convergence rates.</li>
-                            <li><span className="font-medium">Test FV methods:</span> For 3+ process systems, compare the performance of different FV methods.</li>
-                            <li><span className="font-medium">Validate theory:</span> Check how experimental results align with theoretical predictions across probability ranges.</li>
-                            <li><span className="font-medium">Analyze multi-round:</span> Use multiple rounds to study how discrepancy decreases over rounds.</li>
-                          </ul>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
+                <EnhancedExperimentLaboratory
+                  savedExperiments={savedExperiments}
+                  setSavedExperiments={setSavedExperiments}
+                  addLog={addLog}
+                />
               </div>
             )}
           </div>
@@ -6441,6 +6241,1333 @@ function runRangeExperiments() {
           ApproximateLVL - Multi-Process Distributed Computing Agreement Simulator
         </p>
       </footer>
+    </div>
+  );
+}
+
+// ============= ENHANCED EXPERIMENT LABORATORY =============
+function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, addLog }) {
+  const [selectedExperiments, setSelectedExperiments] = useState([]);
+  const [comparisonMode, setComparisonMode] = useState('overview');
+  const [filterSettings, setFilterSettings] = useState({
+    algorithm: 'all',
+    processCount: 'all',
+    rounds: 'all',
+    showFilters: false
+  });
+  
+  // Filtrar experimentos según criterios
+  const filteredExperiments = savedExperiments.filter(exp => {
+    if (filterSettings.algorithm !== 'all' && 
+        exp.parameters?.algorithm !== filterSettings.algorithm) return false;
+    if (filterSettings.processCount !== 'all' && 
+        exp.parameters?.processCount !== parseInt(filterSettings.processCount)) return false;
+    if (filterSettings.rounds !== 'all' && 
+        exp.parameters?.rounds !== parseInt(filterSettings.rounds)) return false;
+    return true;
+  });
+  
+  // Toggle selección de experimento
+  const toggleExperimentSelection = (expId) => {
+    setSelectedExperiments(prev => {
+      if (prev.includes(expId)) {
+        return prev.filter(id => id !== expId);
+      }
+      if (prev.length < 5) { // Límite de 5 para comparación
+        return [...prev, expId];
+      }
+      addLog("Maximum 5 experiments can be compared at once", "warning");
+      return prev;
+    });
+  };
+  
+  // Obtener experimentos seleccionados
+  const getSelectedExperiments = () => {
+    return savedExperiments.filter(exp => 
+      selectedExperiments.includes(exp.metadata?.id)
+    );
+  };
+  
+  // Eliminar experimento
+  const deleteExperiment = (expId) => {
+    if (confirm("Are you sure you want to delete this experiment?")) {
+      setSavedExperiments(prev => prev.filter(exp => exp.metadata?.id !== expId));
+      setSelectedExperiments(prev => prev.filter(id => id !== expId));
+      addLog("Experiment deleted", "success");
+    }
+  };
+  
+  // Exportar experimento
+  const exportExperiment = (experiment) => {
+    const dataStr = JSON.stringify(experiment, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    const exportFileDefaultName = `experiment_${experiment.metadata?.name || 'unnamed'}_${Date.now()}.json`;
+    
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+    
+    addLog(`Experiment "${experiment.metadata?.name}" exported`, "success");
+  };
+  
+  if (savedExperiments.length === 0) {
+    return (
+      <div className="bg-white rounded-lg shadow p-8 text-center">
+        <div className="flex justify-center mb-4">
+          <svg className="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+              d="M9 17v1a3 3 0 003 3h0a3 3 0 003-3v-1m-6-4h6m-6 0a9 9 0 110-18 9 9 0 010 18z" />
+          </svg>
+        </div>
+        <h3 className="text-xl font-semibold mb-2">No Experiments Saved Yet</h3>
+        <p className="text-gray-600 mb-4">Run simulations and save them to start comparing results</p>
+        <button
+          onClick={() => document.querySelector('[data-tab="theory"]')?.click()}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
+          Run Your First Experiment
+        </button>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="space-y-4">
+      {/* Control Panel */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold">
+            Experimental Comparison Laboratory
+            {selectedExperiments.length > 0 && (
+              <span className="ml-2 text-sm text-blue-600">
+                ({selectedExperiments.length} selected)
+              </span>
+            )}
+          </h3>
+          
+          <div className="flex gap-2">
+            <button
+              onClick={() => setFilterSettings(prev => ({...prev, showFilters: !prev.showFilters}))}
+              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded"
+            >
+              {filterSettings.showFilters ? '🔽' : '▶️'} Filters
+            </button>
+            
+            {selectedExperiments.length >= 2 && (
+              <>
+                <button
+                  onClick={() => setComparisonMode('probability')}
+                  className={`px-3 py-1 text-sm rounded ${
+                    comparisonMode === 'probability' ? 'bg-blue-600 text-white' : 'bg-gray-100'
+                  }`}
+                >
+                  P-Curve
+                </button>
+
+                <button
+                  onClick={() => setComparisonMode('overview')}
+                  className={`px-3 py-1 text-sm rounded ${
+                    comparisonMode === 'overview' ? 'bg-blue-600 text-white' : 'bg-gray-100'
+                  }`}
+                >
+                  Overview
+                </button>
+                <button
+                  onClick={() => setComparisonMode('convergence')}
+                  className={`px-3 py-1 text-sm rounded ${
+                    comparisonMode === 'convergence' ? 'bg-blue-600 text-white' : 'bg-gray-100'
+                  }`}
+                >
+                  Convergence
+                </button>
+                <button
+                  onClick={() => setComparisonMode('performance')}
+                  className={`px-3 py-1 text-sm rounded ${
+                    comparisonMode === 'performance' ? 'bg-blue-600 text-white' : 'bg-gray-100'
+                  }`}
+                >
+                  Performance
+                </button>
+                
+              </>
+            )}
+            
+            {selectedExperiments.length > 0 && (
+              <button
+                onClick={() => setSelectedExperiments([])}
+                className="px-3 py-1 text-sm bg-red-100 hover:bg-red-200 text-red-600 rounded"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+        
+        {/* Filters */}
+        {filterSettings.showFilters && (
+          <div className="border-t pt-3 grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Algorithm</label>
+              <select
+                value={filterSettings.algorithm}
+                onChange={(e) => setFilterSettings(prev => ({...prev, algorithm: e.target.value}))}
+                className="w-full p-1 text-sm border rounded"
+              >
+                <option value="all">All Algorithms</option>
+                <option value="AMP">AMP</option>
+                <option value="FV">FV</option>
+                <option value="RECURSIVE AMP">Recursive AMP</option>
+                <option value="MIN">MIN</option>
+                <option value="auto">Auto</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Processes</label>
+              <select
+                value={filterSettings.processCount}
+                onChange={(e) => setFilterSettings(prev => ({...prev, processCount: e.target.value}))}
+                className="w-full p-1 text-sm border rounded"
+              >
+                <option value="all">Any</option>
+                <option value="2">2 Processes</option>
+                <option value="3">3 Processes</option>
+                <option value="4">4 Processes</option>
+                <option value="5">5+ Processes</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Rounds</label>
+              <select
+                value={filterSettings.rounds}
+                onChange={(e) => setFilterSettings(prev => ({...prev, rounds: e.target.value}))}
+                className="w-full p-1 text-sm border rounded"
+              >
+                <option value="all">Any</option>
+                <option value="1">1 Round</option>
+                <option value="3">3 Rounds</option>
+                <option value="5">5 Rounds</option>
+                <option value="10">10 Rounds</option>
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Main Content Area */}
+      {selectedExperiments.length < 2 ? (
+        // List View
+        <div className="grid gap-3">
+          {filteredExperiments.map(exp => (
+            <ExperimentCard
+              key={exp.metadata?.id}
+              experiment={exp}
+              isSelected={selectedExperiments.includes(exp.metadata?.id)}
+              onToggle={() => toggleExperimentSelection(exp.metadata?.id)}
+              onDelete={() => deleteExperiment(exp.metadata?.id)}
+              onExport={() => exportExperiment(exp)}
+            />
+          ))}
+        </div>
+      ) : (
+        // Comparison View
+        <ExperimentComparisonPanel
+          experiments={getSelectedExperiments()}
+          mode={comparisonMode}
+        />
+      )}
+    </div>
+  );
+}
+
+// Experiment Card Component
+function ExperimentCard({ experiment, isSelected, onToggle, onDelete, onExport }) {
+  const [expanded, setExpanded] = useState(false);
+  
+  // Extract key metrics
+  const avgDiscrepancy = experiment.results ? 
+    experiment.results.reduce((sum, r) => sum + (r.discrepancy || 0), 0) / experiment.results.length : 0;
+  const minDiscrepancy = experiment.results ? 
+    Math.min(...experiment.results.map(r => r.discrepancy || 0)) : 0;
+  const maxDiscrepancy = experiment.results ? 
+    Math.max(...experiment.results.map(r => r.discrepancy || 0)) : 0;
+  
+  return (
+    <div className={`bg-white rounded-lg shadow p-4 ${isSelected ? 'ring-2 ring-blue-500' : ''}`}>
+      <div className="flex justify-between items-start">
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={onToggle}
+              className="w-4 h-4"
+            />
+            <h4 className="font-medium">{experiment.metadata?.name || 'Unnamed Experiment'}</h4>
+            <span className={`px-2 py-0.5 text-xs rounded ${
+              experiment.parameters?.algorithm === 'AMP' ? 'bg-green-100 text-green-700' :
+              experiment.parameters?.algorithm === 'FV' ? 'bg-red-100 text-red-700' :
+              experiment.parameters?.algorithm === 'RECURSIVE AMP' ? 'bg-purple-100 text-purple-700' :
+              experiment.parameters?.algorithm === 'MIN' ? 'bg-yellow-100 text-yellow-700' :
+              'bg-gray-100 text-gray-700'
+            }`}>
+              {experiment.parameters?.algorithm || 'Unknown'}
+            </span>
+            {experiment.type === 'range' && (
+              <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
+                Range
+              </span>
+            )}
+          </div>
+          
+          <div className="mt-2 grid grid-cols-5 gap-4 text-xs text-gray-600">
+            <div>
+              <span className="font-medium">Processes:</span> {experiment.parameters?.processCount || 'N/A'}
+            </div>
+            <div>
+              <span className="font-medium">Rounds:</span> {experiment.parameters?.rounds || 1}
+            </div>
+            <div>
+              <span className="font-medium">Avg Disc:</span> {avgDiscrepancy.toFixed(4)}
+            </div>
+            <div>
+              <span className="font-medium">Min:</span> {minDiscrepancy.toFixed(4)}
+            </div>
+            <div>
+              <span className="font-medium">Max:</span> {maxDiscrepancy.toFixed(4)}
+            </div>
+          </div>
+        </div>
+        
+        <div className="flex gap-1 ml-4">
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="p-1 hover:bg-gray-100 rounded"
+            title="Toggle details"
+          >
+            {expanded ? '▼' : '▶'}
+          </button>
+          <button
+            onClick={onExport}
+            className="p-1 hover:bg-green-100 rounded text-green-600"
+            title="Export"
+          >
+            💾
+          </button>
+          <button
+            onClick={onDelete}
+            className="p-1 hover:bg-red-100 rounded text-red-600"
+            title="Delete"
+          >
+            🗑️
+          </button>
+        </div>
+      </div>
+      
+      {expanded && (
+        <div className="mt-3 pt-3 border-t text-sm">
+          <p className="text-gray-600">{experiment.metadata?.description || 'No description'}</p>
+          <div className="mt-2 text-xs text-gray-500">
+            <p>Created: {new Date(experiment.metadata?.createdAt || Date.now()).toLocaleString()}</p>
+            {experiment.metadata?.tags && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {experiment.metadata.tags.map((tag, idx) => (
+                  <span key={idx} className="px-2 py-0.5 bg-gray-100 rounded">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Comparison Panel Component
+function ExperimentComparisonPanel({ experiments, mode }) {
+  if (!experiments || experiments.length < 2) return null;
+  
+  switch (mode) {
+    case 'overview':
+      return <ComparisonOverview experiments={experiments} />;
+    case 'convergence':
+      return <ConvergenceAnalysis experiments={experiments} />;
+    case 'performance':
+      return <PerformanceMetrics experiments={experiments} />;
+    case 'probability':  // NUEVO CASO
+      return <ProbabilityCurveComparison experiments={experiments} />;
+    default:
+      return <ComparisonOverview experiments={experiments} />;
+  }
+}
+
+// Overview Comparison
+function ComparisonOverview({ experiments }) {
+  return (
+    <div className="bg-white rounded-lg shadow p-4">
+      <h4 className="font-semibold mb-4">Experimental Overview Comparison</h4>
+      
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Experiment</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Algorithm</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Config</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Final Disc</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Avg Disc</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Min Disc</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Reduction %</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {experiments.map((exp, idx) => {
+              const results = exp.results || [];
+              const finalDisc = results[results.length - 1]?.discrepancy || 0;
+              const initialDisc = results[0]?.discrepancy || 1;
+              const avgDisc = results.reduce((sum, r) => sum + (r.discrepancy || 0), 0) / (results.length || 1);
+              const minDisc = Math.min(...results.map(r => r.discrepancy || 0));
+              const reduction = initialDisc > 0 ? ((initialDisc - finalDisc) / initialDisc * 100) : 0;
+              
+              return (
+                <tr key={exp.metadata?.id || idx}>
+                  <td className="px-3 py-2 text-sm font-medium">{exp.metadata?.name}</td>
+                  <td className="px-3 py-2 text-sm">
+                    <span className={`px-2 py-0.5 text-xs rounded ${
+                      exp.parameters?.algorithm === 'RECURSIVE AMP' ? 'bg-purple-100 text-purple-700' :
+                      exp.parameters?.algorithm === 'AMP' ? 'bg-green-100 text-green-700' :
+                      exp.parameters?.algorithm === 'FV' ? 'bg-red-100 text-red-700' :
+                      'bg-gray-100'
+                    }`}>
+                      {exp.parameters?.algorithm}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-xs">
+                    {exp.parameters?.processCount}p / {exp.parameters?.rounds}r
+                  </td>
+                  <td className="px-3 py-2 text-sm font-mono">{finalDisc.toFixed(6)}</td>
+                  <td className="px-3 py-2 text-sm font-mono">{avgDisc.toFixed(6)}</td>
+                  <td className="px-3 py-2 text-sm font-mono">{minDisc.toFixed(6)}</td>
+                  <td className="px-3 py-2 text-sm">
+                    <div className="flex items-center">
+                      <span className={`mr-2 ${reduction > 80 ? 'text-green-600' : reduction > 50 ? 'text-blue-600' : 'text-gray-600'}`}>
+                        {reduction.toFixed(1)}%
+                      </span>
+                      <div className="w-16 bg-gray-200 rounded-full h-2">
+                        <div 
+                          className={`h-2 rounded-full ${reduction > 80 ? 'bg-green-500' : reduction > 50 ? 'bg-blue-500' : 'bg-gray-400'}`}
+                          style={{ width: `${Math.min(100, reduction)}%` }}
+                        />
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      
+      {/* Summary Cards */}
+      <div className="mt-6 grid grid-cols-3 gap-4">
+        <div className="bg-green-50 p-3 rounded">
+          <h5 className="text-sm font-medium text-green-800">Best Final Discrepancy</h5>
+          <p className="text-lg font-bold text-green-900">
+            {experiments.reduce((best, exp) => {
+              const finalDisc = exp.results?.[exp.results.length - 1]?.discrepancy || Infinity;
+              return finalDisc < best.value ? { name: exp.metadata?.name, value: finalDisc } : best;
+            }, { name: '', value: Infinity }).name}
+          </p>
+        </div>
+        
+        <div className="bg-blue-50 p-3 rounded">
+          <h5 className="text-sm font-medium text-blue-800">Highest Reduction</h5>
+          <p className="text-lg font-bold text-blue-900">
+            {experiments.reduce((best, exp) => {
+              const initial = exp.results?.[0]?.discrepancy || 1;
+              const final = exp.results?.[exp.results.length - 1]?.discrepancy || 0;
+              const reduction = initial > 0 ? ((initial - final) / initial) : 0;
+              return reduction > best.value ? { name: exp.metadata?.name, value: reduction } : best;
+            }, { name: '', value: 0 }).name}
+          </p>
+        </div>
+        
+        <div className="bg-purple-50 p-3 rounded">
+          <h5 className="text-sm font-medium text-purple-800">Most Consistent</h5>
+          <p className="text-lg font-bold text-purple-900">
+            {experiments.reduce((best, exp) => {
+              const discrepancies = exp.results?.map(r => r.discrepancy) || [];
+              const mean = discrepancies.reduce((s, d) => s + d, 0) / discrepancies.length;
+              const variance = discrepancies.reduce((s, d) => s + Math.pow(d - mean, 2), 0) / discrepancies.length;
+              return variance < best.value ? { name: exp.metadata?.name, value: variance } : best;
+            }, { name: '', value: Infinity }).name}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Convergence Analysis
+// REEMPLAZA TODO EL COMPONENTE ConvergenceAnalysis CON ESTA VERSIÓN MEJORADA:
+
+function ConvergenceAnalysis({ experiments }) {
+  // Detectar tipos de experimentos
+  const experimentTypes = experiments.map(exp => {
+    const hasMultipleP = exp.type === 'range';
+    const hasMultipleRounds = exp.parameters?.rounds > 1;
+    const hasHistory = exp.results?.[0]?.round !== undefined;
+    
+    return {
+      experiment: exp,
+      isRange: hasMultipleP,
+      isMultiRound: hasMultipleRounds || hasHistory,
+      dataType: hasMultipleP ? 'probability' : (hasMultipleRounds || hasHistory ? 'rounds' : 'repetitions')
+    };
+  });
+  
+  // Determinar qué tipo de vista mostrar
+  const viewType = experimentTypes[0]?.dataType || 'unknown';
+  const allSameType = experimentTypes.every(t => t.dataType === viewType);
+  
+  if (!allSameType) {
+    return (
+      <div className="bg-white rounded-lg shadow p-4">
+        <h4 className="font-semibold mb-4">Convergence Analysis</h4>
+        <div className="bg-yellow-50 p-4 rounded">
+          <p className="text-yellow-800">⚠️ Mixed experiment types selected</p>
+          <p className="text-sm text-yellow-600 mt-2">
+            Please select experiments of the same type for meaningful comparison:
+          </p>
+          <ul className="text-sm text-yellow-600 mt-2 list-disc list-inside">
+            <li>Range experiments (varying probability)</li>
+            <li>Multi-round experiments (convergence over rounds)</li>
+            <li>Single experiments (multiple repetitions)</li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
+  
+  // Preparar datos según el tipo
+  let chartData = [];
+  let xAxisLabel = 'Step';
+  let xAxisKey = 'index';
+  
+  if (viewType === 'probability') {
+    // RANGE EXPERIMENTS: X-axis is probability
+    xAxisLabel = 'Probability (p)';
+    xAxisKey = 'p';
+    
+    // Collect all unique probabilities
+    const allPs = new Set();
+    experiments.forEach(exp => {
+      exp.results?.forEach(r => {
+        if (r.p !== undefined) allPs.add(r.p);
+      });
+    });
+    
+    const sortedPs = Array.from(allPs).sort((a, b) => a - b);
+    chartData = sortedPs.map(p => {
+      const point = { p };
+      experiments.forEach((exp, idx) => {
+        const result = exp.results?.find(r => Math.abs(r.p - p) < 0.0001);
+        if (result) {
+          point[`exp${idx}`] = result.discrepancy;
+        }
+      });
+      return point;
+    });
+    
+  } else if (viewType === 'rounds') {
+    // MULTI-ROUND EXPERIMENTS: X-axis is round number
+    xAxisLabel = 'Round';
+    xAxisKey = 'round';
+    
+    // Find max rounds
+    const maxRounds = Math.max(...experiments.map(exp => exp.parameters?.rounds || 1));
+    
+    // For multi-round experiments, we need to extract per-round data
+    // This assumes experiments store round-by-round history
+    for (let round = 0; round <= maxRounds; round++) {
+      const point = { round };
+      
+      experiments.forEach((exp, expIdx) => {
+        // Check if experiment has detailed round data
+        if (exp.roundHistory && exp.roundHistory[round]) {
+          point[`exp${expIdx}`] = exp.roundHistory[round].discrepancy;
+        } else if (exp.results && round === exp.parameters?.rounds) {
+          // Use final result for last round
+          const avgDiscrepancy = exp.results.reduce((sum, r) => sum + (r.discrepancy || 0), 0) / exp.results.length;
+          point[`exp${expIdx}`] = avgDiscrepancy;
+        }
+      });
+      
+      chartData.push(point);
+    }
+    
+  } else {
+    // SINGLE EXPERIMENTS: X-axis is repetition/sample number
+    xAxisLabel = 'Sample/Repetition';
+    xAxisKey = 'index';
+    
+    const maxSamples = Math.max(...experiments.map(exp => exp.results?.length || 0));
+    for (let i = 0; i < maxSamples; i++) {
+      const point = { index: i };
+      experiments.forEach((exp, expIdx) => {
+        if (exp.results && exp.results[i]) {
+          point[`exp${expIdx}`] = exp.results[i].discrepancy;
+        }
+      });
+      chartData.push(point);
+    }
+  }
+  
+  const colors = ['#8b5cf6', '#10b981', '#ef4444', '#f59e0b', '#3b82f6'];
+  
+  return (
+    <div className="bg-white rounded-lg shadow p-4">
+      <h4 className="font-semibold mb-4">
+        Convergence Analysis
+        <span className="ml-2 text-sm font-normal text-gray-600">
+          ({viewType === 'probability' ? 'Probability Sweep' : 
+            viewType === 'rounds' ? 'Round-by-Round' : 
+            'Repetition Samples'})
+        </span>
+      </h4>
+      
+      {/* Information Box */}
+      <div className="mb-4 p-3 bg-blue-50 rounded text-sm">
+        <p className="text-blue-800 font-medium">
+          {viewType === 'probability' && "📊 Showing discrepancy across different probability values"}
+          {viewType === 'rounds' && "🔄 Showing convergence across communication rounds"}
+          {viewType === 'repetitions' && "📈 Showing variation across multiple repetitions"}
+        </p>
+        <p className="text-blue-600 text-xs mt-1">
+          {viewType === 'probability' && "Each point represents a different message delivery probability"}
+          {viewType === 'rounds' && "Each point shows the discrepancy after completing that round"}
+          {viewType === 'repetitions' && "Each point is an independent run of the experiment"}
+        </p>
+      </div>
+      
+      {/* Main Chart */}
+      <ResponsiveContainer width="100%" height={400}>
+        <LineChart data={chartData}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis 
+            dataKey={xAxisKey}
+            label={{ value: xAxisLabel, position: 'insideBottom', offset: -5 }}
+            domain={viewType === 'probability' ? [0, 1] : undefined}
+          />
+          <YAxis 
+            label={{ value: 'Discrepancy', angle: -90, position: 'insideLeft' }}
+            domain={[0, 'auto']}
+          />
+          <Tooltip 
+            formatter={(value) => value?.toFixed(6)}
+            labelFormatter={(label) => {
+              if (viewType === 'probability') return `p = ${label?.toFixed(3)}`;
+              if (viewType === 'rounds') return `Round ${label}`;
+              return `Sample ${label + 1}`;
+            }}
+          />
+          <Legend />
+          
+          {viewType === 'probability' && (
+            <ReferenceLine x={0.5} stroke="#666" strokeDasharray="3 3" label="p=0.5" />
+          )}
+          
+          {experiments.map((exp, idx) => (
+            <Line
+              key={exp.metadata?.id || idx}
+              type="monotone"
+              dataKey={`exp${idx}`}
+              name={exp.metadata?.name || `Exp ${idx + 1}`}
+              stroke={colors[idx % colors.length]}
+              strokeWidth={2}
+              dot={chartData.length <= 20}
+              connectNulls
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+      
+      {/* Convergence Metrics - Adapted to context */}
+      <div className="mt-6 grid grid-cols-2 gap-4">
+        <div>
+          <h5 className="text-sm font-medium mb-3">
+            {viewType === 'probability' ? 'Best Performance Range' : 
+             viewType === 'rounds' ? 'Rounds to 90% Reduction' : 
+             'Convergence Stability'}
+          </h5>
+          <div className="space-y-2">
+            {experiments.map((exp, idx) => {
+              let metric = 'N/A';
+              
+              if (viewType === 'probability') {
+                // Find probability range with best average
+                const results = exp.results || [];
+                if (results.length > 0) {
+                  const sorted = [...results].sort((a, b) => a.discrepancy - b.discrepancy);
+                  const best = sorted[0];
+                  metric = best ? `Best at p=${best.p?.toFixed(2)} (${best.discrepancy.toFixed(4)})` : 'N/A';
+                }
+              } else if (viewType === 'rounds') {
+                // Calculate rounds to 90% reduction
+                const initial = chartData[0]?.[`exp${idx}`] || 1;
+                const target = initial * 0.1;
+                const roundTo90 = chartData.findIndex(d => d[`exp${idx}`] <= target);
+                metric = roundTo90 >= 0 ? `${roundTo90} rounds` : 'Not achieved';
+              } else {
+                // Calculate stability (coefficient of variation)
+                const values = chartData.map(d => d[`exp${idx}`]).filter(v => v !== undefined);
+                if (values.length > 0) {
+                  const mean = values.reduce((s, v) => s + v, 0) / values.length;
+                  const variance = values.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / values.length;
+                  const cv = Math.sqrt(variance) / mean;
+                  metric = `CV: ${(cv * 100).toFixed(1)}%`;
+                }
+              }
+              
+              return (
+                <div key={exp.metadata?.id || idx} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                  <span className="text-sm font-medium" style={{ color: colors[idx % colors.length] }}>
+                    {exp.metadata?.name}
+                  </span>
+                  <span className="text-sm font-mono">
+                    {metric}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        
+        <div>
+          <h5 className="text-sm font-medium mb-3">
+            {viewType === 'probability' ? 'Average Discrepancy' : 
+             viewType === 'rounds' ? 'Final Discrepancy' : 
+             'Mean & Std Dev'}
+          </h5>
+          <div className="space-y-2">
+            {experiments.map((exp, idx) => {
+              let metric = 'N/A';
+              
+              if (viewType === 'probability' || viewType === 'repetitions') {
+                // Calculate average
+                const values = exp.results?.map(r => r.discrepancy) || [];
+                if (values.length > 0) {
+                  const mean = values.reduce((s, v) => s + v, 0) / values.length;
+                  const std = Math.sqrt(values.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / values.length);
+                  metric = viewType === 'probability' ? 
+                    `${mean.toFixed(6)}` : 
+                    `${mean.toFixed(4)} ± ${std.toFixed(4)}`;
+                }
+              } else if (viewType === 'rounds') {
+                // Show final value
+                const finalValue = chartData[chartData.length - 1]?.[`exp${idx}`];
+                metric = finalValue !== undefined ? finalValue.toFixed(6) : 'N/A';
+              }
+              
+              return (
+                <div key={exp.metadata?.id || idx} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                  <span className="text-sm font-medium" style={{ color: colors[idx % colors.length] }}>
+                    {exp.metadata?.name}
+                  </span>
+                  <span className="text-sm font-mono">
+                    {metric}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      
+      {/* Context-specific insights */}
+      <div className="mt-4 p-3 bg-gray-50 rounded text-xs text-gray-600">
+        <p className="font-medium text-gray-700 mb-1">Understanding this view:</p>
+        {viewType === 'probability' && (
+          <ul className="list-disc list-inside space-y-1">
+            <li>Lower curves indicate better performance at those probability values</li>
+            <li>The crossover at p=0.5 shows where algorithms change optimality</li>
+            <li>Steeper slopes indicate more sensitivity to probability changes</li>
+          </ul>
+        )}
+        {viewType === 'rounds' && (
+          <ul className="list-disc list-inside space-y-1">
+            <li>Steeper downward slopes indicate faster convergence</li>
+            <li>Plateaus show where convergence has stabilized</li>
+            <li>Lower final values indicate better agreement achieved</li>
+          </ul>
+        )}
+        {viewType === 'repetitions' && (
+          <ul className="list-disc list-inside space-y-1">
+            <li>Consistent horizontal lines indicate stable algorithm performance</li>
+            <li>High variation suggests sensitivity to initial conditions or randomness</li>
+            <li>Trends up/down might indicate systematic biases</li>
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Performance Metrics
+// REEMPLAZA LA SECCIÓN DE Performance Metrics EN EL COMPONENTE PerformanceMetrics:
+
+function PerformanceMetrics({ experiments }) {
+  // Calculate comprehensive metrics
+  const metrics = experiments.map(exp => {
+    const discrepancies = exp.results?.map(r => r.discrepancy) || [];
+    const n = discrepancies.length;
+    
+    if (n === 0) return null;
+    
+    const mean = discrepancies.reduce((s, d) => s + d, 0) / n;
+    const sorted = [...discrepancies].sort((a, b) => a - b);
+    const median = n % 2 === 0 ? (sorted[n/2-1] + sorted[n/2]) / 2 : sorted[Math.floor(n/2)];
+    const variance = discrepancies.reduce((s, d) => s + Math.pow(d - mean, 2), 0) / n;
+    const stdDev = Math.sqrt(variance);
+    const cv = mean > 0 ? stdDev / mean : 0;
+    
+    // Calculate convergence rate
+    const initial = discrepancies[0] || 1;
+    const final = discrepancies[n-1] || 0;
+    const convergenceRate = initial > 0 ? (initial - final) / initial : 0;
+    
+    // NUEVO: Análisis de convergencia mejorado
+    let convergenceStatus = 'Not converged';
+    let convergencePoint = -1;
+    
+    // Buscar punto de convergencia con criterios inteligentes
+    for (let i = 1; i < n; i++) {
+      const current = discrepancies[i];
+      const previous = discrepancies[i-1];
+      
+      // Criterios de convergencia
+      if (current < 0.001) {
+        // Ya está en convergencia aceptable
+        convergenceStatus = 'Converged';
+        convergencePoint = i;
+        
+        if (current < 0.00001) {
+          convergenceStatus = 'Near-zero';
+        }
+        if (current === 0) {
+          convergenceStatus = 'Perfect';
+        }
+        break;
+      }
+      
+      // Si no ha convergido pero el cambio es mínimo
+      const absoluteChange = Math.abs(current - previous);
+      const relativeChange = previous > 0 ? absoluteChange / previous : 0;
+      
+      if (absoluteChange < 0.0001 || (previous > 0.01 && relativeChange < 0.01)) {
+        convergenceStatus = 'Stabilized';
+        convergencePoint = i;
+        break;
+      }
+    }
+    
+    // Si el valor final es muy pequeño pero no se detectó convergencia
+    if (convergenceStatus === 'Not converged' && final < 0.001) {
+      convergenceStatus = 'Converged';
+      convergencePoint = n - 1;
+      if (final < 0.00001) convergenceStatus = 'Near-zero';
+      if (final === 0) convergenceStatus = 'Perfect';
+    }
+    
+    return {
+      name: exp.metadata?.name,
+      algorithm: exp.parameters?.algorithm,
+      mean,
+      median,
+      stdDev,
+      cv,
+      convergenceRate,
+      convergenceStatus,
+      convergencePoint,
+      finalValue: final,
+      improvement: (initial - final)
+    };
+  }).filter(m => m !== null);
+  
+  // Función para obtener color según status
+  const getStatusColor = (status) => {
+    switch(status) {
+      case 'Perfect': return 'text-green-700 bg-green-100';
+      case 'Near-zero': return 'text-green-600 bg-green-50';
+      case 'Converged': return 'text-blue-600 bg-blue-50';
+      case 'Stabilized': return 'text-yellow-600 bg-yellow-50';
+      case 'Not converged': return 'text-red-600 bg-red-50';
+      default: return 'text-gray-600 bg-gray-50';
+    }
+  };
+  
+  return (
+    <div className="bg-white rounded-lg shadow p-4">
+      <h4 className="font-semibold mb-4">Performance Metrics Analysis</h4>
+      
+      {/* Metrics Table - ACTUALIZADA */}
+      <div className="overflow-x-auto mb-6">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Experiment</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Mean</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Median</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Std Dev</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Final Value</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Conv. Rate</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {metrics.map((m, idx) => (
+              <tr key={idx}>
+                <td className="px-3 py-2 text-sm font-medium">{m.name}</td>
+                <td className="px-3 py-2 text-sm font-mono">{m.mean.toFixed(6)}</td>
+                <td className="px-3 py-2 text-sm font-mono">{m.median.toFixed(6)}</td>
+                <td className="px-3 py-2 text-sm font-mono">{m.stdDev.toFixed(6)}</td>
+                <td className="px-3 py-2 text-sm font-mono">{m.finalValue.toFixed(6)}</td>
+                <td className="px-3 py-2 text-sm font-mono">{(m.convergenceRate * 100).toFixed(1)}%</td>
+                <td className="px-3 py-2">
+                  <span className={`px-2 py-1 text-xs rounded ${getStatusColor(m.convergenceStatus)}`}>
+                    {m.convergenceStatus}
+                    {m.convergencePoint >= 0 && m.convergenceStatus !== 'Not converged' && 
+                      ` (step ${m.convergencePoint})`}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      
+      {/* Performance Rankings - ACTUALIZADO */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <h5 className="text-sm font-medium mb-3">Performance Rankings</h5>
+          <div className="space-y-2">
+            <div className="p-2 bg-green-50 rounded">
+              <p className="text-xs text-green-700">🥇 Best Convergence Status</p>
+              <p className="font-medium">
+                {(() => {
+                  const statusOrder = ['Perfect', 'Near-zero', 'Converged', 'Stabilized', 'Not converged'];
+                  let best = metrics[0];
+                  metrics.forEach(m => {
+                    if (statusOrder.indexOf(m.convergenceStatus) < statusOrder.indexOf(best.convergenceStatus)) {
+                      best = m;
+                    }
+                  });
+                  return best ? `${best.name} (${best.convergenceStatus})` : 'N/A';
+                })()}
+              </p>
+            </div>
+            <div className="p-2 bg-blue-50 rounded">
+              <p className="text-xs text-blue-700">🥇 Fastest to Converge</p>
+              <p className="font-medium">
+                {(() => {
+                  const converged = metrics.filter(m => 
+                    ['Perfect', 'Near-zero', 'Converged'].includes(m.convergenceStatus)
+                  );
+                  if (converged.length === 0) return 'None achieved convergence';
+                  
+                  const fastest = converged.reduce((best, m) => 
+                    m.convergencePoint < best.convergencePoint ? m : best
+                  );
+                  return `${fastest.name} (step ${fastest.convergencePoint})`;
+                })()}
+              </p>
+            </div>
+            <div className="p-2 bg-purple-50 rounded">
+              <p className="text-xs text-purple-700">🥇 Lowest Final Value</p>
+              <p className="font-medium">
+                {metrics.reduce((b, m) => m.finalValue < b.finalValue ? m : b).name}
+                <span className="text-xs text-gray-600 ml-1">
+                  ({metrics.reduce((b, m) => m.finalValue < b.finalValue ? m : b).finalValue.toFixed(6)})
+                </span>
+              </p>
+            </div>
+          </div>
+        </div>
+        
+        <div>
+          <h5 className="text-sm font-medium mb-3">Convergence Summary</h5>
+          <div className="space-y-2">
+            {/* Status distribution */}
+            <div className="p-2 bg-gray-50 rounded">
+              <p className="text-xs text-gray-700 mb-1">Status Distribution:</p>
+              {['Perfect', 'Near-zero', 'Converged', 'Stabilized', 'Not converged'].map(status => {
+                const count = metrics.filter(m => m.convergenceStatus === status).length;
+                if (count === 0) return null;
+                return (
+                  <div key={status} className="flex justify-between text-xs mt-1">
+                    <span className={`px-1 rounded ${getStatusColor(status)}`}>{status}</span>
+                    <span>{count} experiment{count !== 1 ? 's' : ''}</span>
+                  </div>
+                );
+              })}
+            </div>
+            
+            {/* Algorithm comparison */}
+            <div className="p-2 bg-gray-50 rounded">
+              <p className="text-xs text-gray-700 mb-1">By Algorithm:</p>
+              {['AMP', 'FV', 'RECURSIVE AMP', 'MIN'].map(algo => {
+                const algoMetrics = metrics.filter(m => m.algorithm === algo);
+                if (algoMetrics.length === 0) return null;
+                
+                const bestStatus = algoMetrics[0].convergenceStatus;
+                
+                return (
+                  <div key={algo} className="flex justify-between text-xs mt-1">
+                    <span className={`px-1 rounded ${
+                      algo === 'RECURSIVE AMP' ? 'bg-purple-100 text-purple-700' :
+                      algo === 'AMP' ? 'bg-green-100 text-green-700' :
+                      algo === 'FV' ? 'bg-red-100 text-red-700' :
+                      'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {algo}
+                    </span>
+                    <span className={`px-1 rounded ${getStatusColor(bestStatus)}`}>
+                      {bestStatus}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Legend */}
+      <div className="mt-4 p-3 bg-gray-50 rounded text-xs">
+        <p className="font-medium text-gray-700 mb-2">Convergence Status Guide:</p>
+        <div className="grid grid-cols-2 gap-2">
+          <div><span className="px-1 rounded bg-green-100 text-green-700">Perfect</span> = Discrepancy exactly 0</div>
+          <div><span className="px-1 rounded bg-green-50 text-green-600">Near-zero</span> = Discrepancy less 0.00001</div>
+          <div><span className="px-1 rounded bg-blue-50 text-blue-600">Converged</span> = Discrepancy less 0.001</div>
+          <div><span className="px-1 rounded bg-yellow-50 text-yellow-600">Stabilized</span> = Changes less 0.0001</div>
+          <div className="col-span-2"><span className="px-1 rounded bg-red-50 text-red-600">Not converged</span> = Still changing significantly</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function ProbabilityCurveComparison({ experiments }) {
+  // Filtrar solo experimentos de tipo "range" que tienen datos de probabilidad
+  const rangeExperiments = experiments.filter(exp => exp.type === 'range' && exp.results);
+  
+  if (rangeExperiments.length === 0) {
+    return (
+      <div className="bg-white rounded-lg shadow p-8 text-center">
+        <p className="text-gray-500">No range experiments selected.</p>
+        <p className="text-sm text-gray-400 mt-2">
+          This view requires range experiments with probability data.
+        </p>
+      </div>
+    );
+  }
+  
+  // Preparar datos para la gráfica
+  const allProbabilities = new Set();
+  rangeExperiments.forEach(exp => {
+    exp.results.forEach(result => {
+      if (result.p !== undefined) {
+        allProbabilities.add(result.p);
+      }
+    });
+  });
+  
+  const sortedProbabilities = Array.from(allProbabilities).sort((a, b) => a - b);
+  
+  // Construir datos del chart
+  const chartData = sortedProbabilities.map(p => {
+    const point = { p };
+    
+    rangeExperiments.forEach((exp, idx) => {
+      const result = exp.results.find(r => Math.abs(r.p - p) < 0.0001);
+      if (result) {
+        point[`exp${idx}`] = result.discrepancy;
+      }
+    });
+    
+    return point;
+  });
+  
+  const colors = ['#8b5cf6', '#10b981', '#ef4444', '#f59e0b', '#3b82f6'];
+  
+  return (
+    <div className="bg-white rounded-lg shadow p-4">
+      <h4 className="font-semibold mb-4">Discrepancy vs Probability Comparison</h4>
+      
+      {/* Main Chart */}
+      <ResponsiveContainer width="100%" height={400}>
+        <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis 
+            dataKey="p" 
+            domain={[0, 1]}
+            ticks={[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]}
+            label={{ value: 'Probability (p)', position: 'insideBottom', offset: -5 }}
+          />
+          <YAxis 
+            domain={[0, 'auto']}
+            label={{ value: 'Discrepancy', angle: -90, position: 'insideLeft' }}
+          />
+          <Tooltip 
+            formatter={(value) => value?.toFixed(6)}
+            labelFormatter={(value) => `p = ${value?.toFixed(3)}`}
+          />
+          <Legend />
+          
+          {/* Crossover line at p=0.5 */}
+          <ReferenceLine x={0.5} stroke="#666" strokeDasharray="3 3" />
+          
+          {rangeExperiments.map((exp, idx) => (
+            <Line
+              key={exp.metadata?.id || idx}
+              type="monotone"
+              dataKey={`exp${idx}`}
+              name={exp.metadata?.name || `Exp ${idx + 1}`}
+              stroke={colors[idx % colors.length]}
+              strokeWidth={2}
+              dot={false}
+              connectNulls
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+      
+      {/* Analysis Tables */}
+      <div className="mt-6 grid grid-cols-2 gap-4">
+        {/* Key Points Analysis */}
+        <div>
+          <h5 className="text-sm font-medium mb-3">Key Points Analysis</h5>
+          <div className="space-y-2">
+            {rangeExperiments.map((exp, idx) => {
+              // Encontrar puntos clave
+              const p0 = exp.results.find(r => Math.abs(r.p - 0) < 0.01);
+              const p25 = exp.results.find(r => Math.abs(r.p - 0.25) < 0.01);
+              const p50 = exp.results.find(r => Math.abs(r.p - 0.5) < 0.01);
+              const p75 = exp.results.find(r => Math.abs(r.p - 0.75) < 0.01);
+              const p100 = exp.results.find(r => Math.abs(r.p - 1) < 0.01);
+              
+              return (
+                <div key={exp.metadata?.id || idx} className="p-2 bg-gray-50 rounded">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-sm font-medium" style={{ color: colors[idx % colors.length] }}>
+                      {exp.metadata?.name}
+                    </span>
+                    <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                      {exp.parameters?.algorithm || 'Unknown'}
+                    </span>
+                  </div>
+                  <div className="mt-1 grid grid-cols-5 gap-1 text-xs text-gray-600">
+                    <div>
+                      <span className="font-medium">p=0:</span>
+                      <p>{p0 ? p0.discrepancy.toFixed(3) : 'N/A'}</p>
+                    </div>
+                    <div>
+                      <span className="font-medium">p=0.25:</span>
+                      <p>{p25 ? p25.discrepancy.toFixed(3) : 'N/A'}</p>
+                    </div>
+                    <div>
+                      <span className="font-medium">p=0.5:</span>
+                      <p>{p50 ? p50.discrepancy.toFixed(3) : 'N/A'}</p>
+                    </div>
+                    <div>
+                      <span className="font-medium">p=0.75:</span>
+                      <p>{p75 ? p75.discrepancy.toFixed(3) : 'N/A'}</p>
+                    </div>
+                    <div>
+                      <span className="font-medium">p=1:</span>
+                      <p>{p100 ? p100.discrepancy.toFixed(3) : 'N/A'}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        
+        {/* Performance Analysis by Range - CORREGIDO */}
+        <div>
+          <h5 className="text-sm font-medium mb-3">Average Performance by Range</h5>
+          <div className="space-y-2">
+            {/* Análisis para cada experimento */}
+            {rangeExperiments.map((exp, idx) => {
+              // Calcular promedios por rango
+              const lowResults = exp.results.filter(r => r.p >= 0 && r.p <= 0.3);
+              const midResults = exp.results.filter(r => r.p > 0.3 && r.p <= 0.7);
+              const highResults = exp.results.filter(r => r.p > 0.7 && r.p <= 1.0);
+              
+              const lowAvg = lowResults.length > 0 ? 
+                lowResults.reduce((s, r) => s + r.discrepancy, 0) / lowResults.length : null;
+              const midAvg = midResults.length > 0 ? 
+                midResults.reduce((s, r) => s + r.discrepancy, 0) / midResults.length : null;
+              const highAvg = highResults.length > 0 ? 
+                highResults.reduce((s, r) => s + r.discrepancy, 0) / highResults.length : null;
+              
+              // Encontrar el mejor rango para este experimento
+              let bestRange = 'N/A';
+              let bestValue = Infinity;
+              if (lowAvg !== null && lowAvg < bestValue) {
+                bestRange = 'Low p';
+                bestValue = lowAvg;
+              }
+              if (midAvg !== null && midAvg < bestValue) {
+                bestRange = 'Mid p';
+                bestValue = midAvg;
+              }
+              if (highAvg !== null && highAvg < bestValue) {
+                bestRange = 'High p';
+                bestValue = highAvg;
+              }
+              
+              return (
+                <div key={exp.metadata?.id || idx} className="p-2 bg-gray-50 rounded">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-sm font-medium" style={{ color: colors[idx % colors.length] }}>
+                      {exp.metadata?.name}
+                    </span>
+                    <span className="text-xs">
+                      Best: {bestRange}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-xs mt-1">
+                    <div className={`text-center ${bestRange === 'Low p' ? 'font-bold text-green-600' : 'text-gray-600'}`}>
+                      <p>Low p</p>
+                      <p>{lowAvg !== null ? lowAvg.toFixed(4) : 'N/A'}</p>
+                    </div>
+                    <div className={`text-center ${bestRange === 'Mid p' ? 'font-bold text-green-600' : 'text-gray-600'}`}>
+                      <p>Mid p</p>
+                      <p>{midAvg !== null ? midAvg.toFixed(4) : 'N/A'}</p>
+                    </div>
+                    <div className={`text-center ${bestRange === 'High p' ? 'font-bold text-green-600' : 'text-gray-600'}`}>
+                      <p>High p</p>
+                      <p>{highAvg !== null ? highAvg.toFixed(4) : 'N/A'}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      
+      {/* Summary Statistics - MEJORADO */}
+      <div className="mt-6 p-3 bg-blue-50 rounded">
+        <h5 className="text-sm font-medium text-blue-800 mb-2">Comparative Insights</h5>
+        <div className="grid grid-cols-3 gap-4 text-xs">
+          <div>
+            <p className="text-gray-600">Best Overall Performance:</p>
+            <p className="font-medium">
+              {(() => {
+                let bestExp = null;
+                let bestAvg = Infinity;
+                
+                rangeExperiments.forEach(exp => {
+                  const avg = exp.results.reduce((s, r) => s + r.discrepancy, 0) / exp.results.length;
+                  if (avg < bestAvg) {
+                    bestAvg = avg;
+                    bestExp = exp;
+                  }
+                });
+                
+                return bestExp ? `${bestExp.metadata?.name} (${bestAvg.toFixed(4)})` : 'N/A';
+              })()}
+            </p>
+          </div>
+          
+          <div>
+            <p className="text-gray-600">Most Stable (Lowest Variance):</p>
+            <p className="font-medium">
+              {(() => {
+                let bestExp = null;
+                let bestVariance = Infinity;
+                
+                rangeExperiments.forEach(exp => {
+                  const values = exp.results.map(r => r.discrepancy);
+                  const mean = values.reduce((s, v) => s + v, 0) / values.length;
+                  const variance = values.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / values.length;
+                  
+                  if (variance < bestVariance) {
+                    bestVariance = variance;
+                    bestExp = exp;
+                  }
+                });
+                
+                return bestExp ? `${bestExp.metadata?.name}` : 'N/A';
+              })()}
+            </p>
+          </div>
+          
+          <div>
+            <p className="text-gray-600">Widest Effective Range:</p>
+            <p className="font-medium">
+              {(() => {
+                let bestExp = null;
+                let bestRange = 0;
+                const threshold = 0.1; // Considerar "efectivo" si discrepancia < 0.1
+                
+                rangeExperiments.forEach(exp => {
+                  const effectiveResults = exp.results.filter(r => r.discrepancy < threshold);
+                  if (effectiveResults.length > 0) {
+                    const minP = Math.min(...effectiveResults.map(r => r.p));
+                    const maxP = Math.max(...effectiveResults.map(r => r.p));
+                    const range = maxP - minP;
+                    
+                    if (range > bestRange) {
+                      bestRange = range;
+                      bestExp = exp;
+                    }
+                  }
+                });
+                
+                return bestExp ? `${bestExp.metadata?.name} (${bestRange.toFixed(2)})` : 'N/A';
+              })()}
+            </p>
+          </div>
+        </div>
+        
+        {/* Observations */}
+        <div className="mt-3 pt-3 border-t border-blue-200">
+          <p className="text-xs text-blue-700">
+            📊 <strong>Quick Analysis:</strong>
+          </p>
+          <ul className="mt-1 text-xs text-blue-600 list-disc list-inside">
+            {rangeExperiments.every(exp => {
+              const p50 = exp.results.find(r => Math.abs(r.p - 0.5) < 0.01);
+              return p50 && p50.discrepancy < 0.1;
+            }) && (
+              <li>All algorithms perform well around p=0.5 (crossover region)</li>
+            )}
+            
+            {rangeExperiments.some(exp => {
+              const lowP = exp.results.filter(r => r.p < 0.3);
+              const highP = exp.results.filter(r => r.p > 0.7);
+              const lowAvg = lowP.reduce((s, r) => s + r.discrepancy, 0) / lowP.length;
+              const highAvg = highP.reduce((s, r) => s + r.discrepancy, 0) / highP.length;
+              return Math.abs(lowAvg - highAvg) > 0.2;
+            }) && (
+              <li>Significant performance differences between low and high probability ranges</li>
+            )}
+            
+            {rangeExperiments.filter(exp => exp.parameters?.algorithm === 'RECURSIVE AMP').length > 0 && (
+              <li>Recursive AMP shows gradual convergence characteristics</li>
+            )}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }
