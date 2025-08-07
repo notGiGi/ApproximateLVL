@@ -3690,15 +3690,38 @@ function decodeConfigCode(code) {
 
 
 const handleLoadConfig = () => {
-  const cfg = decodeConfigCode(configCode);
-  if (!cfg) return alert("Bad code");
-  setProcessValues(cfg.initialValues);
-  setProbability(cfg.p);
-  setRangeExperiments(re => ({ ...re, minP: cfg.minP, maxP: cfg.maxP }));
-  setForcedAlgorithm(cfg.algorithm);
-  setMeetingPoint(cfg.meetingPoint);
-  setRounds(cfg.rounds);
-  setRepetitions(cfg.repetitions);
+  const config = decodeConfigCode(configCode);
+  if (!config) {
+    addLog("Invalid configuration code", "error");
+    return;
+  }
+  
+  // Cargar configuración básica
+  setProcessValues(config.initialValues || [0, 1]);
+  setProbability(config.p || 0.5);
+  setRangeExperiments({
+    minP: config.minP || 0,
+    maxP: config.maxP || 1,
+    steps: 100,
+    customSteps: false,
+    customStepValue: 100
+  });
+  setForcedAlgorithm(config.algorithm || "auto");
+  setMeetingPoint(config.meetingPoint || 0.5);
+  setRounds(config.rounds || 1);
+  setRepetitions(config.repetitions || 1);
+  
+  // NUEVO: Cargar parámetros de RECURSIVE_AMP si existen
+  if (config.convergenceFactor !== undefined) {
+    setConvergenceFactor(config.convergenceFactor);
+  }
+  if (config.convergenceThreshold !== undefined) {
+    setConvergenceThreshold(config.convergenceThreshold);
+  }
+  
+  addLog("Configuration loaded successfully", "success");
+  setCopyMessage("Configuration loaded!");
+  setTimeout(() => setCopyMessage(""), 2000);
 };
 
 const handleGenerateConfig = () => {
@@ -3736,8 +3759,14 @@ function base64ToBase64Url(str) {
 
 // toma tu objeto de configuración y devuelve el código Base64URL
 function encodeConfigCode(cfg) {
-  const json    = JSON.stringify(cfg);
-  const b64     = btoa(json);
+  // Incluir parámetros del algoritmo recursivo
+  const fullConfig = {
+    ...cfg,
+    convergenceFactor: convergenceFactor,
+    convergenceThreshold: convergenceThreshold
+  };
+  const json = JSON.stringify(fullConfig);
+  const b64 = btoa(json);
   return base64ToBase64Url(b64);
 }
 
@@ -4965,14 +4994,34 @@ function runRangeExperiments() {
                   <div className="flex items-center space-x-2">
                     <label className="text-sm">Meeting Point:</label>
                     <input 
-                      type="number" 
-                      min="0" 
-                      max="1" 
-                      step="0.01" 
-                      value={meetingPoint} 
-                      onChange={(e) => setMeetingPoint(Number(e.target.value))} 
-                      className="w-20 p-1 border border-gray-300 rounded-md" 
+                      type="text"
+                      value={meetingPoint}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        
+                        // Solo permitir dígitos, punto y máximo 2 decimales
+                        if (/^\d*\.?\d{0,2}$/.test(val) || val === '') {
+                          const num = parseFloat(val);
+                          if (val === '' || val === '.' || val.endsWith('.')) {
+                            setMeetingPoint(val);
+                          } else if (!isNaN(num) && num >= 0 && num <= 1) {
+                            setMeetingPoint(val);
+                          }
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const num = parseFloat(e.target.value);
+                        if (isNaN(num) || num < 0) {
+                          setMeetingPoint(0);
+                        } else if (num > 1) {
+                          setMeetingPoint(1);
+                        } else {
+                          setMeetingPoint(num);
+                        }
+                      }}
+                      className="w-20 p-1 border border-gray-300 rounded-md"
                       disabled={isRunning}
+                      placeholder="0.5"
                     />
                   </div>
                 )}
@@ -4986,20 +5035,35 @@ function runRangeExperiments() {
                       <label className="block text-xs mb-1">Convergence Factor (α):</label>
                       <div className="flex items-center space-x-2">
                         <input
-                          type="number"
-                          min="0.1"
-                          max="1"
-                          step="0.01"
-                          value={convergenceFactor}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value);
-                            if (!isNaN(val) && val >= 0.1 && val <= 1) {
+                        type="text"
+                        value={convergenceFactor}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          
+                          // Solo permitir dígitos, punto y máximo 2 decimales
+                          if (/^\d*\.?\d{0,2}$/.test(val) || val === '') {
+                            const num = parseFloat(val);
+                            if (val === '' || val === '.' || val.endsWith('.')) {
+                              setConvergenceFactor(val);
+                            } else if (!isNaN(num) && num >= 0.1 && num <= 1) {
                               setConvergenceFactor(val);
                             }
-                          }}
-                          className="w-24 p-1 text-sm border border-gray-300 rounded-md"
-                          disabled={isRunning}
-                        />
+                          }
+                        }}
+                        onBlur={(e) => {
+                          const num = parseFloat(e.target.value);
+                          if (isNaN(num) || num < 0.1) {
+                            setConvergenceFactor(0.1);
+                          } else if (num > 1) {
+                            setConvergenceFactor(1);
+                          } else {
+                            setConvergenceFactor(num);
+                          }
+                        }}
+                        className="w-24 p-1 text-sm border border-gray-300 rounded-md"
+                        disabled={isRunning}
+                        placeholder="0.5"
+                      />
                         <span className="text-xs text-gray-500">Range: 0.1 - 1.0</span>
                       </div>
                       <p className="text-xs text-gray-500 mt-1">
@@ -5011,20 +5075,35 @@ function runRangeExperiments() {
                       <label className="block text-xs mb-1">Convergence Threshold (ε):</label>
                       <div className="flex items-center space-x-2">
                         <input
-                          type="number"
-                          min="0.0001"
-                          max="0.01"
-                          step="0.0001"
-                          value={convergenceThreshold}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value);
-                            if (!isNaN(val) && val >= 0.0001 && val <= 0.01) {
+                        type="text"
+                        value={convergenceThreshold}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          
+                          // Solo permitir dígitos, punto y máximo 4 decimales para el threshold
+                          if (/^\d*\.?\d{0,4}$/.test(val) || val === '') {
+                            const num = parseFloat(val);
+                            if (val === '' || val === '.' || val.endsWith('.')) {
+                              setConvergenceThreshold(val);
+                            } else if (!isNaN(num) && num >= 0.0001 && num <= 0.01) {
                               setConvergenceThreshold(val);
                             }
-                          }}
-                          className="w-24 p-1 text-sm border border-gray-300 rounded-md"
-                          disabled={isRunning}
-                        />
+                          }
+                        }}
+                        onBlur={(e) => {
+                          const num = parseFloat(e.target.value);
+                          if (isNaN(num) || num < 0.0001) {
+                            setConvergenceThreshold(0.0001);
+                          } else if (num > 0.01) {
+                            setConvergenceThreshold(0.01);
+                          } else {
+                            setConvergenceThreshold(num);
+                          }
+                        }}
+                        className="w-24 p-1 text-sm border border-gray-300 rounded-md"
+                        disabled={isRunning}
+                        placeholder="0.001"
+                      />
                         <span className="text-xs text-gray-500">Range: 0.0001 - 0.01</span>
                       </div>
                       <p className="text-xs text-gray-500 mt-1">
