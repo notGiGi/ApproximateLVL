@@ -3571,8 +3571,7 @@ function CompleteDistributedComputingSimulator() {
   const [maxValue, setMaxValue] = useState(1); // Para valores no binarios
 
   const [configCode, setConfigCode] = useState("");
-  const [convergenceFactor, setConvergenceFactor] = useState(0.5);
-  const [convergenceThreshold, setConvergenceThreshold] = useState(0.001);
+
 
   // Función helper para validar valores
   const validateProcessValue = (value, mode) => {
@@ -3696,7 +3695,6 @@ const handleLoadConfig = () => {
     return;
   }
   
-  // Cargar configuración básica
   setProcessValues(config.initialValues || [0, 1]);
   setProbability(config.p || 0.5);
   setRangeExperiments({
@@ -3711,13 +3709,6 @@ const handleLoadConfig = () => {
   setRounds(config.rounds || 1);
   setRepetitions(config.repetitions || 1);
   
-  // NUEVO: Cargar parámetros de RECURSIVE_AMP si existen
-  if (config.convergenceFactor !== undefined) {
-    setConvergenceFactor(config.convergenceFactor);
-  }
-  if (config.convergenceThreshold !== undefined) {
-    setConvergenceThreshold(config.convergenceThreshold);
-  }
   
   addLog("Configuration loaded successfully", "success");
   setCopyMessage("Configuration loaded!");
@@ -3757,13 +3748,18 @@ function base64ToBase64Url(str) {
     .replace(/=+$/, '');
 }
 
-// toma tu objeto de configuración y devuelve el código Base64URL
 function encodeConfigCode(cfg) {
-  // Incluir parámetros del algoritmo recursivo
+  // SIN parámetros del algoritmo recursivo
   const fullConfig = {
-    ...cfg,
-    convergenceFactor: convergenceFactor,
-    convergenceThreshold: convergenceThreshold
+    processCount: processValues.length,
+    initialValues: processValues,
+    p: probability,
+    minP: rangeExperiments.minP,
+    maxP: rangeExperiments.maxP,
+    algorithm: forcedAlgorithm,
+    meetingPoint: meetingPoint,
+    rounds: rounds,
+    repetitions: repetitions
   };
   const json = JSON.stringify(fullConfig);
   const b64 = btoa(json);
@@ -3791,38 +3787,30 @@ function decodeConfigCode(code) {
 
 
 function showDetailsForProbability(p) {
-  // Redondear p a 3 decimales para coincidencia exacta
   p = Math.round(p * 1000) / 1000;
   
-  // Manejar caso especial de p=0
   if (p === 0) {
-    addLog("Note: With p=0, no messages are delivered. All processes maintain their initial values.", "warning");
+    addLog("Note: With p=0, no messages are delivered.", "warning");
   }
   
   const resultForP = experimentalResults.find(r => Math.abs(r.p - p) < 0.0001);
   
   if (resultForP) {
-    // Si ya tenemos runs guardados para esta p, mostrarlos
     if (experimentRuns[p] && experimentRuns[p].length > 0) {
       setSelectedProbabilityForDetails(p);
       setSelectedRepetition(0);
       addLog(`Showing ${experimentRuns[p].length} repetitions for p=${p.toFixed(3)}`, "info");
     } else {
-      // Si no hay runs guardados (no debería pasar después de una simulación)
-      // Generar al menos una para mostrar algo
       const initialValues = getInitialValues();
-      const options = resultForP.algorithm === "RECURSIVE AMP" ? {
-        convergenceFactor,
-        convergenceThreshold
-      } : {};
       
+
       const history = SimulationEngine.runNProcessExperiment(
         initialValues,
         p,
         rounds,
         resultForP.algorithm,
-        meetingPoint,
-        options
+        meetingPoint
+
       );
       
       setExperimentRuns(prev => ({
@@ -3844,18 +3832,14 @@ function runSingleExperimentForDetails(p) {
     ? (p > 0.5 ? "AMP" : "FV") 
     : forcedAlgorithm;
   
-  const options = actualAlgorithm === "RECURSIVE AMP" ? {
-    convergenceFactor,
-    convergenceThreshold
-  } : {};
   
   const history = SimulationEngine.runNProcessExperiment(
     initialValues,
     p,
     rounds,
     actualAlgorithm,
-    meetingPoint,
-    options
+    meetingPoint
+
   );
   
   setLastRunData(history);
@@ -3994,6 +3978,7 @@ function ExperimentDetailViewer({
         </button>
       </div>
       
+
       {/* Estadísticas de entrega */}
       {showDeliveryStats && (
         <div className="bg-green-50 p-4 rounded-lg border border-green-200">
@@ -4036,7 +4021,7 @@ function ExperimentDetailViewer({
           </div>
         </div>
       )}
-      
+
       {/* Vista por rondas */}
       <div className="space-y-2">
         {experimentHistory.map((round, index) => (
@@ -4120,21 +4105,32 @@ function ExperimentDetailViewer({
                   </div>
                 </div>
                 
-                {/* Mostrar conjuntos conocidos para algoritmo MIN */}
+                {/* NUEVO: Known Values Sets para TODOS los algoritmos */}
                 {round.knownValuesSets && (
-                  <div className="mt-4">
-                    <h5 className="font-medium mb-2 text-sm">Known Value Sets (MIN Algorithm):</h5>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                      {processNames.map((name, idx) => (
-                        <div key={idx} className="bg-yellow-50 p-2 rounded border border-yellow-200 text-sm">
-                          <span className="font-medium text-gray-700">{name}:</span>
-                          <span className="ml-2 font-mono text-gray-900">
-                            {"{" + (round.knownValuesSets[idx] || []).map(v => 
-                              typeof v === 'number' ? v.toFixed(2) : v
-                            ).join(", ") + "}"}
-                          </span>
-                        </div>
-                      ))}
+                  <div className="mb-4">
+                    <h5 className="font-medium mb-2 text-sm">
+                      Known Values Sets {algorithm === "MIN" ? "(MIN Algorithm)" : `(${algorithm})`}:
+                    </h5>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {processNames.map((name, idx) => {
+                        const knownSet = round.knownValuesSets[idx] || [];
+                        const bgColor = algorithm === "MIN" ? "bg-yellow-50 border-yellow-200" :
+                                      algorithm === "RECURSIVE AMP" ? "bg-purple-50 border-purple-200" :
+                                      algorithm === "AMP" ? "bg-green-50 border-green-200" :
+                                      algorithm === "FV" ? "bg-red-50 border-red-200" :
+                                      "bg-gray-50 border-gray-200";
+                        
+                        return (
+                          <div key={idx} className={`${bgColor} p-2 rounded border text-xs`}>
+                            <span className="font-semibold">{name}:</span>
+                            <span className="ml-1 font-mono">
+                              {"{" + knownSet.map(v => 
+                                typeof v === 'number' ? v.toFixed(3) : v
+                              ).join(", ") + "}"}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -4156,7 +4152,7 @@ function ExperimentDetailViewer({
                           selectedProcess={selectedProcess}
                           previousValues={experimentHistory[index - 1].values}
                           finalValues={round.values}
-                          algorithm={algorithm} // Añadir esta línea
+                          algorithm={algorithm}
                         />
                       );
                     })()}
@@ -4448,10 +4444,7 @@ function runRangeExperiments() {
     for (let i = 0; i < allProbabilities.length; i++) {
       if (cancelRef.current) break;
 
-      const options = results[i].algorithm === "RECURSIVE AMP" ? {
-        convergenceFactor,
-        convergenceThreshold
-      } : {};
+
       
       const history = SimulationEngine.runNProcessExperiment(
         initialProcessValues,
@@ -4459,7 +4452,7 @@ function runRangeExperiments() {
         actualRounds,
         results[i].algorithm,
         actualMeetingPoint,
-        options
+
       );
       
       // IMPORTANTE: Guardar CADA historia en allRunsData
@@ -5028,88 +5021,14 @@ function runRangeExperiments() {
                 
                 {/* Recursive AMP specific parameters */}
                 {forcedAlgorithm === "RECURSIVE AMP" && (
-                  <div className="mt-2 p-2 bg-blue-50 rounded-md space-y-2">
-                    <h5 className="text-xs font-semibold text-blue-800">Recursive AMP Parameters:</h5>
-                    
-                    <div>
-                      <label className="block text-xs mb-1">Convergence Factor (α):</label>
-                      <div className="flex items-center space-x-2">
-                        <input
-                        type="text"
-                        value={convergenceFactor}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          
-                          // Solo permitir dígitos, punto y máximo 2 decimales
-                          if (/^\d*\.?\d{0,2}$/.test(val) || val === '') {
-                            const num = parseFloat(val);
-                            if (val === '' || val === '.' || val.endsWith('.')) {
-                              setConvergenceFactor(val);
-                            } else if (!isNaN(num) && num >= 0.1 && num <= 1) {
-                              setConvergenceFactor(val);
-                            }
-                          }
-                        }}
-                        onBlur={(e) => {
-                          const num = parseFloat(e.target.value);
-                          if (isNaN(num) || num < 0.1) {
-                            setConvergenceFactor(0.1);
-                          } else if (num > 1) {
-                            setConvergenceFactor(1);
-                          } else {
-                            setConvergenceFactor(num);
-                          }
-                        }}
-                        className="w-24 p-1 text-sm border border-gray-300 rounded-md"
-                        disabled={isRunning}
-                        placeholder="0.5"
-                      />
-                        <span className="text-xs text-gray-500">Range: 0.1 - 1.0</span>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        How fast to move towards meeting point (0.1 = slow, 1.0 = immediate)
-                      </p>
-                    </div>
-                    
-                    <div>
-                      <label className="block text-xs mb-1">Convergence Threshold (ε):</label>
-                      <div className="flex items-center space-x-2">
-                        <input
-                        type="text"
-                        value={convergenceThreshold}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          
-                          // Solo permitir dígitos, punto y máximo 4 decimales para el threshold
-                          if (/^\d*\.?\d{0,4}$/.test(val) || val === '') {
-                            const num = parseFloat(val);
-                            if (val === '' || val === '.' || val.endsWith('.')) {
-                              setConvergenceThreshold(val);
-                            } else if (!isNaN(num) && num >= 0.0001 && num <= 0.01) {
-                              setConvergenceThreshold(val);
-                            }
-                          }
-                        }}
-                        onBlur={(e) => {
-                          const num = parseFloat(e.target.value);
-                          if (isNaN(num) || num < 0.0001) {
-                            setConvergenceThreshold(0.0001);
-                          } else if (num > 0.01) {
-                            setConvergenceThreshold(0.01);
-                          } else {
-                            setConvergenceThreshold(num);
-                          }
-                        }}
-                        className="w-24 p-1 text-sm border border-gray-300 rounded-md"
-                        disabled={isRunning}
-                        placeholder="0.001"
-                      />
-                        <span className="text-xs text-gray-500">Range: 0.0001 - 0.01</span>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Distance to meeting point considered as "arrived"
-                      </p>
-                    </div>
+                  <div className="mt-2 p-2 bg-purple-50 rounded">
+                    <p className="text-xs font-semibold text-purple-700 mb-1">Recursive AMP Info:</p>
+                    <p className="text-xs text-purple-600">
+                      New value = <strong>{meetingPoint}</strong> × range
+                    </p>
+                    <p className="text-xs text-purple-500 italic">
+                      (range = max - min of known values)
+                    </p>
                   </div>
                 )}
               </div>
@@ -5489,10 +5408,7 @@ function runRangeExperiments() {
                                       const resultForP = experimentalResults.find(r => Math.abs(r.p - p) < 0.0001);
                                       if (resultForP) {
                                         const initialValues = getInitialValues();
-                                        const options = resultForP.algorithm === "RECURSIVE AMP" ? {
-                                          convergenceFactor,
-                                          convergenceThreshold
-                                        } : {};
+
                                         
                                         const newRun = SimulationEngine.runNProcessExperiment(
                                           initialValues,
@@ -5500,7 +5416,7 @@ function runRangeExperiments() {
                                           rounds,
                                           resultForP.algorithm,
                                           meetingPoint,
-                                          options
+
                                         );
                                         setExperimentRuns(prev => ({
                                           ...prev,
