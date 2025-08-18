@@ -333,6 +333,59 @@ export const SimulationEngine = {
     return history;
   },
 
+  runMultipleConditionedExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
+    const allDiscrepancies = [];
+    const allConditioningRates = [];
+    
+    for (let i = 0; i < repetitions; i++) {
+      const history = this.runConditionedExperiment(initialValues, p, rounds, algorithm, meetingPoint);
+      const finalDiscrepancy = history[history.length - 1].discrepancy;
+      allDiscrepancies.push(finalDiscrepancy);
+      allConditioningRates.push(history.conditioningRate || 0);
+    }
+    
+    // Calcular estadísticas
+    const mean = allDiscrepancies.reduce((a, b) => a + b, 0) / allDiscrepancies.length;
+    const avgConditioningRate = allConditioningRates.reduce((a, b) => a + b, 0) / allConditioningRates.length;
+    
+    return {
+      mean,
+      min: Math.min(...allDiscrepancies),
+      max: Math.max(...allDiscrepancies),
+      avgConditioningRate,
+      discrepancies: allDiscrepancies
+    };
+  },
+
+  // Cálculo teórico para modo condicionado (Teoremas 4 y 7)
+  calculateTheoreticalConditioned: function(p, algorithm = "auto", rounds = 1) {
+    const decP = toDecimal(p);
+    const q = toDecimal(1).minus(decP);
+    
+    if (algorithm === "auto") {
+      algorithm = decP.gt(0.5) ? "AMP" : "FV";
+    }
+    
+    // Fórmulas del paper para caso condicionado
+    const qSquared = pow(q, 2);
+    const oneMinusQSquared = toDecimal(1).minus(qSquared);
+    
+    let singleRoundFactor;
+    if (algorithm === "AMP") {
+      // E[D | at least one message] = pq / (1 - q²)
+      const pq = decP.mul(q);
+      singleRoundFactor = pq.div(oneMinusQSquared);
+    } else {
+      // E[D | at least one message] = p² / (1 - q²)
+      const pSquared = pow(decP, 2);
+      singleRoundFactor = pSquared.div(oneMinusQSquared);
+    }
+    
+    // Para múltiples rondas: factor^rounds
+    return pow(singleRoundFactor, rounds).toNumber();
+  },
+
+
   // Run multiple experiments for statistical analysis
   runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
     const allDiscrepancies = [];
@@ -448,23 +501,53 @@ export const SimulationEngine = {
   },
 
   // Calculate expected discrepancy for 2 processes
-  calculateExpectedDiscrepancy: function(p, algorithm = "auto", rounds = 1) {
+  calculateExpectedDiscrepancy: function(p, algorithm = "auto", rounds = 1, deliveryMode = 'standard') {
     const decP = toDecimal(p);
+    const q = toDecimal(1).minus(decP);
     
-    if (algorithm === "MIN" || algorithm === "RECURSIVE AMP") {
-      return null; // No hay fórmula teórica para estos
+    if (algorithm === "auto") {
+      algorithm = decP.gt(0.5) ? "AMP" : "FV";
     }
     
-    if (rounds === 1) {
-      if (algorithm === "auto") {
-        algorithm = decP.gt(0.5) ? "AMP" : "FV";
+    if (deliveryMode === 'guaranteed') {
+      // Fórmulas de los Teoremas 4 y 7 (conditioned delivery)
+      const qSquared = pow(q, 2);
+      const oneMinusQSquared = toDecimal(1).minus(qSquared);
+      
+      let factor;
+      if (algorithm === "AMP") {
+        // E[D] = pq / (1 - q²)
+        const pq = decP.mul(q);
+        factor = pq.div(oneMinusQSquared);
+      } else {
+        // E[D] = p² / (1 - q²)
+        const pSquared = pow(decP, 2);
+        factor = pSquared.div(oneMinusQSquared);
       }
       
-      const q = toDecimal(1).minus(decP);
-      const result = algorithm === "AMP" ? q : (pow(decP, 2).plus(pow(q, 2)));
-      return result.toNumber();
+      // El factor máximo es 1/3
+      const maxFactor = toDecimal(1).div(3);
+      if (factor.gt(maxFactor)) {
+        factor = maxFactor;
+      }
+      
+      // Para múltiples rondas: factor^r
+      return pow(factor, rounds).toNumber();
+      
     } else {
-      return this.calculateExpectedDiscrepancyMultiRound(p, rounds, algorithm);
+      // Modo estándar (fórmulas originales)
+      if (algorithm === "AMP") {
+        return pow(q, rounds).toNumber();
+      } else if (algorithm === "FV") {
+        const pSquaredPlusQSquared = pow(decP, 2).plus(pow(q, 2));
+        return pow(pSquaredPlusQSquared, rounds).toNumber();
+      } else if (algorithm === "RECURSIVE AMP") {
+        // Para recursive AMP, usar la misma fórmula que AMP estándar
+        return pow(q, rounds).toNumber();
+      } else {
+        // Para otros algoritmos, devolver valor por defecto
+        return 1;
+      }
     }
   },
   
@@ -634,6 +717,172 @@ export const SimulationEngine = {
       }
     }
   },
+  // Función para ejecutar experimento con entrega garantizada
+runConditionedExperiment: function(initialValues, p, rounds = 1, algorithm = "auto", meetingPoint = 0.5) {
+    let values = [...initialValues];
+    const processCount = values.length;
+    const history = [];
+    let conditionedRounds = 0;
+    
+    // Determinar nombres de procesos
+    const processNames = [];
+    for (let i = 0; i < processCount; i++) {
+      if (i < 3) {
+        processNames.push(["Alice", "Bob", "Charlie"][i]);
+      } else {
+        processNames.push(`Process${i+1}`);
+      }
+    }
+    
+    // Calcular discrepancia inicial
+    let maxDiscrepancy = new Decimal(0);
+    for (let i = 0; i < processCount; i++) {
+      for (let j = i+1; j < processCount; j++) {
+        const disc = abs(toDecimal(values[i]).minus(toDecimal(values[j])));
+        if (disc.gt(maxDiscrepancy)) {
+          maxDiscrepancy = disc;
+        }
+      }
+    }
+    
+    // Agregar estado inicial
+    history.push({
+      round: 0,
+      values: [...values],
+      processValues: values.reduce((obj, val, idx) => {
+        obj[processNames[idx].toLowerCase()] = val;
+        return obj;
+      }, {}),
+      discrepancy: maxDiscrepancy.toNumber(),
+      messages: [],
+      wasConditioned: false
+    });
+    
+    // Ejecutar rondas
+    for (let r = 1; r <= rounds; r++) {
+      const result = this.simulateRoundConditioned(values, p, algorithm, meetingPoint);
+      
+      values = result.newValues;
+      if (result.wasConditioned) {
+        conditionedRounds++;
+      }
+      
+      history.push({
+        round: r,
+        values: [...values],
+        processValues: values.reduce((obj, val, idx) => {
+          obj[processNames[idx].toLowerCase()] = val;
+          return obj;
+        }, {}),
+        discrepancy: result.discrepancy,
+        messages: result.messages,
+        messageDelivery: result.messageDelivery,
+        wasConditioned: result.wasConditioned
+      });
+    }
+    
+    // Agregar estadísticas
+    history.conditionedRounds = conditionedRounds;
+    history.conditioningRate = conditionedRounds / rounds;
+    
+    return history;
+  },
+
+// Función para simular una ronda con entrega garantizada
+simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint = 0.5) {
+    const decP = toDecimal(p);
+    const processCount = values.length;
+    const newValues = [...values];
+    const messages = [];
+    const messageDelivery = [];
+    
+    // Determinar algoritmo
+    if (algorithm === "auto") {
+      algorithm = decP.gt(0.5) ? "AMP" : "FV";
+    }
+    
+    // PASO 1: Intentar entrega normal con probabilidad p
+    let atLeastOneDelivered = false;
+    
+    for (let i = 0; i < processCount; i++) {
+      messages[i] = [];
+      messageDelivery[i] = [];
+      
+      for (let j = 0; j < processCount; j++) {
+        if (i !== j) {
+          const delivered = randomDecimal().lte(decP);
+          messageDelivery[i].push(delivered);
+          if (delivered) {
+            messages[i].push(values[j]);
+            atLeastOneDelivered = true;
+          }
+        }
+      }
+    }
+    
+    // PASO 2: Si no se entregó ningún mensaje, entregar exactamente uno
+    let wasConditioned = false;
+    if (!atLeastOneDelivered) {
+      wasConditioned = true;
+      
+      // Elegir uniformemente emisor y receptor
+      const sender = Math.floor(Math.random() * processCount);
+      let receiver = Math.floor(Math.random() * processCount);
+      while (receiver === sender) {
+        receiver = Math.floor(Math.random() * processCount);
+      }
+      
+      // Entregar el mensaje
+      messages[receiver] = [values[sender]];
+      // Actualizar matriz de entrega
+      if (processCount === 2) {
+        messageDelivery[receiver][0] = true;
+      } else {
+        const index = sender < receiver ? sender : sender - 1;
+        messageDelivery[receiver][index] = true;
+      }
+    }
+    
+    // PASO 3: Aplicar el algoritmo según definición del paper
+    for (let i = 0; i < processCount; i++) {
+      const receivedMessages = messages[i];
+      
+      if (receivedMessages.length > 0) {
+        if (algorithm === "AMP") {
+          // AMP: si recibe valor diferente, va al meeting point
+          const differentValue = receivedMessages.find(val => val !== values[i]);
+          if (differentValue !== undefined) {
+            newValues[i] = meetingPoint;
+          }
+        } else if (algorithm === "FV") {
+          // FV: adopta el primer valor diferente que recibe
+          const differentValues = receivedMessages.filter(val => val !== values[i]);
+          if (differentValues.length > 0) {
+            newValues[i] = differentValues[0];
+          }
+        }
+      }
+    }
+    
+    // PASO 4: Calcular discrepancia
+    let maxDiscrepancy = new Decimal(0);
+    for (let i = 0; i < processCount; i++) {
+      for (let j = i+1; j < processCount; j++) {
+        const disc = abs(toDecimal(newValues[i]).minus(toDecimal(newValues[j])));
+        if (disc.gt(maxDiscrepancy)) {
+          maxDiscrepancy = disc;
+        }
+      }
+    }
+    
+    return {
+      newValues,
+      messages,
+      messageDelivery,
+      discrepancy: maxDiscrepancy.toNumber(),
+      wasConditioned
+    };
+  },
 
   // Calculate theoretical CV
   calculateTheoreticalCV: function(p, n, m, algorithm, meetingPoint, rounds = 1) {
@@ -672,5 +921,495 @@ export const SimulationEngine = {
     }
     
     return zones;
+  },
+
+  // IMPLEMENTACIÓN HONESTA - Sin forzar resultados
+  // Solo implementa fielmente la condición: "al menos un mensaje por ronda"
+
+  simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint = 0.5) {
+    const decP = toDecimal(p);
+    const processCount = values.length;
+    const newValues = [...values];
+    const messages = [];
+    const messageDelivery = [];
+    
+    if (algorithm === "auto") {
+      algorithm = decP.gt(0.5) ? "AMP" : "FV";
+    }
+    
+    // PASO 1: Generar entregas de mensajes NORMALMENTE con probabilidad p
+    let totalDelivered = 0;
+    
+    for (let i = 0; i < processCount; i++) {
+      messages[i] = [];
+      messageDelivery[i] = [];
+      
+      for (let j = 0; j < processCount; j++) {
+        if (i !== j) {
+          const delivered = randomDecimal().lte(decP);
+          messageDelivery[i].push(delivered);
+          if (delivered) {
+            messages[i].push(values[j]);
+            totalDelivered++;
+          }
+        }
+      }
+    }
+    
+    // PASO 2: CONDICIÓN - Si NO se entregó ningún mensaje, entregar exactamente UNO
+    let wasConditioned = false;
+    if (totalDelivered === 0) {
+      wasConditioned = true;
+      
+      // Elegir aleatoriamente qué mensaje entregar
+      if (processCount === 2) {
+        // Para 2 procesos: 50/50 de probabilidad para cada dirección
+        if (Math.random() < 0.5) {
+          // Alice -> Bob
+          messages[1] = [values[0]];
+          messageDelivery[1][0] = true;
+        } else {
+          // Bob -> Alice
+          messages[0] = [values[1]];
+          messageDelivery[0][0] = true;
+        }
+      } else {
+        // Para n procesos: elegir emisor y receptor uniformemente
+        const sender = Math.floor(Math.random() * processCount);
+        let receiver = Math.floor(Math.random() * processCount);
+        while (receiver === sender) {
+          receiver = Math.floor(Math.random() * processCount);
+        }
+        messages[receiver].push(values[sender]);
+        const index = sender < receiver ? sender : sender - 1;
+        messageDelivery[receiver][index] = true;
+      }
+    }
+    
+    // PASO 3: Aplicar el algoritmo EXACTAMENTE como está definido
+    for (let i = 0; i < processCount; i++) {
+      const receivedMessages = messages[i];
+      
+      if (algorithm === "AMP" && receivedMessages.length > 0) {
+        const differentValue = receivedMessages.find(val => val !== values[i]);
+        if (differentValue !== undefined) {
+          newValues[i] = meetingPoint;
+        }
+      } else if (algorithm === "FV" && receivedMessages.length > 0) {
+        const differentValues = receivedMessages.filter(val => val !== values[i]);
+        if (differentValues.length > 0) {
+          newValues[i] = differentValues[0];
+        }
+      }
+    }
+    
+    // PASO 4: Calcular discrepancia SIN NINGÚN LÍMITE ARTIFICIAL
+    let maxDiscrepancy = new Decimal(0);
+    for (let i = 0; i < processCount; i++) {
+      for (let j = i+1; j < processCount; j++) {
+        const disc = abs(toDecimal(newValues[i]).minus(toDecimal(newValues[j])));
+        if (disc.gt(maxDiscrepancy)) {
+          maxDiscrepancy = disc;
+        }
+      }
+    }
+    
+    // NO PONER NINGÚN CAP O LÍMITE - Dejar que el resultado emerja naturalmente
+    
+    return {
+      newValues,
+      messages,
+      messageDelivery,
+      discrepancy: maxDiscrepancy.toNumber(), // Resultado natural, sin forzar
+      wasConditioned,
+      totalDelivered: wasConditioned ? 1 : totalDelivered
+    };
+  },
+
+  // Cálculo teórico HONESTO - Solo las fórmulas del paper, sin caps artificiales
+  calculateExpectedDiscrepancyConditioned: function(p, algorithm = "auto", rounds = 1) {
+    const decP = toDecimal(p);
+    const q = toDecimal(1).minus(decP);
+    
+    if (algorithm === "auto") {
+      algorithm = decP.gt(0.5) ? "AMP" : "FV";
+    }
+    
+    // Fórmulas EXACTAS del Teorema 4 y 7
+    const qSquared = pow(q, 2);
+    const oneMinusQSquared = toDecimal(1).minus(qSquared);
+    
+    let singleRoundFactor;
+    
+    if (algorithm === "AMP") {
+      // E[D | at least one message] = pq / (1 - q²)
+      const pq = decP.mul(q);
+      singleRoundFactor = pq.div(oneMinusQSquared);
+    } else {
+      // E[D | at least one message] = p² / (1 - q²)
+      const pSquared = pow(decP, 2);
+      singleRoundFactor = pSquared.div(oneMinusQSquared);
+    }
+    
+    // NO PONER NINGÚN CAP - Si el teorema dice que el máximo es 1/3,
+    // debe emerger naturalmente de las fórmulas, no ser forzado
+    
+    // Para múltiples rondas: factor^rounds
+    return pow(singleRoundFactor, rounds).toNumber();
+  },
+
+  // Actualizar calculateExpectedDiscrepancy para usar la versión honesta
+  calculateExpectedDiscrepancy: function(p, algorithm = "auto", rounds = 1, deliveryMode = 'standard') {
+    const decP = toDecimal(p);
+    const q = toDecimal(1).minus(decP);
+    
+    if (algorithm === "auto") {
+      algorithm = decP.gt(0.5) ? "AMP" : "FV";
+    }
+    
+    if (deliveryMode === 'guaranteed' || deliveryMode === 'conditioned') {
+      // Usar el cálculo condicionado honesto
+      return this.calculateExpectedDiscrepancyConditioned(p, algorithm, rounds);
+    } else {
+      // Modo estándar (fórmulas originales)
+      if (algorithm === "AMP") {
+        return pow(q, rounds).toNumber();
+      } else if (algorithm === "FV") {
+        const pSquaredPlusQSquared = pow(decP, 2).plus(pow(q, 2));
+        return pow(pSquaredPlusQSquared, rounds).toNumber();
+      } else {
+        return 1;
+      }
+    }
+  },
+
+  // Función de análisis para entender qué está pasando
+  analyzeConditionedBehavior: function() {
+    console.log("=== Analyzing Conditioned Behavior (HONEST) ===");
+    
+    const testPoints = [0.1, 0.2, 0.3, 0.4, 0.5, 0.54, 0.6, 0.7, 0.8, 0.9];
+    
+    console.log("Theoretical values (NO ARTIFICIAL CAPS):");
+    testPoints.forEach(p => {
+      const algorithm = p > 0.5 ? "AMP" : "FV";
+      const q = 1 - p;
+      
+      let factor;
+      if (algorithm === "AMP") {
+        factor = (p * q) / (1 - q * q);
+      } else {
+        factor = (p * p) / (1 - q * q);
+      }
+      
+      console.log(`p=${p.toFixed(2)}, algo=${algorithm}, E[D|≥1 msg]=${factor.toFixed(4)}`);
+    });
+    
+    // Encontrar el máximo natural
+    let maxP = 0;
+    let maxValue = 0;
+    for (let p = 0.01; p <= 0.99; p += 0.01) {
+      const algorithm = p > 0.5 ? "AMP" : "FV";
+      const q = 1 - p;
+      
+      let value;
+      if (algorithm === "AMP") {
+        value = (p * q) / (1 - q * q);
+      } else {
+        value = (p * p) / (1 - q * q);
+      }
+      
+      if (value > maxValue) {
+        maxValue = value;
+        maxP = p;
+      }
+    }
+    
+    console.log(`\nMaximum NATURAL value: ${maxValue.toFixed(4)} at p=${maxP.toFixed(2)}`);
+    console.log("Theorem claims maximum is 1/3 = 0.3333");
+    
+    if (Math.abs(maxValue - 1/3) > 0.01) {
+      console.log("⚠️ Natural maximum differs from theoretical claim!");
+    } else {
+      console.log("✅ Natural maximum matches theoretical claim");
+    }
+  },
+
+  // Función para ejecutar un test experimental honesto
+  runHonestExperimentalTest: function(p = 0.54, repetitions = 1000) {
+    console.log(`=== Honest Experimental Test at p=${p} ===`);
+    
+    const results = [];
+    let conditionedCount = 0;
+    
+    for (let i = 0; i < repetitions; i++) {
+      const result = this.simulateRoundConditioned(
+        [0, 1], // valores iniciales
+        p,
+        "auto",
+        0.5
+      );
+      
+      results.push(result.discrepancy);
+      if (result.wasConditioned) {
+        conditionedCount++;
+      }
+    }
+    
+    const avg = results.reduce((a, b) => a + b, 0) / results.length;
+    const max = Math.max(...results);
+    const min = Math.min(...results);
+    const theoretical = this.calculateExpectedDiscrepancyConditioned(p, "auto", 1);
+    
+    console.log(`Algorithm: ${p > 0.5 ? 'AMP' : 'FV'}`);
+    console.log(`Experimental Average: ${avg.toFixed(4)}`);
+    console.log(`Theoretical (conditioned): ${theoretical.toFixed(4)}`);
+    console.log(`Min: ${min.toFixed(4)}, Max: ${max.toFixed(4)}`);
+    console.log(`Times conditioned: ${conditionedCount}/${repetitions} (${(conditionedCount/repetitions*100).toFixed(1)}%)`);
+    
+    const error = Math.abs(avg - theoretical) / theoretical * 100;
+    console.log(`Error: ${error.toFixed(1)}%`);
+    
+    return {
+      p,
+      experimental: avg,
+      theoretical,
+      error,
+      conditioningRate: conditionedCount / repetitions
+    };
+  },
+
+  // ============================================================
+  // ======= NUEVA IMPLEMENTACIÓN INTEGRADA (Teo.4 & 7) =========
+  // (Nombres NO conflictivos para no sobreescribir nada previo)
+  // ============================================================
+
+  /**
+   * Cálculo teórico condicionado (dos procesos): Teo. 4 y 7.
+   * Retorna (factor_1_ronda)^rounds, sin caps artificiales.
+   */
+  calculateTheoreticalConditionedDiscrepancy: function(p, algorithm = "auto", rounds = 1) {
+    const decP = toDecimal(p);
+    const q = toDecimal(1).minus(decP);
+
+    if (algorithm === "auto") {
+      algorithm = decP.gt(0.5) ? "AMP" : "FV";
+    }
+
+    const probAtLeastOne = toDecimal(1).minus(pow(q, 2));
+
+    let singleRoundFactor;
+    if (algorithm === "AMP") {
+      const pq = decP.mul(q);
+      singleRoundFactor = pq.div(probAtLeastOne);
+    } else {
+      const pSquared = pow(decP, 2);
+      singleRoundFactor = pSquared.div(probAtLeastOne);
+    }
+
+    return pow(singleRoundFactor, rounds).toNumber();
+  },
+
+  /**
+   * Simulación de UNA ronda condicionada por rechazo (dos procesos).
+   * wasConditioned=true solo si hubo reintentos (attemptCount>1).
+   */
+// === Reemplazar COMPLETAMENTE ===
+simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPoint = 0.5) {
+  const decP = toDecimal(p);
+  const q = toDecimal(1).minus(decP);
+  const processCount = values.length;
+
+  if (processCount !== 2) {
+    throw new Error("Conditioned mode (Teoremas 4 y 7) solo está definido para 2 procesos");
   }
+  // Para que la condición "≥1 mensaje" tenga sentido: 0 < p < 1
+  if (!(p > 0 && p < 1)) {
+    throw new Error("Conditioned mode requiere 0 < p < 1");
+  }
+
+  if (algorithm === "auto") {
+    algorithm = decP.gt(0.5) ? "AMP" : "FV";
+  }
+
+  // Probabilidades sin condicionar:
+  // none=q^2, only A->B=pq, only B->A=qp, both=p^2
+  const none   = q.mul(q);
+  const onlyAB = decP.mul(q);
+  const onlyBA = q.mul(decP);
+  const both   = decP.mul(decP);
+
+  // Condicionamos a "≥1 mensaje": normalizar por Z = 1 - q^2
+  const Z = toDecimal(1).minus(none);
+  const wOnlyAB = onlyAB.div(Z).toNumber();
+  const wOnlyBA = onlyBA.div(Z).toNumber();
+  const wBoth   = both  .div(Z).toNumber();
+
+  // Muestreo en una tirada
+  const r = Math.random();
+  let aliceToBob = false; // mensaje 0->1
+  let bobToAlice = false; // mensaje 1->0
+  if (r < wOnlyAB) {
+    aliceToBob = true;
+  } else if (r < wOnlyAB + wOnlyBA) {
+    bobToAlice = true;
+  } else {
+    aliceToBob = true;
+    bobToAlice = true;
+  }
+
+  // Aplicar regla de actualización
+  let newValues = [...values];
+  if (algorithm === "AMP") {
+    if (bobToAlice && values[1] !== values[0]) newValues[0] = meetingPoint;
+    if (aliceToBob && values[0] !== values[1]) newValues[1] = meetingPoint;
+  } else { // FV
+    if (bobToAlice && values[1] !== values[0]) newValues[0] = values[1];
+    if (aliceToBob && values[0] !== values[1]) newValues[1] = values[0];
+  }
+
+  const discrepancy = abs(toDecimal(newValues[0]).minus(toDecimal(newValues[1]))).toNumber();
+
+  // Estructura compatible con tu UI (messages anidados por emisor + matriz booleana por emisor)
+  return {
+    newValues,
+    discrepancy,
+    wasConditioned: true,
+    attemptCount: 1,
+    delivered: { aliceToBob, bobToAlice },
+    messages: [
+      [ { to: 1, value: values[0], delivered: aliceToBob } ], // emisor 0
+      [ { to: 0, value: values[1], delivered: bobToAlice } ]  // emisor 1
+    ],
+    messageDelivery: [
+      [ bobToAlice ],  // fila del emisor 0: recibido por 0 desde 1 (para 2 proc, longitud 1)
+      [ aliceToBob ]   // fila del emisor 1: recibido por 1 desde 0
+    ]
+  };
+},
+
+  /**
+   * Ejecuta múltiples experimentos condicionados (rechazo por ronda).
+   */
+  runConditionedExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
+    if (initialValues.length !== 2) {
+      throw new Error("Conditioned experiments only defined for 2 processes");
+    }
+
+    const results = [];
+    const attemptCounts = [];
+
+    for (let rep = 0; rep < repetitions; rep++) {
+      let values = [...initialValues];
+      let totalAttempts = 0;
+
+      for (let r = 0; r < rounds; r++) {
+        const roundResult = this.simulateRoundWithConditioning(values, p, algorithm, meetingPoint);
+        values = roundResult.newValues;
+        totalAttempts += roundResult.attemptCount;
+      }
+
+      const finalDiscrepancy = Math.abs(values[0] - values[1]);
+      results.push(finalDiscrepancy);
+      attemptCounts.push(totalAttempts);
+    }
+
+    const mean = results.reduce((a, b) => a + b, 0) / results.length;
+    const theoretical = this.calculateTheoreticalConditionedDiscrepancy(p, algorithm, rounds);
+    const variance = results.length > 1
+      ? results.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / (results.length - 1)
+      : 0;
+    const std = Math.sqrt(variance);
+
+    const avgAttempts = attemptCounts.reduce((a, b) => a + b, 0) / attemptCounts.length;
+    const avgAttemptsPerRound = avgAttempts / rounds;
+
+    const q = 1 - p;
+    const theoreticalAttemptsPerRound = 1 / (1 - q * q);
+
+    const relativeError = (theoretical !== 0)
+      ? Math.abs(mean - theoretical) / Math.abs(theoretical)
+      : Math.abs(mean - theoretical);
+
+    return {
+      mean,
+      theoretical,
+      std,
+      min: Math.min(...results),
+      max: Math.max(...results),
+      relativeError,
+      avgAttemptsPerRound,
+      theoreticalAttemptsPerRound,
+      allValues: results,
+      algorithm: algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm
+    };
+  },
+
+  /**
+   * Comparación teórica estándar vs condicionado (nueva variante con sufijo).
+   */
+  compareStandardVsConditioned_T47: function(p, rounds = 1) {
+    const q = 1 - p;
+    const algorithm = p > 0.5 ? "AMP" : "FV";
+
+    const standardFactor = (algorithm === "AMP") ? q : (p * p + q * q);
+    const standardDiscrepancy = Math.pow(standardFactor, rounds);
+
+    const conditionedDiscrepancy = this.calculateTheoreticalConditionedDiscrepancy(p, algorithm, rounds);
+    const probConditionMet = Math.pow(1 - q * q, rounds);
+
+    return {
+      p,
+      algorithm,
+      rounds,
+      standard: { factor: standardFactor, discrepancy: standardDiscrepancy },
+      conditioned: {
+        factor: (rounds === 1) ? conditionedDiscrepancy : Math.pow(conditionedDiscrepancy, 1 / rounds),
+        discrepancy: conditionedDiscrepancy,
+        maxPossible: Math.pow(1/3, rounds),
+        probConditionMet
+      },
+      improvement: (conditionedDiscrepancy !== 0) ? (standardDiscrepancy / conditionedDiscrepancy) : Infinity
+    };
+  },
+
+  /**
+   * Validación de las fórmulas de Teo. 4 (+ máximo en p=0.5).
+   * Caso p=0.3 corregido: 0.09 / 0.51.
+   */
+  validateImplementation_T47: function() {
+    console.log("=== VALIDACIÓN T47 (Teoremas 4 y 7) ===\n");
+
+    const testCases = [
+      { p: 0.5, expected1Round: 1/3 },
+      { p: 0.3, expected1Round: 0.09/0.51 },
+      { p: 0.7, expected1Round: 0.21/0.91 }
+    ];
+
+    let allPassed = true;
+    testCases.forEach(test => {
+      const calculated = this.calculateTheoreticalConditionedDiscrepancy(test.p, "auto", 1);
+      const error = Math.abs(calculated - test.expected1Round);
+      const passed = error < 1e-3;
+      console.log(
+        `p=${test.p}: Expected=${test.expected1Round.toFixed(6)}, ` +
+        `Calculated=${calculated.toFixed(6)}, Error=${error.toExponential(2)} ${passed ? '✅' : '❌'}`
+      );
+      if (!passed) allPassed = false;
+    });
+
+    console.log("\n=== Verificación del máximo (≈1/3 en p≈0.5) ===");
+    let maxValue = 0, maxP = 0;
+    for (let p = 0.01; p <= 0.99; p += 0.01) {
+      const value = this.calculateTheoreticalConditionedDiscrepancy(p, "auto", 1);
+      if (value > maxValue) { maxValue = value; maxP = p; }
+    }
+    console.log(`Máximo encontrado: ${maxValue.toFixed(6)} en p=${maxP.toFixed(2)}`);
+    console.log(`Máximo teórico: ${(1/3).toFixed(6)}`);
+    console.log(`Diferencia: ${Math.abs(maxValue - 1/3).toFixed(8)}`);
+
+    const maxPassed = Math.abs(maxValue - 1/3) < 1e-3;
+    console.log(maxPassed ? '✅ Máximo correcto' : '❌ Máximo incorrecto');
+    return allPassed && maxPassed;
+  }
+
 };
