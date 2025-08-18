@@ -4406,7 +4406,7 @@ function runRangeExperiments() {
   // Validación para modo guaranteed (teoremas 4/7 sólo para 2 procesos)
   if (currentDeliveryMode === 'guaranteed' && nProc !== 2) {
     addLog(
-      "ERROR: Guaranteed/Conditioned (Theorems 4/7) sólo está definido para 2 procesos. Cambia a 2 procesos o usa Standard.",
+      "uaranteed/Conditioned (Theorems 4/7) just defined for 2 processes.",
       "error"
     );
     setIsRunning(false);
