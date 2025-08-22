@@ -4398,29 +4398,23 @@ function runRangeExperiments() {
   // Normalizar meetingPoint (evitar strings/ruido 0.5000000001)
   let mp = typeof meetingPoint === 'number' ? meetingPoint : parseFloat(meetingPoint);
   if (!Number.isFinite(mp)) mp = 0.5;
-  if (Math.abs(mp - 0.5) < 1e-12) mp = 0.5; // fijar 0.5 exacto si está "prácticamente" ahí
-  const actualMeetingPoint = mp;
+  if (Math.abs(mp - 0.5) < 1e-12) mp = 0.5;
+  const uiMeetingPoint = mp;
 
   const currentDeliveryMode = deliveryMode || 'standard';
 
-  // Validación para modo guaranteed (teoremas 4/7 sólo para 2 procesos)
-  if (currentDeliveryMode === 'guaranteed' && nProc !== 2) {
-    addLog(
-      "uaranteed/Conditioned (Theorems 4/7) just defined for 2 processes.",
-      "error"
-    );
-    setIsRunning(false);
-    return;
-  }
-
-  // Grid de p sin redondeos y con 0.5 exacto si cae en el rango
+  // --- Grid de p sin redondeos; asegurar 0.5 si cae en el rango ---
   const allProbabilities = [];
   const stepSize = (maxP - minP) / actualSteps;
   for (let i = 0; i <= actualSteps; i++) {
     const p = minP + i * stepSize;
-    if (currentDeliveryMode === 'guaranteed' && nProc === 2) {
-      if (p <= 0 || p >= 1) continue; // conditioning requiere 0 < p < 1
+
+    if (currentDeliveryMode === 'guaranteed') {
+      // En conditioned, P(≥1 mensaje)=0 cuando p<=0 → omitir esos puntos
+      if (p <= 0) continue;
+      // p=1 es válido (siempre hay entrega)
     }
+
     if (p >= 0 && p <= 1) allProbabilities.push(p);
   }
   if (minP < 0.5 && maxP > 0.5) {
@@ -4433,13 +4427,13 @@ function runRangeExperiments() {
       allProbabilities.splice(i, 1);
     }
   }
-  if (currentDeliveryMode === 'guaranteed' && nProc === 2 && allProbabilities.length === 0) {
-    addLog("ERROR: El rango de p sólo contiene 0 o 1. Para conditioned usa 0 < p < 1.", "error");
+  if (currentDeliveryMode === 'guaranteed' && allProbabilities.length === 0) {
+    addLog("ERROR: El rango de p no contiene valores > 0. Para conditioned usa 0 < p ≤ 1.", "error");
     setIsRunning(false);
     return;
   }
 
-  // Algoritmos seleccionados (se respetan)
+  // Algoritmos seleccionados (se respetan tal cual)
   const algorithmsToRun = [...selectedAlgorithms];
 
   // Preparar resultados y contenedores
@@ -4449,11 +4443,13 @@ function runRangeExperiments() {
   for (const p of allProbabilities) {
     for (const algoDisplay of algorithmsToRun) {
       const actualAlgo = algoDisplay === "auto" ? (p > 0.5 ? "AMP" : "FV") : algoDisplay;
-      const key = `${p.toFixed(6)}_${actualAlgo}`; // clave estable y coherente en toda la app
+      const key = `${p.toFixed(6)}_${actualAlgo}`;
 
-      const theoretical = (currentDeliveryMode === 'guaranteed' && nProc === 2)
-        ? SimulationEngine.calculateTheoreticalConditionedDiscrepancy(p, actualAlgo, actualRounds)
-        : SimulationEngine.calculateExpectedDiscrepancy(p, actualAlgo, actualRounds);
+      // Teoría: sólo usamos la condicionada cerrada cuando n=2
+      const theoretical =
+        currentDeliveryMode === 'guaranteed' && nProc === 2
+          ? SimulationEngine.calculateTheoreticalConditionedDiscrepancy(p, actualAlgo, actualRounds)
+          : SimulationEngine.calculateExpectedDiscrepancy(p, actualAlgo, actualRounds);
 
       results.push({
         p,
@@ -4532,33 +4528,45 @@ function runRangeExperiments() {
 
         let history;
 
-        if (currentDeliveryMode === 'guaranteed' && nProc === 2) {
-          // Simulación condicionada “honesta” por rondas (sin forzar mensajes)
+        if (currentDeliveryMode === 'guaranteed') {
+          // Simulación condicionada honesta (válida para todo n):
+          // n=2 & AMP → meetingPoint=0.5 (hipótesis del teorema); otros casos → UI meeting point
+          const mpUsed = (nProc === 2 && actualAlgo === "AMP") ? 0.5 : uiMeetingPoint;
+
           const v0 = [...initialProcessValues];
           const localHistory = [];
-          const initDisc = Math.abs(v0[0] - v0[1]);
+          let values = v0;
+
+          // Estado inicial
+          const initDisc = values.reduce((mx, vi, i) => {
+            for (let j = i + 1; j < values.length; j++) {
+              const d = Math.abs(vi - values[j]);
+              if (d > mx) mx = d;
+            }
+            return mx;
+          }, 0);
           localHistory.push({
             round: 0,
-            values: [...v0],
+            values: [...values],
             discrepancy: initDisc,
             messages: [],
             messageDelivery: []
           });
 
-          let values = v0;
           for (let r = 1; r <= actualRounds; r++) {
-            const rr = SimulationEngine.simulateRoundWithConditioning(
-              values, p, actualAlgo, actualMeetingPoint
-            );
+            const rr = SimulationEngine.simulateRoundWithConditioning(values, p, actualAlgo, mpUsed);
             values = rr.newValues;
+
+            // Si la ruta n=2 optimizada no trae matrices, dejamos arrays vacíos para el viewer
             localHistory.push({
               round: r,
               values: [...values],
               discrepancy: rr.discrepancy,
-              messages: rr.messages || [],
-              messageDelivery: rr.messageDelivery || []
+              messages: Array.isArray(rr.messages) ? rr.messages : [],
+              messageDelivery: Array.isArray(rr.messageDelivery) ? rr.messageDelivery : []
             });
           }
+
           history = localHistory;
         } else {
           // Modo estándar
@@ -4567,7 +4575,7 @@ function runRangeExperiments() {
             p,
             actualRounds,
             actualAlgo,
-            actualMeetingPoint
+            uiMeetingPoint
           );
         }
 
@@ -4581,7 +4589,7 @@ function runRangeExperiments() {
           results[resultIndex].discrepancies.reduce((s, x) => s + x, 0) /
           results[resultIndex].samples;
 
-        // Chequeo informativo contra teoría condicionada (sin cap)
+        // Comparación teórica sólo cuando tenemos fórmula cerrada (n=2)
         if (currentDeliveryMode === 'guaranteed' && nProc === 2 && p > 0 && p < 1) {
           const theo = SimulationEngine.calculateTheoreticalConditionedDiscrepancy(p, actualAlgo, actualRounds);
           const d = results[resultIndex].discrepancy;
@@ -5592,228 +5600,187 @@ function runRangeExperiments() {
                         </button>
                       </div>
 
-                 {experimentalResults && experimentalResults.length > 0 && (
-                  <div className="mt-6">
-                    <h3 className="text-xl font-semibold mb-4">Detailed Experiment Analysis</h3>
-                    
-                    {/* Selector de probabilidad, algoritmo y repetición */}
-                    <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {/* Selector de probabilidad */}
+                      // Reemplaza toda la sección de Detailed Experiment Analysis con esto:
+                      {experimentalResults && experimentalResults.length > 0 && (() => {
+                        // Helpers locales
+                        const resolveAlgo = (algoDisplay, pNum) =>
+                          algoDisplay === "auto" ? (pNum > 0.5 ? "AMP" : "FV") : algoDisplay;
 
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Select probability:
-                          </label>
-                          <select
-                            className="w-full p-2 border border-gray-300 rounded-md"
-                            value={selectedProbabilityForDetails || ''}
-                            onChange={(e) => {
-                              const p = parseFloat(e.target.value);
-                              if (!isNaN(p)) {
-                                // Si solo hay un algoritmo, usarlo directamente
-                                // Si hay múltiples, usar el que está seleccionado o el primero
-                                const algo = selectedAlgorithms.length === 1 ? 
-                                  selectedAlgorithms[0] : 
-                                  (selectedAlgorithmForDetails || selectedAlgorithms[0]);
-                                showDetailsForProbability(p, algo);
-                              }
-                            }}
-                          >
-                            <option value="">Select a probability...</option>
-                            {/* Obtener probabilidades únicas */}
-                            {[...new Set(experimentalResults.map(r => r.p))].sort((a, b) => a - b).map((p, idx) => (
-                              <option key={idx} value={p}>
-                                p = {p.toFixed(3)}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        
-                        {/* Selector de algoritmo - SOLO mostrar si hay múltiples Y tienen datos */}
-                        {selectedAlgorithms.length > 1 && selectedProbabilityForDetails !== null && (
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Select algorithm:
-                            </label>
-                            <select
-                              className="w-full p-2 border border-gray-300 rounded-md"
-                              value={selectedAlgorithmForDetails || selectedAlgorithms[0]}
-                              onChange={(e) => {
-                                setSelectedAlgorithmForDetails(e.target.value);
-                                showDetailsForProbability(selectedProbabilityForDetails, e.target.value);
-                              }}
-                            >
-                              {selectedAlgorithms.filter(algo => {
-                                // SOLO mostrar algoritmos que tienen datos para esta probabilidad
-                                const actualAlgo = algo === "auto" ? 
-                                  (selectedProbabilityForDetails > 0.5 ? "AMP" : "FV") : algo;
-                                const key = `${selectedProbabilityForDetails}_${algo}`;
-                                return experimentRuns[key] && experimentRuns[key].length > 0;
-                              }).map(algo => {
-                                const actualAlgo = algo === "auto" && selectedProbabilityForDetails ? 
-                                  (selectedProbabilityForDetails > 0.5 ? "AMP" : "FV") : algo;
-                                return (
-                                  <option key={algo} value={algo}>
-                                    {algo} {algo === "auto" ? `(${actualAlgo})` : ""}
-                                  </option>
-                                );
-                              })}
-                            </select>
-                          </div>
-                        )}
-                        
-                        {/* Selector de repetición - ACTUALIZADO para usar la clave combinada */}
-                        {selectedProbabilityForDetails !== null && selectedAlgorithmForDetails && (() => {
-                          const roundedP = Math.round(selectedProbabilityForDetails * 1000) / 1000;
-                          const actualAlgo = selectedAlgorithmForDetails === "auto" ? 
-                            (selectedProbabilityForDetails > 0.5 ? "AMP" : "FV") : selectedAlgorithmForDetails;
-                          const key = `${selectedProbabilityForDetails}_${selectedAlgorithmForDetails}`;
-                          const runs = experimentRuns[key];
-                          
-                          if (!runs || runs.length === 0) return null;
-                          
-                          return (
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Select repetition:
-                              </label>
-                              <div className="flex items-center gap-2">
-                                <select
-                                  className="flex-1 p-2 border border-gray-300 rounded-md"
-                                  value={selectedRepetition}
-                                  onChange={(e) => setSelectedRepetition(parseInt(e.target.value))}
-                                >
-                                  {runs.map((_, idx) => (
-                                    <option key={idx} value={idx}>
-                                      Repetition {idx + 1} of {runs.length}
-                                    </option>
-                                  ))}
-                                </select>
-                                {runs.length < repetitions && (
-                                  <button
-                                    onClick={() => {
-                                      const p = selectedProbabilityForDetails;
-                                      const initialValues = getInitialValues();
-                                      
-                                      const newRun = SimulationEngine.runNProcessExperiment(
-                                        initialValues,
-                                        p,
-                                        rounds,
-                                        actualAlgo,
-                                        meetingPoint
-                                      );
-                                      
-                                      setExperimentRuns(prev => ({
-                                        ...prev,
-                                        [key]: [...(prev[key] || []), newRun]
-                                      }));
-                                      setSelectedRepetition(runs.length);
+                        // IMPORTANTE: Cambiar formato de clave para coincidir con runRangeExperiments
+                        const keyFor = (pNum, algoDisplay) => {
+                          const actualAlgo = resolveAlgo(algoDisplay, pNum);
+                          return `${parseFloat(pNum).toFixed(6)}_${actualAlgo}`;
+                        };
+
+                        // Probabilidades únicas disponibles
+                        const uniquePs = Array.from(new Set(
+                          experimentalResults
+                            .map(r => r?.p)
+                            .filter(p => typeof p === "number" && Number.isFinite(p))
+                        )).sort((a, b) => a - b);
+
+                        // Algoritmos con datos para una p dada
+                        const availableAlgosForP = (pNum) => {
+                          if (pNum == null || !experimentRuns) return [];
+                          return selectedAlgorithms.filter(algoDisplay => {
+                            const k = keyFor(pNum, algoDisplay);
+                            return Array.isArray(experimentRuns?.[k]) && experimentRuns[k].length > 0;
+                          });
+                        };
+
+                        // Derivados actuales
+                        const currentP = selectedProbabilityForDetails ?? null;
+                        const currentAlgoDisplay = selectedAlgorithmForDetails ?? null;
+                        const currentKey = (currentP != null && currentAlgoDisplay)
+                          ? keyFor(currentP, currentAlgoDisplay)
+                          : null;
+                        const currentRuns = currentKey ? (experimentRuns?.[currentKey] || null) : null;
+                        const resolvedAlgoLabel = (currentAlgoDisplay && currentP != null)
+                          ? resolveAlgo(currentAlgoDisplay, currentP)
+                          : null;
+
+                        return (
+                          <div className="mt-6">
+                            <h3 className="text-xl font-semibold mb-4">Detailed Experiment Analysis</h3>
+
+                            {/* Selector de probabilidad, algoritmo y repetición */}
+                            <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {/* Select de probabilidad */}
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Select probability:
+                                  </label>
+                                  <select
+                                    className="w-full p-2 border border-gray-300 rounded-md"
+                                    value={currentP != null ? parseFloat(currentP).toFixed(6) : ""}
+                                    onChange={(e) => {
+                                      const pStr = e.target.value;
+                                      const pNum = parseFloat(pStr);
+                                      if (!Number.isNaN(pNum)) {
+                                        const avail = availableAlgosForP(pNum);
+                                        const firstAlgo = avail[0] || selectedAlgorithms[0] || "auto";
+                                        setSelectedProbabilityForDetails(pNum);
+                                        setSelectedAlgorithmForDetails(firstAlgo);
+                                        setSelectedRepetition(0);
+                                      }
                                     }}
-                                    className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                                    title="Generate another repetition"
                                   >
-                                    +
-                                  </button>
+                                    <option value="">Select a probability...</option>
+                                    {uniquePs.map((p, idx) => (
+                                      <option key={idx} value={parseFloat(p).toFixed(6)}>
+                                        p = {p.toFixed(3)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                {/* Selector de algoritmo */}
+                                {selectedAlgorithms.length > 1 && currentP != null && (
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                      Select algorithm:
+                                    </label>
+                                    <select
+                                      className="w-full p-2 border border-gray-300 rounded-md"
+                                      value={currentAlgoDisplay || ""}
+                                      onChange={(e) => {
+                                        const displayAlgo = e.target.value;
+                                        setSelectedAlgorithmForDetails(displayAlgo);
+                                        setSelectedRepetition(0);
+                                      }}
+                                    >
+                                      {availableAlgosForP(currentP).map(algoDisplay => {
+                                        const resolved = resolveAlgo(algoDisplay, currentP);
+                                        return (
+                                          <option key={algoDisplay} value={algoDisplay}>
+                                            {algoDisplay}{algoDisplay === "auto" ? ` (${resolved})` : ""}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                  </div>
+                                )}
+
+                                {/* Selector de repetición */}
+                                {currentP != null && currentAlgoDisplay && currentRuns && currentRuns.length > 0 && (
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                      Select repetition:
+                                    </label>
+                                    <select
+                                      className="flex-1 p-2 border border-gray-300 rounded-md"
+                                      value={selectedRepetition ?? 0}
+                                      onChange={(e) => setSelectedRepetition(parseInt(e.target.value, 10))}
+                                    >
+                                      {currentRuns.map((_, idx) => (
+                                        <option key={idx} value={idx}>
+                                          Repetition {idx + 1} of {currentRuns.length}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
                                 )}
                               </div>
-                              {runs.length === repetitions && (
-                                <p className="text-xs text-gray-600 mt-1">
-                                  Showing all {repetitions} repetitions
-                                </p>
+
+                              {/* Estadísticas */}
+                              {currentP != null && currentAlgoDisplay && currentRuns && currentRuns.length > 0 && (
+                                <div className="mt-4 p-3 bg-blue-50 rounded">
+                                  <h4 className="font-medium text-sm mb-2">
+                                    Statistics for {resolvedAlgoLabel} at p={currentP.toFixed(3)}:
+                                  </h4>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                                    <div>
+                                      <span className="text-gray-600">Current:</span>
+                                      <span className="ml-2 font-bold">
+                                        {currentRuns[selectedRepetition ?? 0]?.[currentRuns[selectedRepetition ?? 0].length - 1]?.discrepancy?.toFixed(4) ?? '—'}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-600">Average:</span>
+                                      <span className="ml-2 font-bold">
+                                        {(() => {
+                                          const finals = currentRuns.map(run => run?.[run.length - 1]?.discrepancy ?? 0);
+                                          const avg = finals.reduce((a, b) => a + b, 0) / (finals.length || 1);
+                                          return avg.toFixed(4);
+                                        })()}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-600">Min/Max:</span>
+                                      <span className="ml-2 font-bold">
+                                        {(() => {
+                                          const finals = currentRuns.map(run => run?.[run.length - 1]?.discrepancy ?? 0);
+                                          return `${Math.min(...finals).toFixed(4)} / ${Math.max(...finals).toFixed(4)}`;
+                                        })()}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-600">Repetitions:</span>
+                                      <span className="ml-2 font-bold">{currentRuns.length}</span>
+                                    </div>
+                                  </div>
+                                </div>
                               )}
                             </div>
-                          );
-                        })()}
-                      </div>
-                      
-                      {/* Estadísticas de repeticiones - ACTUALIZADO */}
-                      {selectedProbabilityForDetails && selectedAlgorithmForDetails && (() => {
-                        const actualAlgo = selectedAlgorithmForDetails === "auto" ? 
-                          (selectedProbabilityForDetails > 0.5 ? "AMP" : "FV") : selectedAlgorithmForDetails;
-                        const key = `${selectedProbabilityForDetails}_${selectedAlgorithmForDetails}`;
-                        const runs = experimentRuns[key];
-                        
-                        if (!runs || runs.length === 0) return null;
-                        
-                        return (
-                          <div className="mt-4 p-3 bg-blue-50 rounded">
-                            <h4 className="font-medium text-sm mb-2">
-                              Repetition Statistics for {actualAlgo} at p={selectedProbabilityForDetails.toFixed(3)}:
-                            </h4>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                              <div>
-                                <span className="text-gray-600">Current Rep. Final:</span>
-                                <span className="ml-2 font-bold">
-                                  {runs[selectedRepetition]?.slice(-1)[0]?.discrepancy.toFixed(4)}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-gray-600">Average Final:</span>
-                                <span className="ml-2 font-bold">
-                                  {(runs.map(run => run[run.length - 1]?.discrepancy || 0)
-                                    .reduce((a, b) => a + b, 0) / runs.length
-                                  ).toFixed(4)}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-gray-600">Min/Max Final:</span>
-                                <span className="ml-2 font-bold">
-                                  {Math.min(...runs.map(run => run[run.length - 1]?.discrepancy || 0)).toFixed(4)} / 
-                                  {Math.max(...runs.map(run => run[run.length - 1]?.discrepancy || 0)).toFixed(4)}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-gray-600">Total Repetitions:</span>
-                                <span className="ml-2 font-bold">
-                                  {runs.length}
-                                </span>
-                              </div>
-                            </div>
+
+                            {/* Visualizador */}
+                            {currentP != null && currentAlgoDisplay && currentRuns && currentRuns.length > 0 && currentRuns[selectedRepetition ?? 0] && (
+                              <ExperimentDetailViewer
+                                experimentHistory={currentRuns[selectedRepetition ?? 0]}
+                                algorithm={resolvedAlgoLabel}
+                                meetingPoint={meetingPoint}
+                                probability={currentP}
+                                repetitionIndex={selectedRepetition ?? 0}
+                                allRepetitions={currentRuns}
+                              />
+                            )}
                           </div>
                         );
                       })()}
-                    </div>
-                      
-                      {/* Visualizador de detalles - CORREGIDO */}
-                      {selectedProbabilityForDetails !== null && selectedAlgorithmForDetails && (() => {
-                        // Determinar el algoritmo real (si es auto, convertir a AMP/FV)
-                        const actualAlgo = selectedAlgorithmForDetails === "auto" ? 
-                          (selectedProbabilityForDetails > 0.5 ? "AMP" : "FV") : selectedAlgorithmForDetails;
-                        
-                        // Construir la clave correcta
-                        const key = `${selectedProbabilityForDetails}_${selectedAlgorithmForDetails}`;
-                        
-                        // Obtener los runs para esta combinación p_algoritmo
-                        const runs = experimentRuns[key];
-                        
-                        // Si no hay datos, no mostrar nada
-                        if (!runs || runs.length === 0 || !runs[selectedRepetition]) {
-                          return null;
-                        }
-                        
-                        return (
-                          <>
-                            {selectedProbabilityForDetails === 0 && (
-                              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                                <p className="text-sm text-yellow-800">
-                                  <strong>Note:</strong> With p=0, no messages are delivered. All processes maintain their initial values throughout all rounds.
-                                </p>
-                              </div>
-                            )}
-                            <ExperimentDetailViewer 
-                              experimentHistory={runs[selectedRepetition]}
-                              algorithm={actualAlgo}  // USAR actualAlgo, NO forcedAlgorithm
-                              meetingPoint={meetingPoint}
-                              probability={selectedProbabilityForDetails}
-                              repetitionIndex={selectedRepetition}
-                              allRepetitions={runs}  // Pasar los runs correctos
-                            />
-                          </>
-                        );
-                      })()}
-                    </div>
-                  )}
+
+
+
                 </div>
                 
                 <RangeResultsTable 

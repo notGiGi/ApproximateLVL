@@ -1209,83 +1209,176 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
     return pow(singleRoundFactor, rounds).toNumber();
   },
 
-  /**
-   * Simulación de UNA ronda condicionada por rechazo (dos procesos).
-   * wasConditioned=true solo si hubo reintentos (attemptCount>1).
-   */
-// === Reemplazar COMPLETAMENTE ===
-simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPoint = 0.5) {
+simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPoint = 0.5, minK = 1) {
+  const n = values.length;
   const decP = toDecimal(p);
-  const q = toDecimal(1).minus(decP);
-  const processCount = values.length;
 
-  if (processCount !== 2) {
-    throw new Error("Conditioned mode (Teoremas 4 y 7) solo está definido para 2 procesos");
-  }
-  // Para que la condición "≥1 mensaje" tenga sentido: 0 < p < 1
-  if (!(p > 0 && p < 1)) {
-    throw new Error("Conditioned mode requiere 0 < p < 1");
+  // Resolver algoritmo real
+  let algo = algorithm;
+  if (algo === "auto") {
+    algo = decP.gt(0.5) ? "AMP" : "FV";
   }
 
-  if (algorithm === "auto") {
-    algorithm = decP.gt(0.5) ? "AMP" : "FV";
+  // K mínimo de mensajes
+  const K = Math.max(1, Math.floor(minK));
+
+  // Meeting point DINÁMICO global (afín-invariante): m = min + a*(max-min)
+  const a = toDecimal(meetingPoint).toNumber();
+  const globalMin = Math.min(...values);
+  const globalMax = Math.max(...values);
+  const globalRange = globalMax - globalMin;
+  const meetingAbs = globalRange === 0 ? globalMin : (globalMin + a * globalRange);
+
+  // Helper: una ronda con Bernoulli independientes
+  const drawOnce = () => {
+    const messages = [];
+    const messageDelivery = [];
+    for (let i = 0; i < n; i++) {
+      const senderMsgs = [];
+      const row = [];
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const delivered = Math.random() <= p;
+        senderMsgs.push({ to: j, value: values[i], delivered });
+        row.push(delivered);
+      }
+      messages.push(senderMsgs);
+      messageDelivery.push(row);
+    }
+    return { messages, messageDelivery };
+  };
+
+  // Contar mensajes entregados en la ronda
+  const countDelivered = (msgs) => {
+    let c = 0;
+    for (const arr of msgs) for (const m of arr) if (m.delivered) c++;
+    return c;
+  };
+
+  // Aplicar la dinámica del algoritmo con los mensajes construidos
+  const applyDynamics = (msgs) => {
+    const EPS = 1e-12;
+    const newValues = [...values];
+
+    // Recibidos por receptor i
+    const receivedBy = Array.from({ length: n }, () => []);
+    for (let s = 0; s < n; s++) {
+      for (const msg of msgs[s]) {
+        if (msg.delivered) receivedBy[msg.to].push(msg.value);
+      }
+    }
+
+    for (let i = 0; i < n; i++) {
+      const rec = receivedBy[i];
+
+      if (algo === "MIN") {
+        // MIN: no cambia durante la ronda
+        newValues[i] = values[i];
+        continue;
+      }
+
+      if (algo === "RECURSIVE AMP") {
+        if (rec.length > 0) {
+          const kmin = Math.min(values[i], ...rec);
+          const kmax = Math.max(values[i], ...rec);
+          const krange = kmax - kmin;
+          newValues[i] = krange > EPS ? (kmin + a * krange) : values[i];
+        }
+        continue;
+      }
+
+      if (algo === "AMP") {
+        if (rec.some(v => Math.abs(v - values[i]) > EPS)) {
+          newValues[i] = meetingAbs;
+        }
+        continue;
+      }
+
+      if (algo === "FV") {
+        const diff = rec.find(v => Math.abs(v - values[i]) > EPS);
+        if (diff !== undefined) newValues[i] = diff;
+        continue;
+      }
+    }
+
+    // Discrepancia máx
+    let maxDisc = new Decimal(0);
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const d = abs(toDecimal(newValues[i]).minus(toDecimal(newValues[j])));
+        if (d.gt(maxDisc)) maxDisc = d;
+      }
+    }
+
+    // Conocidos por ronda (para visor)
+    const knownRound = [];
+    for (let i = 0; i < n; i++) {
+      const set = new Set([values[i]]);
+      for (const arr of msgs) for (const m of arr) {
+        if (m.delivered && m.to === i) set.add(m.value);
+      }
+      knownRound.push(Array.from(set).sort((x, y) => x - y));
+    }
+
+    return { newValues, discrepancy: maxDisc.toNumber(), knownRound };
+  };
+
+  // Probabilidad aproximada de X≥K para X~Bin(M,p) para fijar intentos máximos
+  const approxPgeK = (M, prob, K) => {
+    const mu = M * prob;
+    const v  = M * prob * (1 - prob);
+    if (v < 1e-12) return (mu + 1e-12) >= K ? 1 : 0;
+    // Normal con corrección de continuidad
+    const sigma = Math.sqrt(v);
+    const z = (K - 0.5 - mu) / sigma;
+    const t = 1 / (1 + 0.2316419 * Math.abs(z));
+    const d = Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
+    let Phi = 1 - d * (0.319381530*t - 0.356563782*t*t + 1.781477937*t*t*t - 1.821255978*t*t*t*t + 1.330274429*t*t*t*t*t);
+    if (z < 0) Phi = 1 - Phi;
+    return Math.max(0, Math.min(1, 1 - Phi));
+  };
+
+  // Intentos máximos prudentes (evita cuelgues; no “fuerza” resultados)
+  const M = n * (n - 1);
+  const PgeK = approxPgeK(M, p, K);
+  const MAX_ATTEMPTS = Math.min(5000, Math.max(50, Math.ceil(6 / Math.max(PgeK, 1e-6))));
+
+  // Rechazo honesto: repetir la ronda hasta que X>=K
+  let lastMsgs = null, lastDelivery = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const { messages, messageDelivery } = drawOnce();
+    lastMsgs = messages;
+    lastDelivery = messageDelivery;
+    if (countDelivered(messages) >= K) {
+      const dyn = applyDynamics(messages);
+      return {
+        newValues: dyn.newValues,
+        messages,
+        messageDelivery,
+        discrepancy: dyn.discrepancy,
+        knownValuesSets: dyn.knownRound,
+        wasConditioned: true,
+        attemptCount: attempt,
+        conditioningK: K
+      };
+    }
   }
 
-  // Probabilidades sin condicionar:
-  // none=q^2, only A->B=pq, only B->A=qp, both=p^2
-  const none   = q.mul(q);
-  const onlyAB = decP.mul(q);
-  const onlyBA = q.mul(decP);
-  const both   = decP.mul(decP);
-
-  // Condicionamos a "≥1 mensaje": normalizar por Z = 1 - q^2
-  const Z = toDecimal(1).minus(none);
-  const wOnlyAB = onlyAB.div(Z).toNumber();
-  const wOnlyBA = onlyBA.div(Z).toNumber();
-  const wBoth   = both  .div(Z).toNumber();
-
-  // Muestreo en una tirada
-  const r = Math.random();
-  let aliceToBob = false; // mensaje 0->1
-  let bobToAlice = false; // mensaje 1->0
-  if (r < wOnlyAB) {
-    aliceToBob = true;
-  } else if (r < wOnlyAB + wOnlyBA) {
-    bobToAlice = true;
-  } else {
-    aliceToBob = true;
-    bobToAlice = true;
-  }
-
-  // Aplicar regla de actualización
-  let newValues = [...values];
-  if (algorithm === "AMP") {
-    if (bobToAlice && values[1] !== values[0]) newValues[0] = meetingPoint;
-    if (aliceToBob && values[0] !== values[1]) newValues[1] = meetingPoint;
-  } else { // FV
-    if (bobToAlice && values[1] !== values[0]) newValues[0] = values[1];
-    if (aliceToBob && values[0] !== values[1]) newValues[1] = values[0];
-  }
-
-  const discrepancy = abs(toDecimal(newValues[0]).minus(toDecimal(newValues[1]))).toNumber();
-
-  // Estructura compatible con tu UI (messages anidados por emisor + matriz booleana por emisor)
+  // Si no se logró en el tope de intentos, devolvemos la última ronda (sin “forzar”),
+  // marcando que NO se pudo cumplir el condicionamiento (no truqueamos el resultado).
+  const dyn = applyDynamics(lastMsgs || []);
   return {
-    newValues,
-    discrepancy,
-    wasConditioned: true,
-    attemptCount: 1,
-    delivered: { aliceToBob, bobToAlice },
-    messages: [
-      [ { to: 1, value: values[0], delivered: aliceToBob } ], // emisor 0
-      [ { to: 0, value: values[1], delivered: bobToAlice } ]  // emisor 1
-    ],
-    messageDelivery: [
-      [ bobToAlice ],  // fila del emisor 0: recibido por 0 desde 1 (para 2 proc, longitud 1)
-      [ aliceToBob ]   // fila del emisor 1: recibido por 1 desde 0
-    ]
+    newValues: dyn.newValues,
+    messages: lastMsgs || [],
+    messageDelivery: lastDelivery || [],
+    discrepancy: dyn.discrepancy,
+    knownValuesSets: dyn.knownRound,
+    wasConditioned: false,
+    attemptCount: MAX_ATTEMPTS,
+    conditioningK: K
   };
 },
+
 
   /**
    * Ejecuta múltiples experimentos condicionados (rechazo por ronda).
