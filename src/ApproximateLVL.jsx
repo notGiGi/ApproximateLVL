@@ -3620,7 +3620,7 @@ function CompleteDistributedComputingSimulator() {
   const [comparisonView, setComparisonView] = useState('chart'); // 'chart', 'table', 'details'
   const [forcedAlgorithm, setForcedAlgorithm] = useState("auto");
   const [maxValue, setMaxValue] = useState(1); // Para valores no binarios
-
+  const [conditionedK, setConditionedK] = useState(1);
   const [configCode, setConfigCode] = useState("");
   const [selectedAlgorithms, setSelectedAlgorithms] = useState(["auto"]);
   const [selectedAlgorithmForDetails, setSelectedAlgorithmForDetails] = useState("auto");
@@ -4443,7 +4443,7 @@ function runRangeExperiments() {
   for (const p of allProbabilities) {
     for (const algoDisplay of algorithmsToRun) {
       const actualAlgo = algoDisplay === "auto" ? (p > 0.5 ? "AMP" : "FV") : algoDisplay;
-      const key = `${p.toFixed(6)}_${actualAlgo}`;
+      const key = `${p}_${actualAlgo}`; // <-- sin toFixed para alinear con el viewer
 
       // Teoría: sólo usamos la condicionada cerrada cuando n=2
       const theoretical =
@@ -4524,7 +4524,7 @@ function runRangeExperiments() {
 
       for (const algoDisplay of algorithmsToRun) {
         const actualAlgo = algoDisplay === "auto" ? (p > 0.5 ? "AMP" : "FV") : algoDisplay;
-        const key = `${p.toFixed(6)}_${actualAlgo}`;
+        const key = `${p}_${actualAlgo}`; // <-- sin toFixed para alinear con el viewer
 
         let history;
 
@@ -4554,7 +4554,10 @@ function runRangeExperiments() {
           });
 
           for (let r = 1; r <= actualRounds; r++) {
-            const rr = SimulationEngine.simulateRoundWithConditioning(values, p, actualAlgo, mpUsed);
+            // FIX: usar mpUsed (no actualMeetingPoint)
+            const rr = SimulationEngine.simulateRoundWithConditioning(
+              values, p, actualAlgo, mpUsed, conditionedK
+            );
             values = rr.newValues;
 
             // Si la ruta n=2 optimizada no trae matrices, dejamos arrays vacíos para el viewer
@@ -4621,6 +4624,7 @@ function runRangeExperiments() {
 
   setTimeout(runNextRepetition, 5);
 }
+
 
 
 
@@ -5165,7 +5169,98 @@ function runRangeExperiments() {
                     </div>
                   </div>
                 )}
-                
+                {/* Selector de K para modo condicionado */}
+                {deliveryMode === 'guaranteed' && (
+                  <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Minimum Messages (K):
+                    </label>
+                    
+                    <div className="flex items-center gap-2 mb-2">
+                      <input
+                        type="number"
+                        min="1"
+                        max={processValues.length * (processValues.length - 1)}
+                        value={conditionedK}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 1;
+                          const maxK = processValues.length * (processValues.length - 1);
+                          setConditionedK(Math.min(Math.max(1, val), maxK));
+                        }}
+                        className="w-20 p-2 border border-gray-300 rounded-md"
+                        disabled={isRunning}
+                      />
+                      <span className="text-sm text-gray-600">
+                        of {processValues.length * (processValues.length - 1)} possible messages
+                      </span>
+                    </div>
+                    
+                    {/* Botones de acceso rápido */}
+                    <div className="flex gap-1 mb-2">
+                      <button
+                        onClick={() => setConditionedK(1)}
+                        className="px-2 py-1 text-xs bg-blue-200 rounded hover:bg-blue-300"
+                        disabled={isRunning}
+                      >
+                        Min (1)
+                      </button>
+                      <button
+                        onClick={() => {
+                          const total = processValues.length * (processValues.length - 1);
+                          setConditionedK(Math.max(1, Math.floor(total * 0.25)));
+                        }}
+                        className="px-2 py-1 text-xs bg-blue-200 rounded hover:bg-blue-300"
+                        disabled={isRunning}
+                      >
+                        25%
+                      </button>
+                      <button
+                        onClick={() => {
+                          const total = processValues.length * (processValues.length - 1);
+                          setConditionedK(Math.max(1, Math.floor(total * 0.5)));
+                        }}
+                        className="px-2 py-1 text-xs bg-blue-200 rounded hover:bg-blue-300"
+                        disabled={isRunning}
+                      >
+                        50%
+                      </button>
+                      <button
+                        onClick={() => {
+                          const total = processValues.length * (processValues.length - 1);
+                          setConditionedK(Math.max(1, Math.floor(total * 0.75)));
+                        }}
+                        className="px-2 py-1 text-xs bg-blue-200 rounded hover:bg-blue-300"
+                        disabled={isRunning}
+                      >
+                        75%
+                      </button>
+                    </div>
+                    
+                    {/* Advertencia si K es muy alto para p */}
+                    {(() => {
+                      const expectedMessages = processValues.length * (processValues.length - 1) * probability;
+                      const probSuccess = 1 - Math.pow(1 - probability, processValues.length * (processValues.length - 1));
+                      
+                      if (conditionedK > expectedMessages * 2) {
+                        return (
+                          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
+                            ⚠️ <strong>Warning:</strong> K={conditionedK} is high for p={probability.toFixed(2)}. 
+                            Expected ~{expectedMessages.toFixed(1)} messages delivered per round.
+                            This may cause the simulation to be slow or fail to meet the condition.
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                    
+                    <div className="text-xs text-gray-600 mt-2">
+                      <p><strong>What is K?</strong> The minimum number of messages that must be delivered in each round.</p>
+                      <p className="mt-1">With n={processValues.length} processes and p={probability.toFixed(2)}, 
+                      we expect ~{(processValues.length * (processValues.length - 1) * probability).toFixed(1)} messages 
+                      delivered on average.</p>
+                    </div>
+                  </div>
+                )}
                 {showDeliveryInfo && (
                   <div className="mt-3 p-3 bg-white border rounded text-xs text-gray-600">
                     <p className="font-semibold mb-2">About Delivery Modes:</p>
@@ -5600,7 +5695,6 @@ function runRangeExperiments() {
                         </button>
                       </div>
 
-                      // Reemplaza toda la sección de Detailed Experiment Analysis con esto:
                       {experimentalResults && experimentalResults.length > 0 && (() => {
                         // Helpers locales
                         const resolveAlgo = (algoDisplay, pNum) =>

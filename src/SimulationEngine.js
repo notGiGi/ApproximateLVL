@@ -1212,6 +1212,7 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
 simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPoint = 0.5, minK = 1) {
   const n = values.length;
   const decP = toDecimal(p);
+  const EPS = 1e-12;
 
   // Resolver algoritmo real
   let algo = algorithm;
@@ -1219,17 +1220,150 @@ simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPo
     algo = decP.gt(0.5) ? "AMP" : "FV";
   }
 
-  // K mínimo de mensajes
+  // K (mínimo de mensajes entregados)
   const K = Math.max(1, Math.floor(minK));
+  const M = n * (n - 1); // número total de posibles mensajes dirigidos
 
-  // Meeting point DINÁMICO global (afín-invariante): m = min + a*(max-min)
-  const a = toDecimal(meetingPoint).toNumber();
-  const globalMin = Math.min(...values);
-  const globalMax = Math.max(...values);
-  const globalRange = globalMax - globalMin;
-  const meetingAbs = globalRange === 0 ? globalMin : (globalMin + a * globalRange);
+  // ---- CASO ESPECIAL EXACTO: n=2 y K=1 (teoremas 4/7) ----
+  if (n === 2 && K === 1) {
+    const q = toDecimal(1).minus(decP);
 
-  // Helper: una ronda con Bernoulli independientes
+    if (p <= 0 || p >= 1) {
+      // Degenerado: usa la simulación normal
+      const res = this.simulateRound(values, p, algo, meetingPoint);
+      res.wasConditioned = true;
+      res.attemptCount = 1;
+      res.conditioningK = K;
+      return res;
+    }
+
+    // Muestreo exacto condicionado a "≥1 mensaje"
+    const Z = toDecimal(1).minus(q.mul(q)); // 1 - q^2
+    const wOnlyAB = decP.mul(q).div(Z).toNumber(); // P(solo A→B | ≥1)
+    const wOnlyBA = q.mul(decP).div(Z).toNumber(); // P(solo B→A | ≥1)
+    // P(ambos | ≥1) = 1 - wOnlyAB - wOnlyBA
+
+    const r = Math.random();
+    let aliceToBob = false;
+    let bobToAlice = false;
+
+    if (r < wOnlyAB) {
+      aliceToBob = true;
+    } else if (r < wOnlyAB + wOnlyBA) {
+      bobToAlice = true;
+    } else {
+      aliceToBob = true;
+      bobToAlice = true;
+    }
+
+    // *** CORRECCIÓN CLAVE: meetingPoint como fracción del rango (afinidad) ***
+    const a = toDecimal(meetingPoint).toNumber();
+    const vmin = Math.min(values[0], values[1]);
+    const vmax = Math.max(values[0], values[1]);
+    const vrange = vmax - vmin;
+    const meetingAbs = vrange > EPS ? (vmin + a * vrange) : values[0];
+
+    // Dinámica
+    let newValues = [...values];
+    if (algo === "AMP") {
+      if (bobToAlice && Math.abs(values[1] - values[0]) > EPS) newValues[0] = meetingAbs;
+      if (aliceToBob && Math.abs(values[0] - values[1]) > EPS) newValues[1] = meetingAbs;
+    } else if (algo === "FV") {
+      if (bobToAlice && Math.abs(values[1] - values[0]) > EPS) newValues[0] = values[1];
+      if (aliceToBob && Math.abs(values[0] - values[1]) > EPS) newValues[1] = values[0];
+    }
+
+    return {
+      newValues,
+      messages: [
+        [{ to: 1, value: values[0], delivered: aliceToBob }],
+        [{ to: 0, value: values[1], delivered: bobToAlice }]
+      ],
+      messageDelivery: [[bobToAlice],[aliceToBob]],
+      discrepancy: Math.abs(newValues[0] - newValues[1]),
+      knownValuesSets: [
+        Array.from(new Set([values[0], bobToAlice ? values[1] : values[0]])).sort((a,b)=>a-b),
+        Array.from(new Set([values[1], aliceToBob ? values[0] : values[1]])).sort((a,b)=>a-b)
+      ],
+      wasConditioned: true,
+      attemptCount: 1,
+      conditioningK: K
+    };
+  }
+
+  // ---- CASO ESPECIAL EXACTO: K = M (TODOS los mensajes entregados) ----
+  if (K >= M) {
+    const messages = [];
+    const messageDelivery = [];
+    for (let i = 0; i < n; i++) {
+      const senderMsgs = [];
+      const row = [];
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        senderMsgs.push({ to: j, value: values[i], delivered: true });
+        row.push(true);
+      }
+      messages.push(senderMsgs);
+      messageDelivery.push(row);
+    }
+
+    const a = toDecimal(meetingPoint).toNumber();
+    const gmin = Math.min(...values);
+    const gmax = Math.max(...values);
+    const gRange = gmax - gmin;
+    const meetingAbs = gRange === 0 ? gmin : (gmin + a * gRange);
+
+    const receivedBy = Array.from({ length: n }, () => []);
+    for (let s = 0; s < n; s++) {
+      for (const m of messages[s]) {
+        receivedBy[m.to].push(m.value);
+      }
+    }
+
+    const newValues = [...values];
+    for (let i = 0; i < n; i++) {
+      const rec = receivedBy[i];
+      if (algo === "AMP") {
+        if (rec.some(v => Math.abs(v - values[i]) > EPS)) newValues[i] = meetingAbs;
+      } else if (algo === "FV") {
+        const diff = rec.find(v => Math.abs(v - values[i]) > EPS);
+        if (diff !== undefined) newValues[i] = diff;
+      } else if (algo === "RECURSIVE AMP") {
+        const kmin = Math.min(values[i], ...rec);
+        const kmax = Math.max(values[i], ...rec);
+        const kr = kmax - kmin;
+        newValues[i] = kr > EPS ? (kmin + a * kr) : values[i];
+      } else if (algo === "MIN") {
+        // sin cambio
+      }
+    }
+
+    let maxDisc = 0;
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      const d = Math.abs(newValues[i] - newValues[j]);
+      if (d > maxDisc) maxDisc = d;
+    }
+
+    const knownRound = [];
+    for (let i = 0; i < n; i++) {
+      const set = new Set([values[i], ...receivedBy[i]]);
+      knownRound.push(Array.from(set).sort((x, y) => x - y));
+    }
+
+    return {
+      newValues,
+      messages,
+      messageDelivery,
+      discrepancy: maxDisc,
+      knownValuesSets: knownRound,
+      wasConditioned: true,
+      attemptCount: 1,
+      conditioningK: M
+    };
+  }
+
+  // ---- CASO GENERAL (n>2 o 2 con K>1): Rejection sampling (≥K) ----
+
   const drawOnce = () => {
     const messages = [];
     const messageDelivery = [];
@@ -1248,113 +1382,98 @@ simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPo
     return { messages, messageDelivery };
   };
 
-  // Contar mensajes entregados en la ronda
   const countDelivered = (msgs) => {
     let c = 0;
     for (const arr of msgs) for (const m of arr) if (m.delivered) c++;
     return c;
   };
 
-  // Aplicar la dinámica del algoritmo con los mensajes construidos
   const applyDynamics = (msgs) => {
-    const EPS = 1e-12;
-    const newValues = [...values];
+    const a = toDecimal(meetingPoint).toNumber();
+    const gmin = Math.min(...values);
+    const gmax = Math.max(...values);
+    const gRange = gmax - gmin;
+    const meetingAbs = gRange === 0 ? gmin : (gmin + a * gRange);
 
-    // Recibidos por receptor i
     const receivedBy = Array.from({ length: n }, () => []);
-    for (let s = 0; s < n; s++) {
-      for (const msg of msgs[s]) {
-        if (msg.delivered) receivedBy[msg.to].push(msg.value);
-      }
-    }
+    for (let s = 0; s < n; s++) for (const m of msgs[s]) if (m.delivered) receivedBy[m.to].push(m.value);
 
+    const out = [...values];
     for (let i = 0; i < n; i++) {
       const rec = receivedBy[i];
 
       if (algo === "MIN") {
-        // MIN: no cambia durante la ronda
-        newValues[i] = values[i];
+        out[i] = values[i];
         continue;
       }
-
       if (algo === "RECURSIVE AMP") {
         if (rec.length > 0) {
           const kmin = Math.min(values[i], ...rec);
           const kmax = Math.max(values[i], ...rec);
-          const krange = kmax - kmin;
-          newValues[i] = krange > EPS ? (kmin + a * krange) : values[i];
+          const kr = kmax - kmin;
+          out[i] = kr > EPS ? (kmin + a * kr) : values[i];
         }
         continue;
       }
-
       if (algo === "AMP") {
-        if (rec.some(v => Math.abs(v - values[i]) > EPS)) {
-          newValues[i] = meetingAbs;
-        }
+        if (rec.some(v => Math.abs(v - values[i]) > EPS)) out[i] = meetingAbs;
         continue;
       }
-
       if (algo === "FV") {
         const diff = rec.find(v => Math.abs(v - values[i]) > EPS);
-        if (diff !== undefined) newValues[i] = diff;
+        if (diff !== undefined) out[i] = diff;
         continue;
       }
     }
 
-    // Discrepancia máx
-    let maxDisc = new Decimal(0);
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const d = abs(toDecimal(newValues[i]).minus(toDecimal(newValues[j])));
-        if (d.gt(maxDisc)) maxDisc = d;
-      }
+    let maxDisc = 0;
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      const d = Math.abs(out[i] - out[j]);
+      if (d > maxDisc) maxDisc = d;
     }
 
-    // Conocidos por ronda (para visor)
     const knownRound = [];
     for (let i = 0; i < n; i++) {
       const set = new Set([values[i]]);
-      for (const arr of msgs) for (const m of arr) {
-        if (m.delivered && m.to === i) set.add(m.value);
-      }
+      for (const arr of msgs) for (const m of arr) if (m.delivered && m.to === i) set.add(m.value);
       knownRound.push(Array.from(set).sort((x, y) => x - y));
     }
 
-    return { newValues, discrepancy: maxDisc.toNumber(), knownRound };
+    return { newValues: out, discrepancy: maxDisc, knownRound };
   };
 
-  // Probabilidad aproximada de X≥K para X~Bin(M,p) para fijar intentos máximos
-  const approxPgeK = (M, prob, K) => {
-    const mu = M * prob;
-    const v  = M * prob * (1 - prob);
+  // Probabilidad aproximada de aceptación P(X≥K) para X~Bin(M,p)
+  const mu = M * p;
+  const v = M * p * (1 - p);
+  const approxPgeK = (() => {
     if (v < 1e-12) return (mu + 1e-12) >= K ? 1 : 0;
-    // Normal con corrección de continuidad
     const sigma = Math.sqrt(v);
     const z = (K - 0.5 - mu) / sigma;
     const t = 1 / (1 + 0.2316419 * Math.abs(z));
     const d = Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
-    let Phi = 1 - d * (0.319381530*t - 0.356563782*t*t + 1.781477937*t*t*t - 1.821255978*t*t*t*t + 1.330274429*t*t*t*t*t);
+    let Phi = 1 - d * (0.319381530*t - 0.356563782*t*t + 1.781477937*t*t*t
+                       - 1.821255978*t*t*t*t + 1.330274429*t*t*t*t*t);
     if (z < 0) Phi = 1 - Phi;
     return Math.max(0, Math.min(1, 1 - Phi));
-  };
+  })();
 
-  // Intentos máximos prudentes (evita cuelgues; no “fuerza” resultados)
-  const M = n * (n - 1);
-  const PgeK = approxPgeK(M, p, K);
-  const MAX_ATTEMPTS = Math.min(5000, Math.max(50, Math.ceil(6 / Math.max(PgeK, 1e-6))));
+  // Intentos; sube si aceptación baja, con hard cap para no colgar UI
+  const targetSuccess = 0.99;
+  const needed = approxPgeK > 0 ? Math.ceil(Math.log(1 - targetSuccess) / Math.log(1 - approxPgeK)) : Infinity;
+  const MAX_ATTEMPTS = Number.isFinite(needed) ? Math.max(needed, 50) : 50_000;
+  const HARD_CAP = 200_000;
+  const LIMIT = Math.min(MAX_ATTEMPTS, HARD_CAP);
 
-  // Rechazo honesto: repetir la ronda hasta que X>=K
-  let lastMsgs = null, lastDelivery = null;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const { messages, messageDelivery } = drawOnce();
-    lastMsgs = messages;
-    lastDelivery = messageDelivery;
-    if (countDelivered(messages) >= K) {
-      const dyn = applyDynamics(messages);
+  let last = null;
+  for (let attempt = 1; attempt <= LIMIT; attempt++) {
+    const draw = drawOnce();
+    last = draw;
+    if (countDelivered(draw.messages) >= K) {
+      const dyn = applyDynamics(draw.messages);
       return {
         newValues: dyn.newValues,
-        messages,
-        messageDelivery,
+        messages: draw.messages,
+        messageDelivery: draw.messageDelivery,
         discrepancy: dyn.discrepancy,
         knownValuesSets: dyn.knownRound,
         wasConditioned: true,
@@ -1364,20 +1483,22 @@ simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPo
     }
   }
 
-  // Si no se logró en el tope de intentos, devolvemos la última ronda (sin “forzar”),
-  // marcando que NO se pudo cumplir el condicionamiento (no truqueamos el resultado).
-  const dyn = applyDynamics(lastMsgs || []);
+  // No se logró cumplir ≥K; devolvemos último intento (honesto)
+  const dyn = applyDynamics(last ? last.messages : Array.from({length:n}, ()=>[]));
   return {
     newValues: dyn.newValues,
-    messages: lastMsgs || [],
-    messageDelivery: lastDelivery || [],
+    messages: last ? last.messages : [],
+    messageDelivery: last ? last.messageDelivery : [],
     discrepancy: dyn.discrepancy,
     knownValuesSets: dyn.knownRound,
     wasConditioned: false,
-    attemptCount: MAX_ATTEMPTS,
+    attemptCount: LIMIT,
     conditioningK: K
   };
 },
+
+
+
 
 
   /**
