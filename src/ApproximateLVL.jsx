@@ -5891,694 +5891,424 @@ function runRangeExperiments() {
             )}
             
 
+
             {/* Statistical Analysis tab */}
             {activeTab === 'statistics' && (
               <div>
                 {experimentalResults && experimentalResults.length > 0 ? (
                   <div>
                     <div className="bg-white rounded-lg shadow p-4 mb-4">
-                      <h3 className="text-lg font-semibold mb-3">Statistical Analysis for {processValues.length} Processes</h3>
+                      <h3 className="text-lg font-semibold mb-3">Statistical Analysis</h3>
                       
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div className="bg-blue-50 p-3 rounded-lg">
-                          <h4 className="font-medium mb-2">Experiment Configuration</h4>
-                          <ul className="text-sm space-y-1">
-                            <li><span className="font-medium">Processes:</span> {processValues.length}</li>
-                            <li><span className="font-medium">Process Values:</span> {processValues.join(', ')}</li>
-                            <li><span className="font-medium">Zero-valued processes:</span> {processValues.filter(v => v === 0).length}</li>
-                            <li><span className="font-medium">One-valued processes:</span> {processValues.filter(v => v === 1).length}</li>
-                            <li><span className="font-medium">Algorithm:</span> {forcedAlgorithm}</li>
-                            <li><span className="font-medium">Meeting Point:</span> {meetingPoint}</li>
-                            <li><span className="font-medium">Rounds:</span> {rounds}</li>
-                            <li><span className="font-medium">Repetitions:</span> {repetitions}</li>
-                          </ul>
-                        </div>
+                      {/* Detectar si tenemos valores teóricos disponibles */}
+                      {(() => {
+                        const hasTheoretical = experimentalResults.some(r => 
+                          r.theoretical !== null && 
+                          r.theoretical !== undefined && 
+                          !isNaN(r.theoretical) && 
+                          isFinite(r.theoretical)
+                        );
                         
-                        <div className="bg-gray-50 p-3 rounded-lg">
-                          <h4 className="font-medium mb-2">Summary Statistics</h4>
-                          {(() => {
-                            // Calcular estadísticas básicas
-                            const discrepancies = experimentalResults.map(r => r.discrepancy);
-                            const avgDiscrepancy = discrepancies.reduce((sum, d) => sum + d, 0) / discrepancies.length;
-                            const minDiscrepancy = Math.min(...discrepancies);
-                            const maxDiscrepancy = Math.max(...discrepancies);
-                            
-                            // Calcular desviación estándar
-                            const variance = discrepancies.reduce((sum, d) => sum + Math.pow(d - avgDiscrepancy, 2), 0) / discrepancies.length;
-                            const stdDev = Math.sqrt(variance);
-                            
-                            // Calcular error teórico promedio
-                            const errorsPercent = experimentalResults
-                              .filter(r => r.theoretical)
-                              .map(r => Math.abs(r.discrepancy - r.theoretical) / r.theoretical * 100);
-                            
-                            const avgErrorPercent = errorsPercent.length > 0 ? 
-                              errorsPercent.reduce((a, b) => a + b, 0) / errorsPercent.length : null;
-                            
-                            return (
-                              <ul className="text-sm space-y-1">
-                                <li><span className="font-medium">Average Discrepancy:</span> {avgDiscrepancy.toFixed(6)}</li>
-                                <li><span className="font-medium">Minimum Discrepancy:</span> {minDiscrepancy.toFixed(6)}</li>
-                                <li><span className="font-medium">Maximum Discrepancy:</span> {maxDiscrepancy.toFixed(6)}</li>
-                                <li><span className="font-medium">Standard Deviation s(p):</span> {stdDev.toFixed(6)}</li>
-                                <li><span className="font-medium">Absolute uncertainty (standard error) &sigma;̄(p):</span> {(stdDev/Math.sqrt(repetitions)).toFixed(6)}</li>
-                                {avgErrorPercent !== null && (
-                                  <li><span className="font-medium">Avg. Error vs Theory:</span> {avgErrorPercent.toFixed(2)}%</li>
-                                )}
-                                <li><span className="font-medium">Data Points:</span> {experimentalResults.length}</li>
-                              </ul>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                      
-                      <div className="mb-4">
-                        <h4 className="font-medium mb-2">Discrepancy Distribution</h4>
-                        <div className="h-72">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <ComposedChart
-                              data={(() => {
-                                const sortedData = experimentalResults.sort((a, b) => a.p - b.p);
-                                
-                                // Para muchos procesos, podríamos necesitar reducir los puntos mostrados
-                                const maxPoints = 200;
-                                let dataToShow = sortedData;
-                                
-                                if (sortedData.length > maxPoints) {
-                                  // Muestrear uniformemente
-                                  const step = Math.ceil(sortedData.length / maxPoints);
-                                  dataToShow = sortedData.filter((_, idx) => idx % step === 0);
-                                }
-                                
-                                return dataToShow.map(result => {
-                                  // Calculate statistics for confidence intervals
-                                  let mean = result.discrepancy;
-                                  let upperBound = mean;
-                                  let lowerBound = mean;
-                                  
-                                  if (result.discrepancies && result.discrepancies.length > 1) {
-                                    // Calculate standard deviation
-                                    const variance = result.discrepancies.reduce(
-                                      (sum, val) => sum + Math.pow(val - mean, 2), 0
-                                    ) / result.discrepancies.length;
-                                    const stdDev = Math.sqrt(variance);
-                                    
-                                    // 95% confidence interval (approximately mean ± 2*SD)
-                                    upperBound = mean + 2 * stdDev;
-                                    lowerBound = Math.max(0, mean - 2 * stdDev); // Ensure non-negative
-                                  }
-                                  
-                                  return {
-                                    ...result,
-                                    upperBound,
-                                    lowerBound,
-                                    // Para el área, necesitamos el "gap" entre los límites
-                                    bandLower: lowerBound,
-                                    bandGap: upperBound - lowerBound
-                                  };
-                                });
-                              })()}
-                              margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
-                            >
-                              <CartesianGrid strokeDasharray="3 3" />
-                              <XAxis 
-                                dataKey="p" 
-                                type="number"
-                                domain={[0, 1]}
-                                ticks={[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]}
-                                tickFormatter={v => v.toFixed(1)}
-                                label={{ value: 'Probability (p)', position: 'insideBottom', offset: -5 }}
-                              />
-                              <YAxis 
-                                label={{ value: 'Discrepancy', angle: -90, position: 'insideLeft', offset: -5 }}
-                              />
-                              <Tooltip 
-                                content={({ active, payload, label }) => {
-                                  if (active && payload && payload.length > 0) {
-                                    const data = payload[0].payload;
-                                    return (
-                                      <div className="bg-white p-2 border rounded shadow-md">
-                                        <p className="font-semibold">p = {label.toFixed(2)}</p>
-                                        <p>Experimental: {data.discrepancy.toFixed(6)}</p>
-                                        {data.theoretical && (
-                                          <p>Theoretical: {data.theoretical.toFixed(6)}</p>
-                                        )}
-                                        {data.discrepancies && data.discrepancies.length > 1 && (
-                                          <>
-                                            <p className="text-xs text-gray-600 mt-1">
-                                              95% CI: [{data.lowerBound.toFixed(6)}, {data.upperBound.toFixed(6)}]
-                                            </p>
-                                            <p className="text-xs text-gray-600">
-                                              Based on {data.discrepancies.length} repetitions
-                                            </p>
-                                          </>
-                                        )}
-                                      </div>
-                                    );
-                                  }
-                                  return null;
-                                }}
-                              />
-                              <Legend />
-
-                              {/* Banda de confianza mejorada */}
-                              <Area
-                                type="monotone"
-                                dataKey="bandLower"
-                                stackId="1"
-                                stroke="none"
-                                fill="#e3f2fd"
-                                fillOpacity={0}
-                              />
-                              <Area
-                                type="monotone"
-                                dataKey="bandGap"
-                                stackId="1"
-                                stroke="none"
-                                fill="#e3f2fd"
-                                fillOpacity={0.6}
-                              />
-                              
-                              {/* Líneas de límites para mayor claridad */}
-                              <Line
-                                type="monotone"
-                                dataKey="upperBound"
-                                stroke="#3498db"
-                                strokeWidth={1}
-                                strokeDasharray="5 5"
-                                dot={false}
-                                name="Upper 95% Data Range"
-                                opacity={0.7}
-                              />
-                              <Line
-                                type="monotone"
-                                dataKey="lowerBound"
-                                stroke="#3498db"
-                                strokeWidth={1}
-                                strokeDasharray="5 5"
-                                dot={false}
-                                name="Lower 95% Data Range"
-                                opacity={0.7}
-                              />
-                              
-                              {/* Main experimental line con mejor contraste */}
-                              <Line 
-                                type="monotone" 
-                                dataKey="discrepancy" 
-                                name="Experimental Discrepancy" 
-                                stroke="#1976d2"  // Azul fuerte
-                                strokeWidth={3}    // Más gruesa
-                                dot={{ r: 4, fill: '#1976d2', strokeWidth: 0 }}
-                                zIndex={10}        
-                              />
-                              
-                              {/* Theoretical line con mejor visibilidad */}
-                              {experimentalResults[0].theoretical && (
-                                <Line 
-                                  type="monotone" 
-                                  dataKey="theoretical" 
-                                  name="Theoretical Discrepancy" 
-                                  stroke="#d32f2f"  
-                                  strokeDasharray="5 5"
-                                  strokeWidth={2.5}
-                                  dot={{ r: 3, fill: '#d32f2f', strokeWidth: 0 }}
-                                  zIndex={10}
-                                />
-                              )}
-                            </ComposedChart>
-                          </ResponsiveContainer>
-                        </div>
-                      </div>
-                      
-                      <div className="mb-4">
-                        <label className="flex items-center mb-4">
-                          <input
-                            type="checkbox"
-                            checked={fixYAxis}
-                            onChange={() => setFixYAxis(!fixYAxis)}
-                            className="mr-2"
-                          />
-                          Fixed Y-Axes
-                        </label>
-
-                        <h4 className="font-medium mb-2">Error Analysis</h4>
-                        {experimentalResults[0].theoretical ? (
-                          <div className="h-72">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <ComposedChart
-                                data={(() => {
-                                  const errorData = experimentalResults.map(r => {
-                                    const error = Math.abs(r.discrepancy - r.theoretical);
-                                    const errorPercent = r.theoretical !== 0 ? (error / r.theoretical) * 100 : 0;
-                                    
-                                    // Calcular CI de la discrepancia experimental (no del error)
-                                    let experimentalCI = null;
-                                    if (r.discrepancies && r.discrepancies.length > 1) {
-                                      const mean = r.discrepancies.reduce((a, b) => a + b, 0) / r.discrepancies.length;
-                                      const variance = r.discrepancies.reduce(
-                                        (sum, val) => sum + Math.pow(val - mean, 2), 0
-                                      ) / (r.discrepancies.length - 1);
-                                      const stdDev = Math.sqrt(variance);
-                                      const ciMargin = 1.96 * stdDev / Math.sqrt(r.discrepancies.length);
-                                      
-                                      experimentalCI = {
-                                        lower: mean - ciMargin,
-                                        upper: mean + ciMargin
-                                      };
-                                    }
-                                    
-                                    return {
-                                      ...r,
-                                      error,
-                                      errorPercent,
-                                      experimentalCI
-                                    };
-                                  }).sort((a, b) => a.p - b.p);
-                                  
-                                  return errorData;
-                                })()}
-                                margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
-                              >
-                                <CartesianGrid strokeDasharray="3 3" />
-                                
-
-                                <YAxis
-                                  yAxisId="left"
-                                  domain={(() => {
-                                    if (fixYAxis) {
-                                      return [0, 1];
-                                    }
-                                    
-                                    const maxAbsoluteError = Math.max(...experimentalResults.map(r => 
-                                      Math.abs(r.discrepancy - r.theoretical)
-                                    ));
-                                    
-                                    const maxErrorPercent = Math.max(...experimentalResults.map(r => {
-                                      const error = Math.abs(r.discrepancy - r.theoretical);
-                                      return r.theoretical !== 0 ? (error / r.theoretical) * 100 : 0;
-                                    }));
-                                    
-                                    if (maxErrorPercent >= 90 && maxErrorPercent <= 110) {
-                                      return [0, 1];
-                                    }
-                                    
-                                    return [0, Math.ceil(maxAbsoluteError * 1.2 * 100) / 100];
-                                  })()}
-                                  label={{ value: 'Absolute Error', angle: -90, position: 'insideLeft', offset: -5 }}
-                                />
-
-                                <YAxis
-                                  yAxisId="right"
-                                  orientation="right"
-                                  domain={(() => {
-                                    if (fixYAxis) {
-                                      return [0, 100];
-                                    }
-                                    
-                                    const maxErrorPercent = Math.max(...experimentalResults.map(r => {
-                                      const error = Math.abs(r.discrepancy - r.theoretical);
-                                      return r.theoretical !== 0 ? (error / r.theoretical) * 100 : 0;
-                                    }));
-                                    
-                                    if (maxErrorPercent >= 90 && maxErrorPercent <= 110) {
-                                      return [0, 100];
-                                    }
-                                    
-                                    return [0, Math.ceil(maxErrorPercent * 1.2)];
-                                  })()}
-                                  label={{ value: 'Error %', angle: 90, position: 'insideRight', offset: -5 }}
-                                  tickFormatter={v => `${v.toFixed(0)}%`}
-                                />
-                                
-
-                                <Tooltip 
-                                  content={({ active, payload, label }) => {
-                                    if (active && payload && payload.length > 0) {
-                                      const data = payload[0].payload;
-                                      const isSignificant = data.experimentalCI && 
-                                        (data.theoretical < data.experimentalCI.lower || 
-                                        data.theoretical > data.experimentalCI.upper);
-                                      
-                                      return (
-                                        <div className="bg-white p-2 border rounded shadow-md">
-                                          <p className="font-semibold">p = {label.toFixed(2)}</p>
-                                          
-                                          <div className="mt-1">
-                                            <p>Experimental: {data.discrepancy.toFixed(6)}</p>
-                                            {data.experimentalCI && (
-                                              <p className="text-xs text-gray-600 ml-2">
-                                                95% CI: [{data.experimentalCI.lower.toFixed(6)}, {data.experimentalCI.upper.toFixed(6)}]
-                                              </p>
-                                            )}
-                                          </div>
-                                          
-                                          {data.theoretical && (
-                                            <p>Theoretical: {data.theoretical.toFixed(6)}</p>
-                                          )}
-                                          
-                                          <hr className="my-1" />
-                                          
-                                          <p>Absolute Error: {data.error.toFixed(6)}</p>
-                                          <p>Error %: {data.errorPercent.toFixed(2)}%</p>
-                                          
-                                          {data.experimentalCI && isSignificant && (
-                                            <p className="text-xs text-orange-600 mt-1">
-                                              * Statistically significant difference
-                                            </p>
-                                          )}
-                                        </div>
-                                      );
-                                    }
-                                    return null;
-                                  }}
-                                />
-                                <Legend />
-
-                                <Line
-                                  yAxisId="left"
-                                  type="monotone"
-                                  dataKey="error"
-                                  name="Absolute Error"
-                                  stroke="#ff7300"
-                                  strokeWidth={2}
-                                  dot={{ r: 3 }}
-                                />
-
-                                <Bar
-                                  yAxisId="right"
-                                  dataKey="errorPercent"
-                                  name="Error %"
-                                  fill="#8884d8"
-                                  fillOpacity={0.6}
-                                />
-                              </ComposedChart>
-                            </ResponsiveContainer>
-                          </div>
-                        ) : (
-                          <p className="text-gray-500 italic">
-                            Theoretical predictions are not available for comparison.
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Distribution of Final Discrepancies Histogram */}
-                      {statsData && statsData.experimentResults && (
-                        <div className="mb-4">
-                          {/* Selector de p si hay múltiples valores */}
-                          {statsData.pValues && statsData.pValues.length > 1 && (
-                            <div className="mb-3 flex items-center">
-                              <label className="text-sm font-medium mr-2">Select p value to visualize:</label>
-                              <select 
-                                value={selectedPForHistogram || statsData.pValues[0]} 
-                                onChange={(e) => setSelectedPForHistogram(parseFloat(e.target.value))}
-                                className="border rounded px-3 py-1 text-sm"
-                              >
-                                {statsData.pValues.map(p => (
-                                  <option key={p} value={p}>p = {p.toFixed(2)}</option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-                          
-                          <HistogramPlot 
-                            discrepancies={getDiscrepanciesForP(statsData, selectedPForHistogram || statsData.pValues[0])}
-                            theoretical={getTheoreticalForP(experimentalResults, selectedPForHistogram || statsData.pValues[0])}
-                            experimental={getExperimentalMeanForP(statsData, selectedPForHistogram || statsData.pValues[0])}
-                            repetitions={statsData.usedRepetitions}
-                            selectedP={selectedPForHistogram || statsData.pValues[0]}
-                          />
-                        </div>
-                      )}
-                      
-                      {/* Experimental Results Table */}
-                      <div className="mb-8">
-                        <div className="flex justify-between items-center mb-4">
-                          <h3 className="text-lg font-semibold">Detailed Experimental Results</h3>
-                          <div className="relative">
-                            <button
-                              onClick={() => setShowExportMenu(!showExportMenu)}
-                              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-                            >
-                              <span>📥Download</span>
-                              Export
-                            </button>
-                            {showExportMenu && (
-                              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border z-10">
-                                <button
-                                  onClick={() => {
-                                    // Función para exportar CSV
-                                    const csvContent = [
-                                      ['p', 'Algorithm', 'n', 'k', 'Theoretical E[D]', 'Experimental Mean', 'Std Dev', 'CV%', 'Error', 'Error%', 'CI Lower', 'CI Upper', 'Min', 'Q1', 'Median', 'Q3', 'Max', 'Significant'],
-                                      ...experimentalResults.map(r => {
-                                        const sorted = r.discrepancies ? [...r.discrepancies].sort((a, b) => a - b) : [];
-                                        const n = sorted.length;
-                                        const mean = r.discrepancy;
-                                        const variance = n > 1 ? sorted.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (n - 1) : 0;
-                                        const stdDev = Math.sqrt(variance);
-                                        const cv = mean !== 0 ? (stdDev / Math.abs(mean)) * 100 : 0;
-                                        const ciMargin = n > 1 ? 1.96 * stdDev / Math.sqrt(n) : 0;
-                                        const ciLower = mean - ciMargin;
-                                        const ciUpper = mean + ciMargin;
-                                        const error = Math.abs(r.discrepancy - r.theoretical);
-                                        const errorPercent = r.theoretical !== 0 ? (error / r.theoretical) * 100 : 0;
-                                        const q1 = n > 0 ? sorted[Math.floor(n * 0.25)] : 0;
-                                        const median = n > 0 ? sorted[Math.floor(n * 0.5)] : 0;
-                                        const q3 = n > 0 ? sorted[Math.floor(n * 0.75)] : 0;
-                                        const isSignificant = r.theoretical < ciLower || r.theoretical > ciUpper;
-                                        
-                                        return [
-                                          r.p,
-                                          r.algorithm,
-                                          processValues.length,
-                                          rounds,
-                                          r.theoretical?.toFixed(6) || 'N/A',
-                                          mean.toFixed(6),
-                                          stdDev.toFixed(6),
-                                          cv.toFixed(2),
-                                          error.toFixed(6),
-                                          errorPercent.toFixed(2),
-                                          ciLower.toFixed(6),
-                                          ciUpper.toFixed(6),
-                                          sorted[0]?.toFixed(6) || '0',
-                                          q1.toFixed(6),
-                                          median.toFixed(6),
-                                          q3.toFixed(6),
-                                          sorted[n-1]?.toFixed(6) || '0',
-                                          isSignificant ? 'Yes' : 'No'
-                                        ];
-                                      })
-                                    ].map(row => row.join(',')).join('\n');
-                                    
-                                    const blob = new Blob([csvContent], { type: 'text/csv' });
-                                    const url = URL.createObjectURL(blob);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = `experimental_results_${new Date().toISOString().slice(0,10)}.csv`;
-                                    a.click();
-                                    setShowExportMenu(false);
-                                  }}
-                                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
-                                >
-                                  <span>📄</span>
-                                  Export as CSV
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    // Función para exportar LaTeX
-                                    const latexContent = `\\begin{table}[h]
-                      \\centering
-                      \\caption{Experimental Results: ${forcedAlgorithm} Algorithm${rounds > 1 ? ` (${rounds} rounds)` : ''}}
-                      \\begin{tabular}{|c|c|c|c|c|c|c|}
-                      \\hline
-                      $p$ & Algorithm & $E[D]_{theo}$ & $E[D]_{exp}$ & Error (\\%) & Std Dev & CV (\\%) \\\\
-                      \\hline
-                      ${experimentalResults.map(r => {
-                        const sorted = r.discrepancies ? [...r.discrepancies].sort((a, b) => a - b) : [];
-                        const n = sorted.length;
-                        const mean = r.discrepancy;
-                        const variance = n > 1 ? sorted.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (n - 1) : 0;
-                        const stdDev = Math.sqrt(variance);
-                        const cv = mean !== 0 ? (stdDev / Math.abs(mean)) * 100 : 0;
-                        const error = Math.abs(r.discrepancy - r.theoretical);
-                        const errorPercent = r.theoretical !== 0 ? (error / r.theoretical) * 100 : 0;
+                        const processCount = processValues.length;
+                        const isConditioned = deliveryMode === 'guaranteed';
+                        const hasLimitedTheory = processCount === 2 || (processCount <= 3 && !isConditioned);
                         
-                        return `${r.p.toFixed(2)} & ${r.algorithm} & ${r.theoretical?.toFixed(4) || 'N/A'} & ${mean.toFixed(4)} & ${errorPercent.toFixed(2)} & ${stdDev.toFixed(4)} & ${cv.toFixed(1)} \\\\`;
-                      }).join('\n')}
-                      \\hline
-                      \\end{tabular}
-                      \\end{table}`;
-                                    
-                                    navigator.clipboard.writeText(latexContent);
-                                    alert('LaTeX table copied to clipboard!');
-                                    setShowExportMenu(false);
-                                  }}
-                                  className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
-                                >
-                                  <span>📋</span>
-                                  Copy as LaTeX
-                                </button>
+                        return (
+                          <>
+                            {/* Advertencia sobre limitaciones teóricas */}
+                            {!hasTheoretical && (
+                              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                <div className="flex items-start">
+                                  <svg className="w-5 h-5 text-amber-600 mt-0.5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                  </svg>
+                                  <div>
+                                    <h4 className="text-sm font-semibold text-amber-800">Limited Theoretical Values</h4>
+                                    <p className="text-sm text-amber-700 mt-1">
+                                      {processCount > 2 ? (
+                                        <>Theoretical formulas are only available for 2 processes. 
+                                        Showing experimental statistics only for {processCount} processes.</>
+                                      ) : isConditioned && processCount > 2 ? (
+                                        <>Conditioned mode theoretical values are only available for 2 processes. 
+                                        Showing experimental statistics only.</>
+                                      ) : (
+                                        <>Theoretical values may not be available for all configurations. 
+                                        Showing available experimental statistics.</>
+                                      )}
+                                    </p>
+                                  </div>
+                                </div>
                               </div>
                             )}
-                          </div>
-                        </div>
-
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full bg-white border border-gray-200 rounded-lg overflow-hidden">
-                            <thead className="bg-gray-50">
-                              <tr>
-                                <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">p</th>
-                                <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Algorithm</th>
-                                <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Theoretical E[D]
-                                </th>
-                                <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Experimental Mean
-                                </th>
-                                <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">95% CI</th>
-                                <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Error (%)</th>
-                                <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  <div className="flex items-center gap-1">
-                                    Statistics
-                                    <span className="text-xs font-normal">(σ, CV%)</span>
-                                  </div>
-                                </th>
-                                <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Distribution</th>
-                                <th className="px-2 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Sig.</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200">
-                              {experimentalResults.map((result, idx) => {
-                                const sorted = result.discrepancies ? [...result.discrepancies].sort((a, b) => a - b) : [];
-                                const n = sorted.length;
-                                const mean = result.discrepancy;
-                                const variance = n > 1 ? sorted.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (n - 1) : 0;
-                                const stdDev = Math.sqrt(variance);
-                                const cv = mean !== 0 ? (stdDev / Math.abs(mean)) * 100 : 0;
-                                
-                                // Intervalos de confianza
-                                const ciMargin = n > 1 ? 1.96 * stdDev / Math.sqrt(n) : 0;
-                                const ciLower = mean - ciMargin;
-                                const ciUpper = mean + ciMargin;
-                                
-                                // Error
-                                const error = Math.abs(result.discrepancy - result.theoretical);
-                                const errorPercent = result.theoretical !== 0 ? (error / result.theoretical) * 100 : 0;
-                                
-                                // Percentiles
-                                const min = n > 0 ? sorted[0] : 0;
-                                const q1 = n > 0 ? sorted[Math.floor(n * 0.25)] : 0;
-                                const median = n > 0 ? sorted[Math.floor(n * 0.5)] : 0;
-                                const q3 = n > 0 ? sorted[Math.floor(n * 0.75)] : 0;
-                                const max = n > 0 ? sorted[n - 1] : 0;
-                                
-                                // Significancia estadística
-                                const isSignificant = result.theoretical && (result.theoretical < ciLower || result.theoretical > ciUpper);
-                                
-                                // Color coding para error
-                                const errorColor = errorPercent < 5 ? 'text-green-600' : 
-                                                  errorPercent < 10 ? 'text-yellow-600' : 
-                                                  'text-red-600';
-                                
-                                return (
-                                  <tr 
-                                    key={idx}
-                                    className={`hover:bg-gray-50 transition-colors ${hoveredRow === idx ? 'bg-gray-50' : ''}`}
-                                    onMouseEnter={() => setHoveredRow(idx)}
-                                    onMouseLeave={() => setHoveredRow(null)}
+                            
+                            {/* Sección 1: Configuración del Experimento */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                              <div className="bg-blue-50 p-3 rounded-lg">
+                                <h4 className="font-medium mb-2">Experiment Configuration</h4>
+                                <ul className="text-sm space-y-1">
+                                  <li><span className="font-medium">Processes:</span> {processCount}</li>
+                                  <li><span className="font-medium">Initial Values:</span> [{processValues.join(', ')}]</li>
+                                  <li><span className="font-medium">Zero-valued:</span> {processValues.filter(v => v === 0).length} processes</li>
+                                  <li><span className="font-medium">One-valued:</span> {processValues.filter(v => v === 1).length} processes</li>
+                                  <li><span className="font-medium">Algorithm:</span> {
+                                    experimentalResults[0]?.displayAlgorithm || 
+                                    experimentalResults[0]?.algorithm || 
+                                    forcedAlgorithm || 
+                                    'Auto'
+                                  }</li>
+                                  {experimentalResults[0]?.algorithm === 'AMP' && (
+                                    <li><span className="font-medium">Meeting Point:</span> {meetingPoint}</li>
+                                  )}
+                                  <li><span className="font-medium">Rounds:</span> {rounds}</li>
+                                  <li><span className="font-medium">Repetitions:</span> {repetitions}</li>
+                                  <li><span className="font-medium">Delivery Mode:</span> {
+                                    isConditioned ? 'Guaranteed (≥1 message)' : 'Standard'
+                                  }</li>
+                                </ul>
+                              </div>
+                              
+                              {/* Sección 2: Estadísticas Experimentales (SIEMPRE SE MUESTRA) */}
+                              <div className="bg-gray-50 p-3 rounded-lg">
+                                <h4 className="font-medium mb-2">Experimental Statistics</h4>
+                                {(() => {
+                                  const discrepancies = experimentalResults.map(r => r.discrepancy);
+                                  const avgDiscrepancy = discrepancies.reduce((sum, d) => sum + d, 0) / discrepancies.length;
+                                  const minDiscrepancy = Math.min(...discrepancies);
+                                  const maxDiscrepancy = Math.max(...discrepancies);
+                                  
+                                  const variance = discrepancies.reduce((sum, d) => 
+                                    sum + Math.pow(d - avgDiscrepancy, 2), 0
+                                  ) / discrepancies.length;
+                                  const stdDev = Math.sqrt(variance);
+                                  const cv = avgDiscrepancy !== 0 ? (stdDev / Math.abs(avgDiscrepancy)) * 100 : 0;
+                                  const stderr = stdDev / Math.sqrt(repetitions);
+                                  
+                                  return (
+                                    <ul className="text-sm space-y-1">
+                                      <li><span className="font-medium">Mean Discrepancy:</span> {avgDiscrepancy.toFixed(6)}</li>
+                                      <li><span className="font-medium">Minimum:</span> {minDiscrepancy.toFixed(6)}</li>
+                                      <li><span className="font-medium">Maximum:</span> {maxDiscrepancy.toFixed(6)}</li>
+                                      <li><span className="font-medium">Standard Deviation:</span> {stdDev.toFixed(6)}</li>
+                                      <li><span className="font-medium">Coeff. of Variation:</span> {cv.toFixed(2)}%</li>
+                                      <li><span className="font-medium">Standard Error:</span> {stderr.toFixed(6)}</li>
+                                      <li><span className="font-medium">95% CI:</span> [{
+                                        (avgDiscrepancy - 1.96 * stderr).toFixed(6)
+                                      }, {
+                                        (avgDiscrepancy + 1.96 * stderr).toFixed(6)
+                                      }]</li>
+                                      <li><span className="font-medium">Data Points:</span> {experimentalResults.length}</li>
+                                    </ul>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                            
+                            {/* Sección 3: Comparación Teórica (SOLO SI HAY VALORES TEÓRICOS) */}
+                            {hasTheoretical && (
+                              <div className="mb-4 p-3 bg-green-50 rounded-lg">
+                                <h4 className="font-medium mb-2">Theoretical Comparison</h4>
+                                {(() => {
+                                  // Solo considerar puntos con valores teóricos
+                                  const pointsWithTheory = experimentalResults.filter(r => 
+                                    r.theoretical !== null && 
+                                    r.theoretical !== undefined && 
+                                    !isNaN(r.theoretical) && 
+                                    isFinite(r.theoretical)
+                                  );
+                                  
+                                  if (pointsWithTheory.length === 0) {
+                                    return <p className="text-sm text-gray-600">No valid theoretical values available</p>;
+                                  }
+                                  
+                                  const errors = pointsWithTheory.map(r => 
+                                    Math.abs(r.discrepancy - r.theoretical)
+                                  );
+                                  const errorPercents = pointsWithTheory.map(r => 
+                                    r.theoretical !== 0 ? 
+                                      (Math.abs(r.discrepancy - r.theoretical) / Math.abs(r.theoretical)) * 100 : 
+                                      0
+                                  );
+                                  
+                                  const avgError = errors.reduce((a, b) => a + b, 0) / errors.length;
+                                  const avgErrorPercent = errorPercents.reduce((a, b) => a + b, 0) / errorPercents.length;
+                                  const maxError = Math.max(...errors);
+                                  const maxErrorPercent = Math.max(...errorPercents);
+                                  
+                                  return (
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <ul className="text-sm space-y-1">
+                                        <li><span className="font-medium">Points with Theory:</span> {pointsWithTheory.length}/{experimentalResults.length}</li>
+                                        <li><span className="font-medium">Avg. Absolute Error:</span> {avgError.toFixed(6)}</li>
+                                        <li><span className="font-medium">Max. Absolute Error:</span> {maxError.toFixed(6)}</li>
+                                      </ul>
+                                      <ul className="text-sm space-y-1">
+                                        <li>
+                                          <span className="font-medium">Avg. Relative Error:</span> 
+                                          <span className={`ml-2 font-semibold ${
+                                            avgErrorPercent < 5 ? 'text-green-600' :
+                                            avgErrorPercent < 10 ? 'text-yellow-600' :
+                                            'text-red-600'
+                                          }`}>
+                                            {avgErrorPercent.toFixed(2)}%
+                                          </span>
+                                        </li>
+                                        <li><span className="font-medium">Max. Relative Error:</span> {maxErrorPercent.toFixed(2)}%</li>
+                                        <li className="text-xs text-gray-600 mt-2">
+                                          {avgErrorPercent < 5 ? '✅ Excellent agreement' :
+                                          avgErrorPercent < 10 ? '⚠️ Good agreement' :
+                                          '❌ Poor agreement - check parameters'}
+                                        </li>
+                                      </ul>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+                            
+                            {/* Sección 4: Gráfico de Distribución */}
+                            <div className="mb-4">
+                              <h4 className="font-medium mb-2">Discrepancy Distribution</h4>
+                              <div className="h-72">
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <ComposedChart
+                                    data={(() => {
+                                      const sortedData = [...experimentalResults].sort((a, b) => a.p - b.p);
+                                      
+                                      // Limitar puntos si son demasiados
+                                      const maxPoints = 200;
+                                      let dataToShow = sortedData;
+                                      if (sortedData.length > maxPoints) {
+                                        const step = Math.ceil(sortedData.length / maxPoints);
+                                        dataToShow = sortedData.filter((_, idx) => idx % step === 0);
+                                      }
+                                      
+                                      return dataToShow.map(result => {
+                                        let upperBound = result.discrepancy;
+                                        let lowerBound = result.discrepancy;
+                                        
+                                        // Calcular intervalos de confianza si hay múltiples muestras
+                                        if (result.discrepancies && result.discrepancies.length > 1) {
+                                          const mean = result.discrepancy;
+                                          const variance = result.discrepancies.reduce(
+                                            (sum, val) => sum + Math.pow(val - mean, 2), 0
+                                          ) / result.discrepancies.length;
+                                          const stdDev = Math.sqrt(variance);
+                                          
+                                          upperBound = mean + 2 * stdDev;
+                                          lowerBound = Math.max(0, mean - 2 * stdDev);
+                                        }
+                                        
+                                        return {
+                                          p: result.p,
+                                          experimental: result.discrepancy,
+                                          theoretical: result.theoretical,
+                                          upperBound,
+                                          lowerBound,
+                                          bandLower: lowerBound,
+                                          bandGap: upperBound - lowerBound,
+                                          hasTheory: result.theoretical !== null && 
+                                                    result.theoretical !== undefined && 
+                                                    !isNaN(result.theoretical)
+                                        };
+                                      });
+                                    })()}
+                                    margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
                                   >
-                                    <td className="px- py-2 text-sm font-medium text-gray-900">{result.p.toFixed(2)}</td>
-                                    <td className="px-2 py-2 text-sm text-gray-900">
-                                      <span className={`inline-flex px-2 py-1 text-xs rounded-full ${
-                                        result.algorithm === 'AMP' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
-                                      }`}>
-                                        {result.algorithm}
-                                      </span>
-                                    </td>
-                                    <td className="px-2 py-2 text-sm text-gray-900">
-                                      {result.theoretical ? result.theoretical.toFixed(6) : 'N/A'}
-                                    </td>
-                                    <td className="px-2 py-2 text-sm text-gray-900">{mean.toFixed(6)}</td>
-                                    <td className="px-2 py-2 text-sm text-gray-600">
-                                      [{ciLower.toFixed(4)}, {ciUpper.toFixed(4)}]
-                                    </td>
-                                    <td className={`px-2 py-2 text-sm font-medium ${errorColor}`}>
-                                      {error.toFixed(6)} ({errorPercent.toFixed(2)}%)
-                                    </td>
-                                    <td className="px-2 py-2 text-sm text-gray-600">
-                                      σ={stdDev.toFixed(4)}, CV={cv.toFixed(1)}%
-                                    </td>
-                                    <td className="px-2 py-2 text-xs text-gray-600">
-                                      <div className="relative group">
-                                        <span className="cursor-help">
-                                          [{min.toFixed(2)}, {max.toFixed(2)}]
-                                        </span>
-                                        {/* Tooltip con box plot info */}
-                                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
-                                          <div>Min: {min.toFixed(6)}</div>
-                                          <div>Q1: {q1.toFixed(6)}</div>
-                                          <div>Median: {median.toFixed(6)}</div>
-                                          <div>Q3: {q3.toFixed(6)}</div>
-                                          <div>Max: {max.toFixed(6)}</div>
-                                          <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full">
-                                            <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </td>
-                                    <td className="px-4 py-3 text-center">
-                                      {isSignificant ? (
-                                        <span className="text-orange-600 text-lg" title="Statistically significant difference">⚠️</span>
-                                      ) : (
-                                        <span className="text-green-600 text-lg" title="No significant difference">✓</span>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                                    <XAxis 
+                                      dataKey="p" 
+                                      type="number"
+                                      domain={[0, 1]}
+                                      ticks={[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]}
+                                      tickFormatter={v => v.toFixed(1)}
+                                      label={{ value: 'Probability (p)', position: 'insideBottom', offset: -5 }}
+                                    />
+                                    <YAxis 
+                                      label={{ value: 'Discrepancy', angle: -90, position: 'insideLeft' }}
+                                      domain={[0, 'dataMax']}
+                                      tickFormatter={v => v.toFixed(3)}
+                                    />
+                                    <Tooltip 
+                                      formatter={(value, name) => {
+                                        if (typeof value === 'number') {
+                                          return [value.toFixed(6), name];
+                                        }
+                                        return [value, name];
+                                      }}
+                                      labelFormatter={label => `p = ${Number(label).toFixed(3)}`}
+                                    />
+                                    <Legend />
+                                    
+                                    {/* Banda de confianza */}
+                                    {experimentalResults.some(r => r.discrepancies && r.discrepancies.length > 1) && (
+                                      <Area
+                                        type="monotone"
+                                        dataKey="bandGap"
+                                        stackId="1"
+                                        stroke="none"
+                                        fill="#3b82f6"
+                                        fillOpacity={0.1}
+                                        name="95% CI"
+                                      />
+                                    )}
+                                    
+                                    {/* Línea experimental */}
+                                    <Line
+                                      type="monotone"
+                                      dataKey="experimental"
+                                      stroke="#3b82f6"
+                                      strokeWidth={2}
+                                      dot={false}
+                                      name="Experimental"
+                                    />
+                                    
+                                    {/* Línea teórica (solo si existe) */}
+                                    {hasTheoretical && (
+                                      <Line
+                                        type="monotone"
+                                        dataKey="theoretical"
+                                        stroke="#ef4444"
+                                        strokeWidth={2}
+                                        strokeDasharray="5 5"
+                                        dot={false}
+                                        name="Theoretical"
+                                        connectNulls={false}
+                                      />
+                                    )}
+                                    
+                                    {/* Línea de referencia en p=0.5 */}
+                                    {experimentalResults.some(r => r.p === 0.5) && (
+                                      <ReferenceLine 
+                                        x={0.5} 
+                                        stroke="#666" 
+                                        strokeDasharray="3 3" 
+                                        label={{ value: "p=0.5", position: "top" }}
+                                      />
+                                    )}
+                                  </ComposedChart>
+                                </ResponsiveContainer>
+                              </div>
+                            </div>
+                            
+                            {/* Sección 5: Tabla de Datos Detallada */}
+                            <div className="mb-4">
+                              <h4 className="font-medium mb-2">Detailed Results Table</h4>
+                              <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                  <thead className="bg-gray-50">
+                                    <tr>
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">p</th>
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Algorithm</th>
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Experimental</th>
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Samples</th>
+                                      {hasTheoretical && (
+                                        <>
+                                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Theoretical</th>
+                                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Error</th>
+                                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Error %</th>
+                                        </>
                                       )}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                        
-                        {/* Leyenda */}
-                        <div className="mt-4 flex flex-wrap gap-4 text-xs text-gray-600">
-                          <div className="flex items-center gap-2">
-                            <span className="inline-block w-3 h-3 bg-green-100 rounded"></span>
-                            <span>Error {'<'} 5%</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="inline-block w-3 h-3 bg-yellow-100 rounded"></span>
-                            <span>Error 5-10%</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="inline-block w-3 h-3 bg-red-100 rounded"></span>
-                            <span>Error {'>'} 10%</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span>⚠️</span>
-                            <span>Statistically significant difference</span>
-                          </div>
-                        </div>
-                      </div>
-
-
-
-
-                      <div className="mt-6 text-center">
-                        <button
-                          onClick={prepareRangeExperiment}
-                          className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 transition-colors"
-                        >
-                          💾 Save Experiment
-                        </button>
-                      </div>
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Std Dev</th>
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">CV %</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="bg-white divide-y divide-gray-200">
+                                    {experimentalResults.map((result, idx) => {
+                                      const hasTheory = result.theoretical !== null && 
+                                                      result.theoretical !== undefined && 
+                                                      !isNaN(result.theoretical);
+                                      
+                                      // Calcular estadísticas adicionales
+                                      let stdDev = 0;
+                                      let cv = 0;
+                                      if (result.discrepancies && result.discrepancies.length > 1) {
+                                        const mean = result.discrepancy;
+                                        const variance = result.discrepancies.reduce(
+                                          (sum, val) => sum + Math.pow(val - mean, 2), 0
+                                        ) / result.discrepancies.length;
+                                        stdDev = Math.sqrt(variance);
+                                        cv = mean !== 0 ? (stdDev / Math.abs(mean)) * 100 : 0;
+                                      }
+                                      
+                                      const error = hasTheory ? Math.abs(result.theoretical - result.discrepancy) : null;
+                                      const errorPercent = hasTheory && result.theoretical !== 0 ? 
+                                        (error / Math.abs(result.theoretical)) * 100 : null;
+                                      
+                                      return (
+                                        <tr key={idx} className={idx % 2 === 0 ? "" : "bg-gray-50"}>
+                                          <td className="px-3 py-2 text-sm">{result.p.toFixed(3)}</td>
+                                          <td className="px-3 py-2 text-sm">
+                                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                              result.algorithm === "AMP" ? 
+                                                "bg-green-100 text-green-800" : 
+                                                "bg-red-100 text-red-800"
+                                            }`}>
+                                              {result.algorithm}
+                                            </span>
+                                          </td>
+                                          <td className="px-3 py-2 text-sm font-mono">
+                                            {result.discrepancy.toFixed(6)}
+                                          </td>
+                                          <td className="px-3 py-2 text-sm">{result.samples || repetitions}</td>
+                                          {hasTheoretical && (
+                                            <>
+                                              <td className="px-3 py-2 text-sm font-mono text-gray-600">
+                                                {hasTheory ? result.theoretical.toFixed(6) : 'N/A'}
+                                              </td>
+                                              <td className="px-3 py-2 text-sm font-mono">
+                                                {error !== null ? error.toFixed(6) : 'N/A'}
+                                              </td>
+                                              <td className="px-3 py-2 text-sm">
+                                                {errorPercent !== null ? (
+                                                  <span className={`font-medium ${
+                                                    errorPercent < 5 ? 'text-green-600' :
+                                                    errorPercent < 10 ? 'text-yellow-600' :
+                                                    'text-red-600'
+                                                  }`}>
+                                                    {errorPercent.toFixed(2)}%
+                                                  </span>
+                                                ) : 'N/A'}
+                                              </td>
+                                            </>
+                                          )}
+                                          <td className="px-3 py-2 text-sm font-mono">
+                                            {stdDev.toFixed(6)}
+                                          </td>
+                                          <td className="px-3 py-2 text-sm">
+                                            {cv.toFixed(2)}%
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                            
+                            {/* Botón para guardar experimento */}
+                            <div className="mt-6 text-center">
+                              <button
+                                onClick={prepareRangeExperiment}
+                                className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 transition-colors"
+                              >
+                                💾 Save Experiment
+                              </button>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 ) : (
                   <div className="bg-white p-8 rounded-lg shadow text-center text-gray-500">
-                    <p className="mb-4">Run a simulation first to see statistical analysis.</p>
+                    <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <p className="mb-4">No experimental data available for statistical analysis.</p>
+                    <p className="text-sm mb-4">Run a simulation first to see statistical analysis.</p>
                     <button 
                       onClick={() => setActiveTab('theory')}
-                      className="px-4 py-2 bg-blue-600 text-white rounded"
+                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
                     >
                       Go to Theoretical Comparison
                     </button>
