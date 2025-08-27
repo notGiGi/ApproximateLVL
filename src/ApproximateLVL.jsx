@@ -3850,7 +3850,7 @@ function showDetailsForProbability(p, algorithm = null) {
   // Determinar el algoritmo real
   const actualAlgo = algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm;
   
-  // Construir la clave
+  // ⚠️ FIX: Construir la clave SIN toFixed
   const key = `${p}_${actualAlgo}`;
   
   // Verificar si existen datos
@@ -5700,10 +5700,10 @@ function runRangeExperiments() {
                         const resolveAlgo = (algoDisplay, pNum) =>
                           algoDisplay === "auto" ? (pNum > 0.5 ? "AMP" : "FV") : algoDisplay;
 
-                        // IMPORTANTE: Cambiar formato de clave para coincidir con runRangeExperiments
+                        // ⚠️ FIX CRÍTICO: Usar formato consistente de clave SIN toFixed
                         const keyFor = (pNum, algoDisplay) => {
                           const actualAlgo = resolveAlgo(algoDisplay, pNum);
-                          return `${parseFloat(pNum).toFixed(6)}_${actualAlgo}`;
+                          return `${pNum}_${actualAlgo}`;  // Formato consistente con runRangeExperiments
                         };
 
                         // Probabilidades únicas disponibles
@@ -5747,7 +5747,7 @@ function runRangeExperiments() {
                                   </label>
                                   <select
                                     className="w-full p-2 border border-gray-300 rounded-md"
-                                    value={currentP != null ? parseFloat(currentP).toFixed(6) : ""}
+                                    value={currentP != null ? currentP : ""}  // Sin formateo
                                     onChange={(e) => {
                                       const pStr = e.target.value;
                                       const pNum = parseFloat(pStr);
@@ -5762,8 +5762,8 @@ function runRangeExperiments() {
                                   >
                                     <option value="">Select a probability...</option>
                                     {uniquePs.map((p, idx) => (
-                                      <option key={idx} value={parseFloat(p).toFixed(6)}>
-                                        p = {p.toFixed(3)}
+                                      <option key={idx} value={p}>  {/* Valor sin formatear */}
+                                        p = {p.toFixed(3)}  {/* Solo el display formateado */}
                                       </option>
                                     ))}
                                   </select>
