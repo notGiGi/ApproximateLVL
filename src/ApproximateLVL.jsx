@@ -74,7 +74,7 @@ function MultipleDimensionsTab() {
       newValues[processIndex] = Array(dimensions).fill(0);
     }
     newValues[processIndex][dimIndex] = parseFloat(value) || 0;
-    newValues[processIndex] = SimulationEngine.barycentric.normalizeBarycentric(newValues[processIndex]);
+    newValues[processIndex] = newValues[processIndex];
     setInitialValues(newValues);
   };
 
@@ -94,8 +94,8 @@ function MultipleDimensionsTab() {
     try {
       const meetingPoint =
         customMeetingPoint && Array.isArray(customMeetingPoint) && customMeetingPoint.length === dimensions
-          ? SimulationEngine.barycentric.normalizeBarycentric(customMeetingPoint)
-          : Array(dimensions).fill(1 / dimensions);
+          ? customMeetingPoint // Sin normalizar
+          : Array(dimensions).fill(0.5); // Punto medio del espacio [0,1]^d
 
       if (showAnimation) {
         // Animado (una sola corrida)
@@ -461,9 +461,7 @@ function MultipleDimensionsTab() {
                       className="w-20 p-1 border rounded text-sm" placeholder={`D${dIdx + 1}`} disabled={isRunning}
                     />
                   ))}
-                  <span className="text-xs text-gray-500">
-                    Sum: {(initialValues[pIdx]?.reduce((a, b) => a + b, 0) || 0).toFixed(3)}
-                  </span>
+
                 </div>
               ))}
             </div>
@@ -561,7 +559,7 @@ function MultipleDimensionsTab() {
                     {Array.from({ length: dimensions }).map((_, i) => (
                       <th key={i} className="text-right py-2">D{i + 1}</th>
                     ))}
-                    <th className="text-right py-2">Sum</th>
+                    {/* Columna Sum eliminada */}
                   </tr>
                 </thead>
                 <tbody>
@@ -569,17 +567,25 @@ function MultipleDimensionsTab() {
                     <tr key={idx} className={idx % 2 === 0 ? 'bg-gray-50' : ''}>
                       <td className="py-2 font-medium">P{idx + 1}</td>
                       {coords.map((value, i) => (
-                        <td key={i} className="text-right py-2">{value.toFixed(4)}</td>
+                        <td key={i} className="text-right py-2">
+                          {/* Formatear como en 1D: usar notación científica para valores muy pequeños */}
+                          {value < 1e-6 && value > 0 
+                            ? value.toExponential(3)
+                            : value.toFixed(4)}
+                        </td>
                       ))}
-                      <td className="text-right py-2 text-gray-500">
-                        {coords.reduce((a, b) => a + b, 0).toFixed(4)}
-                      </td>
+                      {/* ELIMINAR la columna Sum - ya no es relevante */}
                     </tr>
                   ))}
                 </tbody>
               </table>
               <div className="mt-2 text-sm text-gray-600">
-                Discrepancy ({distanceMetric}): {currentExperiment[currentRound]?.discrepancy.toFixed(6)}
+                Discrepancy ({distanceMetric}): {
+                  currentExperiment[currentRound]?.discrepancy < 1e-6 && 
+                  currentExperiment[currentRound]?.discrepancy > 0
+                    ? currentExperiment[currentRound].discrepancy.toExponential(3)
+                    : currentExperiment[currentRound]?.discrepancy.toFixed(6)
+                }
               </div>
             </div>
           </div>
@@ -953,11 +959,6 @@ function NProcessesControl({
     }
     newValues[processIdx][dimIdx] = value;
     
-    // Auto-normalizar para que sume 1
-    const sum = newValues[processIdx].reduce((a, b) => a + b, 0);
-    if (sum > 0) {
-      newValues[processIdx] = newValues[processIdx].map(v => v / sum);
-    }
     
     setBarycentricValues(newValues);
   };
@@ -1228,10 +1229,7 @@ function NProcessesControl({
                     onChange={(e) => {
                       const newPoint = customMeetingPoint || Array(dimensions).fill(1/dimensions);
                       newPoint[dIdx] = parseFloat(e.target.value);
-                      const sum = newPoint.reduce((a, b) => a + b, 0);
-                      if (sum > 0) {
-                        setCustomMeetingPoint(newPoint.map(v => v / sum));
-                      }
+                      setCustomMeetingPoint(newPoint);
                     }}
                     className="w-full px-1 py-0.5 text-xs border border-purple-300 rounded"
                     disabled={isRunning}
@@ -4491,11 +4489,6 @@ function CompleteDistributedComputingSimulator() {
     }
     newValues[processIdx][dimIdx] = value;
     
-    // Auto-normalizar
-    const sum = newValues[processIdx].reduce((a, b) => a + b, 0);
-    if (sum > 0) {
-      newValues[processIdx] = newValues[processIdx].map(v => v / sum);
-    }
     
     setBarycentricValues(newValues);
   };
@@ -4536,11 +4529,7 @@ function CompleteDistributedComputingSimulator() {
     const newPoint = customMeetingPoint || Array(dimensions).fill(1 / dimensions);
     newPoint[dimIdx] = value;
     
-    // Normalizar
-    const sum = newPoint.reduce((a, b) => a + b, 0);
-    if (sum > 0) {
-      setCustomMeetingPoint(newPoint.map(v => v / sum));
-    }
+    setCustomMeetingPoint(newPoint);
   };
 
   // Componente de visualización del simplex

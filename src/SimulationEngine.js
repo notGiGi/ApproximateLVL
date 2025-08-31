@@ -1612,190 +1612,570 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
   return this.runMultipleExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint);
 },
 
-// 3) NAMESPACE BARYCENTRIC (todo encapsulado; usa this.* interno)
-barycentric: {
-  // -------- Utils ----------
-  isValidBarycentric(coords) {
-    if (!Array.isArray(coords)) return false;
-    const sum = coords.reduce((a, b) => a + b, 0);
-    return Math.abs(sum - 1) < 1e-10 && coords.every(c => c >= 0);
-  },
-  normalizeBarycentric(coords) {
-    const sum = coords.reduce((a, b) => a + b, 0);
-    if (sum === 0) return coords.map(() => 1 / coords.length);
-    return coords.map(c => Math.max(0, c) / sum);
-  },
-  randomBarycentric(dimensions) {
-    const raw = Array(dimensions).fill(0).map(() => -Math.log(Math.random()));
-    return this.normalizeBarycentric(raw);
-  },
-  scalarToBarycentric(value, dimensions = 2) {
-    if (dimensions === 2) return [1 - value, value];
-    const coords = Array(dimensions).fill(0);
-    coords[0] = 1 - value; coords[1] = value;
-    return coords;
-  },
-  barycentricToScalar(coords) {
-    if (coords.length === 2) return coords[1];
-    return 1 - coords[0];
+
+
+multidimensional: {
+  // ============================================
+  // UTILIDADES BÁSICAS
+  // ============================================
+  
+  /**
+   * Calcula la distancia euclidiana entre dos vectores
+   */
+  euclideanDistance(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return 0;
+    const dim = Math.max(a.length, b.length);
+    let sum = 0;
+    for (let i = 0; i < dim; i++) {
+      const diff = (a[i] || 0) - (b[i] || 0);
+      sum += diff * diff;
+    }
+    return Math.sqrt(sum);
   },
 
-  // -------- Distancias/Discrepancia ----------
-  euclideanDistance(a, b) {
-    return Math.sqrt(a.reduce((s, x, i) => s + Math.pow(x - (b[i] || 0), 2), 0));
-  },
+  /**
+   * Calcula la distancia L1 (Manhattan) entre dos vectores
+   */
   l1Distance(a, b) {
-    return a.reduce((s, x, i) => s + Math.abs(x - (b[i] || 0)), 0);
+    if (!Array.isArray(a) || !Array.isArray(b)) return 0;
+    const dim = Math.max(a.length, b.length);
+    let sum = 0;
+    for (let i = 0; i < dim; i++) {
+      sum += Math.abs((a[i] || 0) - (b[i] || 0));
+    }
+    return sum;
   },
+
+  /**
+   * Calcula la distancia L∞ (máximo) entre dos vectores
+   */
   lInfDistance(a, b) {
-    return Math.max(...a.map((x, i) => Math.abs(x - (b[i] || 0))));
+    if (!Array.isArray(a) || !Array.isArray(b)) return 0;
+    const dim = Math.max(a.length, b.length);
+    let maxDiff = 0;
+    for (let i = 0; i < dim; i++) {
+      const diff = Math.abs((a[i] || 0) - (b[i] || 0));
+      if (diff > maxDiff) maxDiff = diff;
+    }
+    return maxDiff;
   },
+
+  /**
+   * Calcula la discrepancia (distancia máxima entre cualquier par de procesos)
+   */
   calculateDiscrepancy(values, metric = 'euclidean') {
     if (!values || values.length < 2) return 0;
-    const dist = { euclidean: this.euclideanDistance, l1: this.l1Distance, linf: this.lInfDistance }[metric] || this.euclideanDistance;
-    let maxD = 0;
+    
+    const distanceFn = 
+      metric === 'l1' ? this.l1Distance.bind(this) :
+      metric === 'linf' ? this.lInfDistance.bind(this) :
+      this.euclideanDistance.bind(this);
+    
+    let maxDiscrepancy = 0;
     for (let i = 0; i < values.length; i++) {
       for (let j = i + 1; j < values.length; j++) {
-        const d = dist.call(this, values[i], values[j]);
-        if (d > maxD) maxD = d;
+        const d = distanceFn(values[i], values[j]);
+        if (d > maxDiscrepancy) maxDiscrepancy = d;
       }
     }
-    return maxD;
+    return maxDiscrepancy;
   },
 
-  // -------- Algoritmos ----------
-  areDifferent(a, b, eps = 1e-10) { return this.euclideanDistance(a, b) > eps; },
-  barycentricAMP(cur, rec, meetingPoint = null, dimensions = null) {
-    const dim = dimensions || cur.length;
-    const mp = meetingPoint || Array(dim).fill(1 / dim);
-    return (rec && this.areDifferent(cur, rec)) ? mp : cur;
-  },
-  barycentricFV(cur, rec) {
-    return (rec && this.areDifferent(cur, rec)) ? [...rec] : cur;
-  },
-  barycentricInterpolate(cur, rec, alpha = 0.5) {
-    if (!rec || !this.areDifferent(cur, rec)) return cur;
-    const v = cur.map((c, i) => c * (1 - alpha) + (rec[i] || 0) * alpha);
-    return this.normalizeBarycentric(v);
+  /**
+   * Verifica si dos vectores son diferentes (con tolerancia epsilon)
+   */
+  areDifferent(a, b, epsilon = 1e-10) {
+    return this.euclideanDistance(a, b) > epsilon;
   },
 
-  // -------- Simulación ----------
-  simulateBarycentricRound(values, p, algorithm = "auto", meetingPoint = null) {
+  /**
+   * Copia profunda de un vector
+   */
+  cloneVector(v) {
+    return Array.isArray(v) ? [...v] : v;
+  },
+
+  /**
+   * Copia profunda de una matriz de vectores
+   */
+  cloneMatrix(matrix) {
+    return matrix.map(v => this.cloneVector(v));
+  },
+
+  // ============================================
+  // ALGORITMOS MULTI-DIMENSIONALES
+  // ============================================
+
+  /**
+   * AMP Multi-dimensional: Si recibe valor diferente, va al meeting point
+   */
+  multiAMP(currentValue, receivedValue, meetingPoint) {
+    if (!receivedValue || !this.areDifferent(currentValue, receivedValue)) {
+      return this.cloneVector(currentValue);
+    }
+    // Si recibió un valor diferente, ir al meeting point
+    return this.cloneVector(meetingPoint);
+  },
+
+  /**
+   * FV Multi-dimensional: Si recibe valor diferente, adopta ese valor
+   */
+  multiFV(currentValue, receivedValue) {
+    if (!receivedValue || !this.areDifferent(currentValue, receivedValue)) {
+      return this.cloneVector(currentValue);
+    }
+    // Si recibió un valor diferente, adoptarlo
+    return this.cloneVector(receivedValue);
+  },
+
+  /**
+   * MIN Multi-dimensional: Mantiene el mínimo componente por componente
+   */
+  multiMIN(currentValue, knownValues) {
+    if (!knownValues || knownValues.length === 0) {
+      return this.cloneVector(currentValue);
+    }
+    
+    // Incluir el valor actual en los conocidos
+    const allValues = [currentValue, ...knownValues];
+    const dim = currentValue.length;
+    const result = [];
+    
+    // Para cada dimensión, tomar el mínimo
+    for (let d = 0; d < dim; d++) {
+      let minVal = currentValue[d];
+      for (const val of allValues) {
+        if (val[d] < minVal) minVal = val[d];
+      }
+      result.push(minVal);
+    }
+    
+    return result;
+  },
+
+  /**
+   * RECURSIVE AMP Multi-dimensional
+   */
+  multiRecursiveAMP(currentValue, receivedValues, meetingPoint, depth = 0) {
+    if (!receivedValues || receivedValues.length === 0) {
+      return this.cloneVector(currentValue);
+    }
+    
+    // Encontrar valores diferentes
+    const differentValues = receivedValues.filter(v => this.areDifferent(currentValue, v));
+    
+    if (differentValues.length === 0) {
+      return this.cloneVector(currentValue);
+    }
+    
+    // Si hay múltiples valores diferentes, aplicar recursivamente
+    if (differentValues.length > 1 && depth < 5) {
+      // Calcular centroide de los valores diferentes
+      const dim = currentValue.length;
+      const centroid = Array(dim).fill(0);
+      for (const val of differentValues) {
+        for (let d = 0; d < dim; d++) {
+          centroid[d] += val[d];
+        }
+      }
+      for (let d = 0; d < dim; d++) {
+        centroid[d] /= differentValues.length;
+      }
+      return this.multiRecursiveAMP(currentValue, [centroid], meetingPoint, depth + 1);
+    }
+    
+    // Caso base: ir al meeting point
+    return this.cloneVector(meetingPoint);
+  },
+
+  // ============================================
+  // SIMULACIÓN DE RONDA
+  // ============================================
+
+  /**
+   * Simula una ronda de comunicación en múltiples dimensiones
+   */
+  simulateMultiDimensionalRound(values, p, algorithm = "auto", meetingPoint = null) {
     const n = values.length;
-    const d = values[0]?.length || 0;
-    if (!values.every(v => this.isValidBarycentric(v))) throw new Error("Invalid barycentric coordinates");
-
+    if (n === 0) return { newValues: [], messages: [], messageDelivery: [], discrepancy: 0 };
+    
+    const dim = values[0].length;
+    
+    // Determinar algoritmo
     let algo = algorithm;
-    if (algo === "auto") algo = p > 0.5 ? "AMP" : "FV";
-    const mp = meetingPoint || Array(d).fill(1 / d);
-
-    const newValues = values.map(v => [...v]);
-    const messages = []; const delivery = [];
-
-    for (let i = 0; i < n; i++) {
-      const rowMsgs = []; const rowDel = [];
-      for (let j = 0; j < n; j++) {
-        if (i === j) continue;
-        const ok = Math.random() < p;
-        rowMsgs.push({ to: j, value: [...values[i]], delivered: ok });
-        rowDel.push(ok);
-      }
-      messages.push(rowMsgs); delivery.push(rowDel);
+    if (algo === "auto") {
+      algo = p > 0.5 ? "AMP" : "FV";
     }
-
-    for (let i = 0; i < n; i++) {
-      const rec = [];
-      for (let s = 0; s < n; s++) {
-        if (s === i || !messages[s]) continue;
-        const m = messages[s].find(mm => mm.to === i);
-        if (m && m.delivered) rec.push(m.value);
-      }
-      if (rec.length > 0) {
-        const diff = rec.find(v => this.areDifferent(values[i], v));
-        if (diff) {
-          if (algo === "AMP") newValues[i] = this.barycentricAMP(values[i], diff, mp, d);
-          else if (algo === "FV") newValues[i] = this.barycentricFV(values[i], diff);
-          else if (algo === "INTERPOLATE") newValues[i] = this.barycentricInterpolate(values[i], diff, (typeof algorithm === 'object' && typeof algorithm.alpha === 'number') ? algorithm.alpha : 0.5);
+    
+    // Meeting point por defecto: centroide
+    if (!meetingPoint) {
+      meetingPoint = Array(dim).fill(0);
+      for (const val of values) {
+        for (let d = 0; d < dim; d++) {
+          meetingPoint[d] += val[d] / n;
         }
       }
     }
-
+    
+    // Inicializar nuevos valores
+    const newValues = this.cloneMatrix(values);
+    const messages = [];
+    const messageDelivery = [];
+    
+    // Fase 1: Enviar mensajes
+    for (let sender = 0; sender < n; sender++) {
+      const senderMessages = [];
+      const deliveryRow = [];
+      
+      for (let receiver = 0; receiver < n; receiver++) {
+        if (sender === receiver) continue;
+        
+        const delivered = Math.random() < p;
+        senderMessages.push({
+          to: receiver,
+          value: this.cloneVector(values[sender]),
+          delivered: delivered
+        });
+        deliveryRow.push(delivered);
+      }
+      
+      messages.push(senderMessages);
+      messageDelivery.push(deliveryRow);
+    }
+    
+    // Fase 2: Procesar mensajes recibidos y actualizar valores
+    for (let receiver = 0; receiver < n; receiver++) {
+      const receivedMessages = [];
+      const knownValues = [values[receiver]]; // Para MIN
+      
+      // Recopilar mensajes recibidos
+      for (let sender = 0; sender < n; sender++) {
+        if (sender === receiver) continue;
+        
+        const msg = messages[sender].find(m => m.to === receiver);
+        if (msg && msg.delivered) {
+          receivedMessages.push(msg.value);
+          knownValues.push(msg.value);
+        }
+      }
+      
+      // Si no recibió mensajes, mantener valor actual
+      if (receivedMessages.length === 0) {
+        continue;
+      }
+      
+      // Encontrar primer mensaje con valor diferente
+      const differentValue = receivedMessages.find(v => 
+        this.areDifferent(values[receiver], v)
+      );
+      
+      // Aplicar algoritmo según corresponda
+      switch (algo) {
+        case "AMP":
+          if (differentValue) {
+            newValues[receiver] = this.multiAMP(values[receiver], differentValue, meetingPoint);
+          }
+          break;
+          
+        case "FV":
+          if (differentValue) {
+            newValues[receiver] = this.multiFV(values[receiver], differentValue);
+          }
+          break;
+          
+        case "MIN":
+          newValues[receiver] = this.multiMIN(values[receiver], receivedMessages);
+          break;
+          
+        case "RECURSIVE AMP":
+          newValues[receiver] = this.multiRecursiveAMP(
+            values[receiver], 
+            receivedMessages, 
+            meetingPoint
+          );
+          break;
+          
+        default:
+          // Algoritmo no reconocido, mantener valor
+          break;
+      }
+    }
+    
+    // Calcular discrepancia final
+    const discrepancy = this.calculateDiscrepancy(newValues);
+    
     return {
       newValues,
       messages,
-      messageDelivery: delivery,
-      discrepancy: this.calculateDiscrepancy(newValues),
-      dimensions: d,
-      algorithm: algo
+      messageDelivery,
+      discrepancy,
+      algorithm: algo,
+      dimensions: dim
     };
   },
 
-  runBarycentricExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null) {
-    const hist = [];
-    let cur = initialValues.map(v => [...v]);
-    hist.push({ round: 0, values: cur.map(v => [...v]), discrepancy: this.calculateDiscrepancy(cur), algorithm: algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm });
-    for (let r = 1; r <= rounds; r++) {
-      const res = this.simulateBarycentricRound(cur, p, algorithm, meetingPoint);
-      cur = res.newValues;
-      hist.push({ round: r, values: cur.map(v => [...v]), discrepancy: res.discrepancy, messages: res.messages, messageDelivery: res.messageDelivery });
-    }
-    return hist;
-  },
+  // ============================================
+  // EXPERIMENTO COMPLETO
+  // ============================================
 
-  runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null) {
-    const experiments = [];
-    const byRound = Array(rounds + 1).fill(0).map(() => []);
-    for (let k = 0; k < repetitions; k++) {
-      const h = this.runBarycentricExperiment(initialValues, p, rounds, algorithm, meetingPoint);
-      experiments.push(h);
-      h.forEach((state, r) => byRound[r].push(state.discrepancy));
-    }
-    const stats = byRound.map((arr, r) => {
-      const mean = arr.reduce((a, b) => a + b, 0) / (arr.length || 1);
-      const sorted = [...arr].sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-      const min = arr.length ? Math.min(...arr) : 0;
-      const max = arr.length ? Math.max(...arr) : 0;
-      const variance = arr.length ? arr.reduce((s, d) => s + Math.pow(d - mean, 2), 0) / arr.length : 0;
-      return { round: r, mean, median, min, max, stdDev: Math.sqrt(variance), samples: arr.length };
+  /**
+   * Ejecuta un experimento completo de múltiples rondas
+   */
+  runMultiDimensionalExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null) {
+    const history = [];
+    let currentValues = this.cloneMatrix(initialValues);
+    
+    // Estado inicial
+    history.push({
+      round: 0,
+      values: this.cloneMatrix(currentValues),
+      discrepancy: this.calculateDiscrepancy(currentValues),
+      algorithm: algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm
     });
-    return { experiments, statistics: stats, finalDiscrepancy: { ...stats[rounds] } };
+    
+    // Ejecutar rondas
+    for (let round = 1; round <= rounds; round++) {
+      const result = this.simulateMultiDimensionalRound(
+        currentValues, 
+        p, 
+        algorithm, 
+        meetingPoint
+      );
+      
+      currentValues = result.newValues;
+      
+      history.push({
+        round,
+        values: this.cloneMatrix(currentValues),
+        discrepancy: result.discrepancy,
+        messages: result.messages,
+        messageDelivery: result.messageDelivery,
+        algorithm: result.algorithm
+      });
+    }
+    
+    return history;
   },
 
-  // -------- Helpers de inicialización ----------
-  generateInitialBarycentric(processCount, dimensions, mode = 'vertices') {
-    const vals = [];
-    if (mode === 'vertices') {
-      for (let i = 0; i < processCount; i++) { const v = Array(dimensions).fill(0); v[i % dimensions] = 1; vals.push(v); }
-      return vals;
+  /**
+   * Ejecuta múltiples experimentos para análisis estadístico
+   */
+  runMultipleMultiDimensionalExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null) {
+    const experiments = [];
+    const roundStats = Array(rounds + 1).fill(0).map(() => []);
+    
+    for (let rep = 0; rep < repetitions; rep++) {
+      const history = this.runMultiDimensionalExperiment(
+        initialValues, 
+        p, 
+        rounds, 
+        algorithm, 
+        meetingPoint
+      );
+      
+      experiments.push(history);
+      
+      // Recopilar estadísticas por ronda
+      history.forEach((state, roundIdx) => {
+        roundStats[roundIdx].push(state.discrepancy);
+      });
     }
-    if (mode === 'random') {
-      for (let i = 0; i < processCount; i++) vals.push(this.randomBarycentric(dimensions));
-      return vals;
-    }
-    if (mode === 'centroid') {
-      const c = Array(dimensions).fill(1 / dimensions);
-      for (let i = 0; i < processCount; i++) vals.push([...c]);
-      return vals;
-    }
-    if (mode === 'custom') return [];
-    throw new Error(`Unknown initialization mode: ${mode}`);
+    
+    // Calcular estadísticas
+    const statistics = roundStats.map((discrepancies, round) => {
+      if (discrepancies.length === 0) {
+        return { round, mean: 0, min: 0, max: 0, stdDev: 0, samples: 0 };
+      }
+      
+      const mean = discrepancies.reduce((a, b) => a + b, 0) / discrepancies.length;
+      const min = Math.min(...discrepancies);
+      const max = Math.max(...discrepancies);
+      
+      const variance = discrepancies.reduce((sum, d) => 
+        sum + Math.pow(d - mean, 2), 0
+      ) / discrepancies.length;
+      
+      return {
+        round,
+        mean,
+        min,
+        max,
+        stdDev: Math.sqrt(variance),
+        samples: discrepancies.length
+      };
+    });
+    
+    return {
+      experiments,
+      statistics,
+      finalDiscrepancy: statistics[rounds]
+    };
   },
 
-  convertCoordinates(values, fromType, toType, dimensions) {
-    if (fromType === toType) return values;
-    if (fromType === 'scalar' && toType === 'barycentric') return values.map(v => this.scalarToBarycentric(v, dimensions));
-    if (fromType === 'barycentric' && toType === 'scalar') return values.map(v => this.barycentricToScalar(v));
-    throw new Error(`Unsupported conversion: ${fromType} to ${toType}`);
+  // ============================================
+  // GENERACIÓN DE VALORES INICIALES
+  // ============================================
+
+  /**
+   * Genera valores iniciales para experimentos multi-dimensionales
+   */
+  generateInitialValues(processCount, dimensions, mode = 'corners', range = [0, 1]) {
+    const [minVal, maxVal] = range;
+    const values = [];
+    
+    switch (mode) {
+      case 'corners':
+        // Colocar procesos en las esquinas del hipercubo
+        for (let i = 0; i < processCount; i++) {
+          const val = [];
+          for (let d = 0; d < dimensions; d++) {
+            // Usar patrón binario para distribuir en esquinas
+            val.push(((i >> d) & 1) ? maxVal : minVal);
+          }
+          values.push(val);
+        }
+        break;
+        
+      case 'random':
+        // Valores aleatorios en el rango
+        for (let i = 0; i < processCount; i++) {
+          const val = [];
+          for (let d = 0; d < dimensions; d++) {
+            val.push(minVal + Math.random() * (maxVal - minVal));
+          }
+          values.push(val);
+        }
+        break;
+        
+      case 'center':
+        // Todos en el centro
+        const center = Array(dimensions).fill((minVal + maxVal) / 2);
+        for (let i = 0; i < processCount; i++) {
+          values.push([...center]);
+        }
+        break;
+        
+      case 'spread':
+        // Distribuir uniformemente en el espacio
+        for (let i = 0; i < processCount; i++) {
+          const val = [];
+          for (let d = 0; d < dimensions; d++) {
+            // Distribuir uniformemente en cada dimensión
+            const step = (maxVal - minVal) / (processCount - 1 || 1);
+            val.push(minVal + (i % processCount) * step);
+          }
+          values.push(val);
+        }
+        break;
+        
+      case 'vertices':
+        // Como corners pero limitado a 2^dimensions procesos
+        const numVertices = Math.pow(2, dimensions);
+        const actualCount = Math.min(processCount, numVertices);
+        for (let i = 0; i < actualCount; i++) {
+          const val = [];
+          for (let d = 0; d < dimensions; d++) {
+            val.push(((i >> d) & 1) ? maxVal : minVal);
+          }
+          values.push(val);
+        }
+        // Si necesitamos más procesos, agregar aleatorios
+        for (let i = actualCount; i < processCount; i++) {
+          const val = [];
+          for (let d = 0; d < dimensions; d++) {
+            val.push(minVal + Math.random() * (maxVal - minVal));
+          }
+          values.push(val);
+        }
+        break;
+        
+      default:
+        throw new Error(`Unknown initialization mode: ${mode}`);
+    }
+    
+    return values;
+  },
+
+  /**
+   * Convierte valores escalares a multi-dimensionales (para compatibilidad)
+   */
+  scalarToMultiDimensional(scalarValues, dimensions) {
+    return scalarValues.map(v => {
+      const vec = Array(dimensions).fill(0);
+      vec[0] = v; // Poner el valor escalar en la primera dimensión
+      return vec;
+    });
+  },
+
+  /**
+   * Convierte valores multi-dimensionales a escalares (proyección)
+   */
+  multiDimensionalToScalar(multiValues) {
+    return multiValues.map(vec => vec[0] || 0);
   }
 },
 
-// 4) (opcional) alias cortos si los quieres en el root:
+// Alias para compatibilidad con código existente
+barycentric: {
+  // Métodos de compatibilidad - usan SimulationEngine en lugar de this
+  generateInitialBarycentric(processCount, dimensions, mode) {
+    return SimulationEngine.multidimensional.generateInitialValues(processCount, dimensions, mode);
+  },
+  
+  normalizeBarycentric(coords) {
+    return coords; // Ya no normalizamos
+  },
+  
+  isValidBarycentric(coords) {
+    return Array.isArray(coords);
+  },
+  
+  calculateDiscrepancy(values, metric) {
+    return SimulationEngine.multidimensional.calculateDiscrepancy(values, metric);
+  },
+  
+  simulateBarycentricRound(values, p, algorithm, meetingPoint) {
+    return SimulationEngine.multidimensional.simulateMultiDimensionalRound(values, p, algorithm, meetingPoint);
+  },
+  
+  runBarycentricExperiment(initialValues, p, rounds, algorithm, meetingPoint) {
+    return SimulationEngine.multidimensional.runMultiDimensionalExperiment(initialValues, p, rounds, algorithm, meetingPoint);
+  },
+  
+  runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint) {
+    return SimulationEngine.multidimensional.runMultipleMultiDimensionalExperiments(
+      initialValues, p, rounds, repetitions, algorithm, meetingPoint
+    );
+  },
+  
+  randomBarycentric(dimensions) {
+    return Array(dimensions).fill(0).map(() => Math.random());
+  },
+  
+  // Métodos adicionales de compatibilidad
+  euclideanDistance(a, b) {
+    return SimulationEngine.multidimensional.euclideanDistance(a, b);
+  },
+  
+  l1Distance(a, b) {
+    return SimulationEngine.multidimensional.l1Distance(a, b);
+  },
+  
+  lInfDistance(a, b) {
+    return SimulationEngine.multidimensional.lInfDistance(a, b);
+  },
+  
+  areDifferent(a, b, eps) {
+    return SimulationEngine.multidimensional.areDifferent(a, b, eps);
+  }
+},
+
+// Alias para compatibilidad - redirigen al nuevo sistema multidimensional
 runBarycentricExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null) {
-  return this.barycentric.runBarycentricExperiment(initialValues, p, rounds, algorithm, meetingPoint);
+  return this.multidimensional.runMultiDimensionalExperiment(initialValues, p, rounds, algorithm, meetingPoint);
 },
 runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null) {
-  return this.barycentric.runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint);
+  return this.multidimensional.runMultipleMultiDimensionalExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint);
 },
   /**
    * Validación de las fórmulas de Teo. 4 (+ máximo en p=0.5).
