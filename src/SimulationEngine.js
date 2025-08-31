@@ -1585,7 +1585,218 @@ simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPo
       improvement: (conditionedDiscrepancy !== 0) ? (standardDiscrepancy / conditionedDiscrepancy) : Infinity
     };
   },
+// 1) AUTODETECCIÓN (scalar vs baricéntrico)
+isBarycentricMatrix(values) {
+  return Array.isArray(values) &&
+         values.length > 0 &&
+         Array.isArray(values[0]) &&
+         typeof values[0][0] === 'number' &&
+         values.every(row =>
+           Array.isArray(row) &&
+           this.barycentric.isValidBarycentric(row)
+         );
+},
 
+// 2) RUTAS AUTO-ESPACIO (no rompen APIs)
+runExperimentAutoSpace(initialValues, p, rounds = 1, algorithm = "auto", meetingPoint = 0.5) {
+  if (this.isBarycentricMatrix(initialValues)) {
+    return this.barycentric.runBarycentricExperiment(initialValues, p, rounds, algorithm, meetingPoint);
+  }
+  return this.runExperiment(initialValues, p, rounds, algorithm, meetingPoint);
+},
+
+runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
+  if (this.isBarycentricMatrix(initialValues)) {
+    return this.barycentric.runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint);
+  }
+  return this.runMultipleExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint);
+},
+
+// 3) NAMESPACE BARYCENTRIC (todo encapsulado; usa this.* interno)
+barycentric: {
+  // -------- Utils ----------
+  isValidBarycentric(coords) {
+    if (!Array.isArray(coords)) return false;
+    const sum = coords.reduce((a, b) => a + b, 0);
+    return Math.abs(sum - 1) < 1e-10 && coords.every(c => c >= 0);
+  },
+  normalizeBarycentric(coords) {
+    const sum = coords.reduce((a, b) => a + b, 0);
+    if (sum === 0) return coords.map(() => 1 / coords.length);
+    return coords.map(c => Math.max(0, c) / sum);
+  },
+  randomBarycentric(dimensions) {
+    const raw = Array(dimensions).fill(0).map(() => -Math.log(Math.random()));
+    return this.normalizeBarycentric(raw);
+  },
+  scalarToBarycentric(value, dimensions = 2) {
+    if (dimensions === 2) return [1 - value, value];
+    const coords = Array(dimensions).fill(0);
+    coords[0] = 1 - value; coords[1] = value;
+    return coords;
+  },
+  barycentricToScalar(coords) {
+    if (coords.length === 2) return coords[1];
+    return 1 - coords[0];
+  },
+
+  // -------- Distancias/Discrepancia ----------
+  euclideanDistance(a, b) {
+    return Math.sqrt(a.reduce((s, x, i) => s + Math.pow(x - (b[i] || 0), 2), 0));
+  },
+  l1Distance(a, b) {
+    return a.reduce((s, x, i) => s + Math.abs(x - (b[i] || 0)), 0);
+  },
+  lInfDistance(a, b) {
+    return Math.max(...a.map((x, i) => Math.abs(x - (b[i] || 0))));
+  },
+  calculateDiscrepancy(values, metric = 'euclidean') {
+    if (!values || values.length < 2) return 0;
+    const dist = { euclidean: this.euclideanDistance, l1: this.l1Distance, linf: this.lInfDistance }[metric] || this.euclideanDistance;
+    let maxD = 0;
+    for (let i = 0; i < values.length; i++) {
+      for (let j = i + 1; j < values.length; j++) {
+        const d = dist.call(this, values[i], values[j]);
+        if (d > maxD) maxD = d;
+      }
+    }
+    return maxD;
+  },
+
+  // -------- Algoritmos ----------
+  areDifferent(a, b, eps = 1e-10) { return this.euclideanDistance(a, b) > eps; },
+  barycentricAMP(cur, rec, meetingPoint = null, dimensions = null) {
+    const dim = dimensions || cur.length;
+    const mp = meetingPoint || Array(dim).fill(1 / dim);
+    return (rec && this.areDifferent(cur, rec)) ? mp : cur;
+  },
+  barycentricFV(cur, rec) {
+    return (rec && this.areDifferent(cur, rec)) ? [...rec] : cur;
+  },
+  barycentricInterpolate(cur, rec, alpha = 0.5) {
+    if (!rec || !this.areDifferent(cur, rec)) return cur;
+    const v = cur.map((c, i) => c * (1 - alpha) + (rec[i] || 0) * alpha);
+    return this.normalizeBarycentric(v);
+  },
+
+  // -------- Simulación ----------
+  simulateBarycentricRound(values, p, algorithm = "auto", meetingPoint = null) {
+    const n = values.length;
+    const d = values[0]?.length || 0;
+    if (!values.every(v => this.isValidBarycentric(v))) throw new Error("Invalid barycentric coordinates");
+
+    let algo = algorithm;
+    if (algo === "auto") algo = p > 0.5 ? "AMP" : "FV";
+    const mp = meetingPoint || Array(d).fill(1 / d);
+
+    const newValues = values.map(v => [...v]);
+    const messages = []; const delivery = [];
+
+    for (let i = 0; i < n; i++) {
+      const rowMsgs = []; const rowDel = [];
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const ok = Math.random() < p;
+        rowMsgs.push({ to: j, value: [...values[i]], delivered: ok });
+        rowDel.push(ok);
+      }
+      messages.push(rowMsgs); delivery.push(rowDel);
+    }
+
+    for (let i = 0; i < n; i++) {
+      const rec = [];
+      for (let s = 0; s < n; s++) {
+        if (s === i || !messages[s]) continue;
+        const m = messages[s].find(mm => mm.to === i);
+        if (m && m.delivered) rec.push(m.value);
+      }
+      if (rec.length > 0) {
+        const diff = rec.find(v => this.areDifferent(values[i], v));
+        if (diff) {
+          if (algo === "AMP") newValues[i] = this.barycentricAMP(values[i], diff, mp, d);
+          else if (algo === "FV") newValues[i] = this.barycentricFV(values[i], diff);
+          else if (algo === "INTERPOLATE") newValues[i] = this.barycentricInterpolate(values[i], diff, (typeof algorithm === 'object' && typeof algorithm.alpha === 'number') ? algorithm.alpha : 0.5);
+        }
+      }
+    }
+
+    return {
+      newValues,
+      messages,
+      messageDelivery: delivery,
+      discrepancy: this.calculateDiscrepancy(newValues),
+      dimensions: d,
+      algorithm: algo
+    };
+  },
+
+  runBarycentricExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null) {
+    const hist = [];
+    let cur = initialValues.map(v => [...v]);
+    hist.push({ round: 0, values: cur.map(v => [...v]), discrepancy: this.calculateDiscrepancy(cur), algorithm: algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm });
+    for (let r = 1; r <= rounds; r++) {
+      const res = this.simulateBarycentricRound(cur, p, algorithm, meetingPoint);
+      cur = res.newValues;
+      hist.push({ round: r, values: cur.map(v => [...v]), discrepancy: res.discrepancy, messages: res.messages, messageDelivery: res.messageDelivery });
+    }
+    return hist;
+  },
+
+  runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null) {
+    const experiments = [];
+    const byRound = Array(rounds + 1).fill(0).map(() => []);
+    for (let k = 0; k < repetitions; k++) {
+      const h = this.runBarycentricExperiment(initialValues, p, rounds, algorithm, meetingPoint);
+      experiments.push(h);
+      h.forEach((state, r) => byRound[r].push(state.discrepancy));
+    }
+    const stats = byRound.map((arr, r) => {
+      const mean = arr.reduce((a, b) => a + b, 0) / (arr.length || 1);
+      const sorted = [...arr].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+      const min = arr.length ? Math.min(...arr) : 0;
+      const max = arr.length ? Math.max(...arr) : 0;
+      const variance = arr.length ? arr.reduce((s, d) => s + Math.pow(d - mean, 2), 0) / arr.length : 0;
+      return { round: r, mean, median, min, max, stdDev: Math.sqrt(variance), samples: arr.length };
+    });
+    return { experiments, statistics: stats, finalDiscrepancy: { ...stats[rounds] } };
+  },
+
+  // -------- Helpers de inicialización ----------
+  generateInitialBarycentric(processCount, dimensions, mode = 'vertices') {
+    const vals = [];
+    if (mode === 'vertices') {
+      for (let i = 0; i < processCount; i++) { const v = Array(dimensions).fill(0); v[i % dimensions] = 1; vals.push(v); }
+      return vals;
+    }
+    if (mode === 'random') {
+      for (let i = 0; i < processCount; i++) vals.push(this.randomBarycentric(dimensions));
+      return vals;
+    }
+    if (mode === 'centroid') {
+      const c = Array(dimensions).fill(1 / dimensions);
+      for (let i = 0; i < processCount; i++) vals.push([...c]);
+      return vals;
+    }
+    if (mode === 'custom') return [];
+    throw new Error(`Unknown initialization mode: ${mode}`);
+  },
+
+  convertCoordinates(values, fromType, toType, dimensions) {
+    if (fromType === toType) return values;
+    if (fromType === 'scalar' && toType === 'barycentric') return values.map(v => this.scalarToBarycentric(v, dimensions));
+    if (fromType === 'barycentric' && toType === 'scalar') return values.map(v => this.barycentricToScalar(v));
+    throw new Error(`Unsupported conversion: ${fromType} to ${toType}`);
+  }
+},
+
+// 4) (opcional) alias cortos si los quieres en el root:
+runBarycentricExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null) {
+  return this.barycentric.runBarycentricExperiment(initialValues, p, rounds, algorithm, meetingPoint);
+},
+runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null) {
+  return this.barycentric.runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint);
+},
   /**
    * Validación de las fórmulas de Teo. 4 (+ máximo en p=0.5).
    * Caso p=0.3 corregido: 0.09 / 0.51.

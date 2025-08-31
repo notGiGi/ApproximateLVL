@@ -17,13 +17,588 @@ import {
   ComposedChart,
   ScatterChart,
   ZAxis,
-  Area
+  Area, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
 
 // Importar el motor de simulación
 import { SimulationEngine } from './SimulationEngine.js';
 
+  // ============================================
+// MULTIPLE DIMENSIONS TAB COMPONENT
+// ============================================
 
+function MultipleDimensionsTab() {
+  // ---------- STATE ----------
+  const [dimensions, setDimensions] = useState(3);
+  const [processCount, setProcessCount] = useState(3);
+  const [probability, setProbability] = useState(0.7);
+  const [algorithm, setAlgorithm] = useState('auto');
+  const [rounds, setRounds] = useState(10);
+  const [repetitions, setRepetitions] = useState(100);
+  const [initMode, setInitMode] = useState('vertices');
+  const [customMeetingPoint, setCustomMeetingPoint] = useState(null);
+  const [distanceMetric, setDistanceMetric] = useState('euclidean');
+
+  const [initialValues, setInitialValues] = useState([]);
+  const [currentExperiment, setCurrentExperiment] = useState(null);
+  const [statistics, setStatistics] = useState(null);
+  const [isRunning, setIsRunning] = useState(false);
+  const [currentRound, setCurrentRound] = useState(0);
+  const [animationSpeed, setAnimationSpeed] = useState(500);
+
+  const [selectedRound, setSelectedRound] = useState(0);
+  const [showTheoretical, setShowTheoretical] = useState(true);
+  const [showAnimation, setShowAnimation] = useState(false);
+
+  // ---------- INIT ----------
+  useEffect(() => {
+    generateInitialValues();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dimensions, processCount, initMode]);
+
+  const generateInitialValues = () => {
+    if (!SimulationEngine?.barycentric) {
+      console.error("Barycentric extension not loaded");
+      setInitialValues([]);
+      return;
+    }
+    const values = SimulationEngine.barycentric.generateInitialBarycentric(
+      processCount, dimensions, initMode
+    );
+    setInitialValues(values);
+  };
+
+  const handleCustomValue = (processIndex, dimIndex, value) => {
+    const newValues = [...(initialValues || [])];
+    if (!newValues[processIndex]) {
+      newValues[processIndex] = Array(dimensions).fill(0);
+    }
+    newValues[processIndex][dimIndex] = parseFloat(value) || 0;
+    newValues[processIndex] = SimulationEngine.barycentric.normalizeBarycentric(newValues[processIndex]);
+    setInitialValues(newValues);
+  };
+
+  // ---------- SIMULATION ----------
+  const runSimulation = async () => {
+    if (!SimulationEngine?.barycentric) {
+      alert("Barycentric extension not loaded in SimulationEngine.");
+      return;
+    }
+
+    setIsRunning(true);
+    setCurrentRound(0);
+    setSelectedRound(0);
+    setStatistics(null);
+    setCurrentExperiment(null);
+
+    try {
+      const meetingPoint =
+        customMeetingPoint && Array.isArray(customMeetingPoint) && customMeetingPoint.length === dimensions
+          ? SimulationEngine.barycentric.normalizeBarycentric(customMeetingPoint)
+          : Array(dimensions).fill(1 / dimensions);
+
+      if (showAnimation) {
+        // Animado (una sola corrida)
+        const history = [];
+        let currentValues = (initialValues || []).map(v => [...v]);
+
+        for (let round = 0; round <= rounds; round++) {
+          if (round > 0) {
+            const result = SimulationEngine.barycentric.simulateBarycentricRound(
+              currentValues, probability, algorithm, meetingPoint
+            );
+            currentValues = result.newValues;
+          }
+
+          const discrepancy = SimulationEngine.barycentric.calculateDiscrepancy(
+            currentValues, distanceMetric
+          );
+
+          history.push({
+            round,
+            values: currentValues.map(v => [...v]),
+            discrepancy
+          });
+
+          setCurrentExperiment([...history]);
+          setCurrentRound(round);
+
+          if (round < rounds) {
+            await new Promise(res => setTimeout(res, animationSpeed));
+          }
+        }
+      } else {
+        // Múltiples repeticiones para estadísticas
+        const results = SimulationEngine.barycentric.runMultipleBarycentricExperiments(
+          initialValues, probability, rounds, repetitions, algorithm, meetingPoint
+        );
+        setStatistics(results.statistics);
+        setCurrentExperiment(results.experiments[0]);
+        setCurrentRound(Math.min(rounds, results.experiments[0]?.length - 1 || 0));
+      }
+    } catch (error) {
+      console.error("Simulation error:", error);
+      alert(`Error: ${error.message}`);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  // ---------- VISUALIZACIÓN ----------
+  const BarycentricVisualization = ({ values, round }) => {
+    if (!values || values.length === 0) return null;
+    if (dimensions === 3) return <TriangleVisualization values={values} round={round} />;
+    return <RadarVisualization values={values} dimensions={dimensions} round={round} />;
+  };
+
+  const TriangleVisualization = ({ values, round }) => {
+    // Triángulo con vértices fijos en SVG
+    const V1 = { x: 200, y: 50 };   // vértice 1
+    const V2 = { x: 50,  y: 300 };  // vértice 2
+    const V3 = { x: 350, y: 300 };  // vértice 3
+
+    // conversión baricéntrica → cartesiana: a*V1 + b*V2 + c*V3
+    const toCartesian = (bary) => {
+      const [a, b, c] = bary;
+      return {
+        x: a * V1.x + b * V2.x + c * V3.x,
+        y: a * V1.y + b * V2.y + c * V3.y
+      };
+    };
+
+    const trianglePoints = `${V1.x},${V1.y} ${V2.x},${V2.y} ${V3.x},${V3.y}`;
+    const processColors = ["#3498db", "#e67e22", "#2ecc71", "#9b59b6", "#e74c3c", "#1abc9c", "#9b59b6"];
+
+    return (
+      <svg width="400" height="350" className="mx-auto">
+        <polygon points={trianglePoints} fill="none" stroke="#333" strokeWidth="2" />
+        <text x={V1.x} y={V1.y - 10} textAnchor="middle" fontSize="12">Vertex 1</text>
+        <text x={V2.x - 10} y={V2.y + 15} textAnchor="end" fontSize="12">Vertex 2</text>
+        <text x={V3.x + 10} y={V3.y + 15} textAnchor="start" fontSize="12">Vertex 3</text>
+
+        {values.map((coords, i) => {
+          const pos = toCartesian(coords);
+          return (
+            <g key={i}>
+              <circle cx={pos.x} cy={pos.y} r="8" fill={processColors[i % processColors.length]} stroke="white" strokeWidth="2" />
+              <text x={pos.x} y={pos.y - 12} textAnchor="middle" fontSize="10" fill={processColors[i % processColors.length]} fontWeight="bold">
+                P{i + 1}
+              </text>
+            </g>
+          );
+        })}
+
+        <text x="200" y="340" textAnchor="middle" fontSize="14" fontWeight="bold">Round {round}</text>
+      </svg>
+    );
+  };
+
+  const RadarVisualization = ({ values, dimensions, round }) => {
+    // Preparamos un radar por dimensión (cada Radar = una dimensión) y los procesos van como “categorías”
+    const axes = Array.from({ length: dimensions }, (_, i) => `D${i + 1}`);
+    // transformamos a arreglo por proceso, con claves por dimensión
+    const data = values.map((coords, idx) => {
+      const row = { process: `P${idx + 1}` };
+      coords.forEach((v, d) => { row[axes[d]] = v; });
+      return row;
+    });
+
+    const colors = ["#3498db", "#e67e22", "#2ecc71", "#9b59b6", "#e74c3c", "#1abc9c", "#9b59b6"];
+
+    return (
+      <ResponsiveContainer width="100%" height={350}>
+        <RadarChart data={data}>
+          <PolarGrid />
+          <PolarAngleAxis dataKey="process" />
+          <PolarRadiusAxis domain={[0, 1]} />
+          {axes.map((axis, idx) => (
+            <Radar
+              key={axis}
+              name={axis}
+              dataKey={axis}
+              stroke={colors[idx % colors.length]}
+              fill={colors[idx % colors.length]}
+              fillOpacity={0.3}
+            />
+          ))}
+          <Tooltip />
+          <Legend />
+        </RadarChart>
+      </ResponsiveContainer>
+    );
+  };
+
+  const getTheoreticalDiscrepancy = (round) => {
+    // Teoría solo para 2D (escalares) — aquí lo dejamos como guía visual
+    if (dimensions === 2) {
+      const q = 1 - probability;
+      if (algorithm === 'AMP' || (algorithm === 'auto' && probability > 0.5)) {
+        return Math.pow(q, round);
+      }
+      return Math.pow(probability * probability + q * q, round);
+    }
+    return null;
+  };
+
+  const ConvergenceChart = () => {
+    if (!statistics || statistics.length === 0) return null;
+    const data = statistics.map(stat => ({
+      round: stat.round,
+      mean: stat.mean,
+      min: stat.min,
+      max: stat.max,
+      theoretical: getTheoreticalDiscrepancy(stat.round)
+    }));
+    return (
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-6 rounded-lg shadow-lg">
+            <h2 className="text-2xl font-bold mb-2">Multiple Dimensions Extension</h2>
+            <p className="text-purple-100">
+              Experimental extension using barycentric coordinates for multi-dimensional agreement. Not part of the original paper.
+            </p>
+          </div>
+
+          {/* Config Panel */}
+          <div className="bg-white p-6 rounded-lg shadow-md">
+            <h3 className="text-lg font-semibold mb-4">Configuration</h3>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Dimensions</label>
+                <input type="number" min="2" max="10" value={dimensions}
+                  onChange={(e) => setDimensions(parseInt(e.target.value) || 2)}
+                  className="w-full p-2 border rounded" disabled={isRunning} />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Processes</label>
+                {/* CORRECCIÓN CRÍTICA: usar processCount en lugar de processValues.length */}
+                <input type="number" min="2" max="10" value={processCount}
+                  onChange={(e) => setProcessCount(parseInt(e.target.value) || 2)}
+                  className="w-full p-2 border rounded" disabled={isRunning} />
+              </div>
+
+              {/* Resto de configuraciones sin cambios... */}
+              <div>
+                <label className="block text-sm font-medium mb-1">Probability p</label>
+                <input type="number" min="0" max="1" step="0.01" value={probability}
+                  onChange={(e) => setProbability(Math.min(1, Math.max(0, parseFloat(e.target.value) || 0.5)))}
+                  className="w-full p-2 border rounded" disabled={isRunning} />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Algorithm</label>
+                <select value={algorithm} onChange={(e) => setAlgorithm(e.target.value)}
+                  className="w-full p-2 border rounded" disabled={isRunning}>
+                  <option value="auto">Auto (p-based)</option>
+                  <option value="AMP">AMP</option>
+                  <option value="FV">FV</option>
+                  <option value="INTERPOLATE">Interpolate (α=0.5)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Rounds</label>
+                <input type="number" min="1" max="100" value={rounds}
+                  onChange={(e) => setRounds(parseInt(e.target.value) || 1)}
+                  className="w-full p-2 border rounded" disabled={isRunning} />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Repetitions</label>
+                <input type="number" min="1" max="2000" value={repetitions}
+                  onChange={(e) => setRepetitions(parseInt(e.target.value) || 100)}
+                  className="w-full p-2 border rounded" disabled={isRunning} />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Initial Values</label>
+                <select value={initMode} onChange={(e) => setInitMode(e.target.value)}
+                  className="w-full p-2 border rounded" disabled={isRunning}>
+                  <option value="vertices">Vertices</option>
+                  <option value="random">Random</option>
+                  <option value="centroid">Centroid</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Distance Metric</label>
+                <select value={distanceMetric} onChange={(e) => setDistanceMetric(e.target.value)}
+                  className="w-full p-2 border rounded" disabled={isRunning}>
+                  <option value="euclidean">Euclidean</option>
+                  <option value="l1">L1 (Manhattan)</option>
+                  <option value="linf">L∞ (Max)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Resto del componente... */}
+          </div>
+        </div>
+      );
+    }
+
+  // ---------- RENDER ----------
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-6 rounded-lg shadow-lg">
+        <h2 className="text-2xl font-bold mb-2">Multiple Dimensions Extension</h2>
+        <p className="text-purple-100">
+          Experimental extension using barycentric coordinates for multi-dimensional agreement. Not part of the original paper.
+        </p>
+      </div>
+
+      {/* Config Panel */}
+      <div className="bg-white p-6 rounded-lg shadow-md">
+        <h3 className="text-lg font-semibold mb-4">Configuration</h3>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Dimensions</label>
+            <input type="number" min="2" max="10" value={dimensions}
+              onChange={(e) => setDimensions(parseInt(e.target.value) || 2)}
+              className="w-full p-2 border rounded" disabled={isRunning} />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Processes</label>
+            <input type="number" min="2" max="10" value={processCount}
+              onChange={(e) => setProcessCount(parseInt(e.target.value) || 2)}
+              className="w-full p-2 border rounded" disabled={isRunning} />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Probability p</label>
+            <input type="number" min="0" max="1" step="0.01" value={probability}
+              onChange={(e) => setProbability(Math.min(1, Math.max(0, parseFloat(e.target.value) || 0.5)))}
+              className="w-full p-2 border rounded" disabled={isRunning} />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Algorithm</label>
+            <select value={algorithm} onChange={(e) => setAlgorithm(e.target.value)}
+              className="w-full p-2 border rounded" disabled={isRunning}>
+              <option value="auto">Auto (p-based)</option>
+              <option value="AMP">AMP</option>
+              <option value="FV">FV</option>
+              <option value="INTERPOLATE">Interpolate (α=0.5)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Rounds</label>
+            <input type="number" min="1" max="100" value={rounds}
+              onChange={(e) => setRounds(parseInt(e.target.value) || 1)}
+              className="w-full p-2 border rounded" disabled={isRunning} />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Repetitions</label>
+            <input type="number" min="1" max="2000" value={repetitions}
+              onChange={(e) => setRepetitions(parseInt(e.target.value) || 100)}
+              className="w-full p-2 border rounded" disabled={isRunning} />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Initial Values</label>
+            <select value={initMode} onChange={(e) => setInitMode(e.target.value)}
+              className="w-full p-2 border rounded" disabled={isRunning}>
+              <option value="vertices">Vertices</option>
+              <option value="random">Random</option>
+              <option value="centroid">Centroid</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Distance Metric</label>
+            <select value={distanceMetric} onChange={(e) => setDistanceMetric(e.target.value)}
+              className="w-full p-2 border rounded" disabled={isRunning}>
+              <option value="euclidean">Euclidean</option>
+              <option value="l1">L1 (Manhattan)</option>
+              <option value="linf">L∞ (Max)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Animación */}
+        <div className="mt-4 flex items-center gap-4">
+          <label className="flex items-center">
+            <input type="checkbox" checked={showAnimation}
+              onChange={(e) => setShowAnimation(e.target.checked)}
+              className="mr-2" disabled={isRunning} />
+            <span className="text-sm">Show Animation</span>
+          </label>
+
+          {showAnimation && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm">Speed:</label>
+              <input type="range" min="100" max="2000" step="100" value={animationSpeed}
+                onChange={(e) => setAnimationSpeed(parseInt(e.target.value))}
+                className="w-32" disabled={isRunning} />
+              <span className="text-sm">{animationSpeed}ms</span>
+            </div>
+          )}
+        </div>
+
+        {/* Valores custom */}
+        {initMode === 'custom' && (
+          <div className="mt-4">
+            <h4 className="font-medium mb-2">Custom Initial Values (must sum to 1):</h4>
+            <div className="space-y-2">
+              {Array.from({ length: processCount }).map((_, pIdx) => (
+                <div key={pIdx} className="flex items-center gap-2">
+                  <span className="text-sm font-medium w-16">P{pIdx + 1}:</span>
+                  {Array.from({ length: dimensions }).map((_, dIdx) => (
+                    <input
+                      key={dIdx}
+                      type="number" min="0" max="1" step="0.01"
+                      value={initialValues[pIdx]?.[dIdx] ?? 0}
+                      onChange={(e) => handleCustomValue(pIdx, dIdx, e.target.value)}
+                      className="w-20 p-1 border rounded text-sm" placeholder={`D${dIdx + 1}`} disabled={isRunning}
+                    />
+                  ))}
+                  <span className="text-xs text-gray-500">
+                    Sum: {(initialValues[pIdx]?.reduce((a, b) => a + b, 0) || 0).toFixed(3)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={runSimulation}
+          disabled={isRunning || (initialValues?.length ?? 0) === 0}
+          className={`mt-4 px-6 py-2 rounded font-medium ${
+            isRunning
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white'
+          }`}
+        >
+          {isRunning ? `Running... Round ${currentRound}/${rounds}` : 'Run Simulation'}
+        </button>
+      </div>
+
+      {/* Resultados */}
+      {currentExperiment && (
+        <>
+          <div className="bg-white p-6 rounded-lg shadow-md">
+            <h3 className="text-lg font-semibold mb-4">Visualization</h3>
+
+            {showAnimation && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-2">
+                  Select Round: {selectedRound}
+                </label>
+                <input type="range" min="0" max={rounds} value={selectedRound}
+                  onChange={(e) => setSelectedRound(parseInt(e.target.value) || 0)}
+                  className="w-full" />
+              </div>
+            )}
+
+            <BarycentricVisualization
+              values={currentExperiment[showAnimation ? selectedRound : currentRound]?.values}
+              round={showAnimation ? selectedRound : currentRound}
+            />
+          </div>
+
+          {statistics && (
+            <div className="bg-white p-6 rounded-lg shadow-md">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Convergence Analysis</h3>
+                <label className="text-sm flex items-center gap-2">
+                  <input type="checkbox" checked={showTheoretical}
+                    onChange={(e) => setShowTheoretical(e.target.checked)} />
+                  Show theoretical (2D)
+                </label>
+              </div>
+              <ConvergenceChart />
+
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2">Metric</th>
+                      <th className="text-right py-2">Initial</th>
+                      <th className="text-right py-2">Final</th>
+                      <th className="text-right py-2">Reduction</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="py-1">Mean Discrepancy</td>
+                      <td className="text-right">{statistics[0].mean.toFixed(4)}</td>
+                      <td className="text-right">{statistics[rounds].mean.toFixed(4)}</td>
+                      <td className="text-right text-green-600">
+                        {((1 - statistics[rounds].mean / statistics[0].mean) * 100).toFixed(1)}%
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1">Std Deviation</td>
+                      <td className="text-right">{statistics[0].stdDev.toFixed(4)}</td>
+                      <td className="text-right">{statistics[rounds].stdDev.toFixed(4)}</td>
+                      <td className="text-right text-green-600">
+                        {((1 - statistics[rounds].stdDev / statistics[0].stdDev) * 100).toFixed(1)}%
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white p-6 rounded-lg shadow-md">
+            <h3 className="text-lg font-semibold mb-4">Current State (Round {currentRound})</h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Process</th>
+                    {Array.from({ length: dimensions }).map((_, i) => (
+                      <th key={i} className="text-right py-2">D{i + 1}</th>
+                    ))}
+                    <th className="text-right py-2">Sum</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currentExperiment[currentRound]?.values.map((coords, idx) => (
+                    <tr key={idx} className={idx % 2 === 0 ? 'bg-gray-50' : ''}>
+                      <td className="py-2 font-medium">P{idx + 1}</td>
+                      {coords.map((value, i) => (
+                        <td key={i} className="text-right py-2">{value.toFixed(4)}</td>
+                      ))}
+                      <td className="text-right py-2 text-gray-500">
+                        {coords.reduce((a, b) => a + b, 0).toFixed(4)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="mt-2 text-sm text-gray-600">
+                Discrepancy ({distanceMetric}): {currentExperiment[currentRound]?.discrepancy.toFixed(6)}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h4 className="font-semibold text-blue-900 mb-2">ℹ️ About This Extension</h4>
+        <ul className="text-sm text-blue-800 space-y-1">
+          <li>• Uses barycentric coordinates to represent positions in a simplex</li>
+          <li>• Generalizes the binary {`{0,1}`} case to continuous multi-dimensional space</li>
+          <li>• AMP: Processes move to a meeting point (default: centroid)</li>
+          <li>• FV: Processes adopt received values directly</li>
+          <li>• Experimental: Results may differ from theoretical predictions</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
 
 
 // Colors
@@ -293,31 +868,61 @@ function interpolateColor(color1, color2, factor) {
 }
 
 // Componente para manejar n procesos
-function NProcessesControl({ processValues, setProcessValues, maxProcesses = 100, valueMode, setValueMode, isRunning }) {
+function NProcessesControl({ 
+  processValues, 
+  setProcessValues, 
+  maxProcesses = 100, 
+  valueMode, 
+  setValueMode, 
+  isRunning,
+  // NUEVOS PROPS NECESARIOS
+  dimensionMode,
+  setDimensionMode,
+  dimensions,
+  setDimensions,
+  barycentricValues,
+  setBarycentricValues,
+  distanceMetric,
+  setDistanceMetric,
+  customMeetingPoint,
+  setCustomMeetingPoint,
+  algorithm,
+  addLog
+}) {
   const n = processValues.length;
   
-  // Agregar un nuevo proceso
+  // Funciones existentes
   const addProcess = () => {
     if (n < maxProcesses) {
-      // Valor por defecto según el modo
       const defaultValue = valueMode === 'binary' ? n % 2 : 0.5;
       setProcessValues([...processValues, defaultValue]);
+      
+      // Si estamos en modo baricéntrico, agregar también un nuevo proceso allí
+      if (dimensionMode === 'barycentric' && SimulationEngine?.barycentric) {
+        const newBaryValues = [...barycentricValues];
+        const newCoords = Array(dimensions).fill(0);
+        newCoords[n % dimensions] = 1; // Poner en un vértice
+        newBaryValues.push(newCoords);
+        setBarycentricValues(newBaryValues);
+      }
     }
   };
   
-  // Eliminar un proceso
   const removeProcess = () => {
-    if (n > 2) { // Mínimo 2 procesos
+    if (n > 2) {
       setProcessValues(processValues.slice(0, -1));
+      
+      // Si estamos en modo baricéntrico, quitar también de allí
+      if (dimensionMode === 'barycentric') {
+        setBarycentricValues(barycentricValues.slice(0, -1));
+      }
     }
   };
   
-  // Actualizar el valor de un proceso específico
   const updateProcessValue = (index, value) => {
     const newValues = [...processValues];
     const val = parseFloat(value);
     if (!isNaN(val)) {
-      // Validar según el modo
       if (valueMode === 'binary') {
         newValues[index] = val === 0 || val === 1 ? val : Math.round(val);
       } else {
@@ -326,102 +931,319 @@ function NProcessesControl({ processValues, setProcessValues, maxProcesses = 100
       setProcessValues(newValues);
     }
   };
+
+  // NUEVAS FUNCIONES para modo baricéntrico
+  const initializeBarycentricValues = (numProc, dims, mode = 'vertices') => {
+    if (!SimulationEngine?.barycentric) {
+      addLog?.("ERROR: Barycentric extension not loaded");
+      return;
+    }
+    
+    const values = SimulationEngine.barycentric.generateInitialBarycentric(
+      numProc, dims, mode
+    );
+    setBarycentricValues(values);
+    addLog?.(`Initialized ${numProc} processes in ${dims}D space (${mode})`);
+  };
+
+  const updateBarycentricValue = (processIdx, dimIdx, value) => {
+    const newValues = [...barycentricValues];
+    if (!newValues[processIdx]) {
+      newValues[processIdx] = Array(dimensions).fill(0);
+    }
+    newValues[processIdx][dimIdx] = value;
+    
+    // Auto-normalizar para que sume 1
+    const sum = newValues[processIdx].reduce((a, b) => a + b, 0);
+    if (sum > 0) {
+      newValues[processIdx] = newValues[processIdx].map(v => v / sum);
+    }
+    
+    setBarycentricValues(newValues);
+  };
   
   return (
     <div className="mb-4">
-      <div className="flex justify-between items-center mb-2">
-        <h3 className="text-sm font-semibold">Initial Values ({n} processes)</h3>
-        <div className="flex space-x-2">
+      {/* NUEVO: Toggle de modo */}
+      <div className="flex items-center justify-between mb-3 p-2 bg-gray-50 rounded-lg">
+        <span className="text-xs font-semibold text-gray-700">Dimension Mode</span>
+        <div className="flex items-center space-x-1 bg-white rounded-lg p-0.5 shadow-sm">
           <button
-            onClick={removeProcess}
-            disabled={n <= 2 || isRunning}
-            className={`p-1 rounded-md ${n <= 2 || isRunning ? 'bg-gray-200 text-gray-400' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
-            title="Remove process"
+            onClick={() => setDimensionMode('binary')}
+            className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+              dimensionMode === 'binary'
+                ? 'bg-blue-500 text-white shadow-sm'
+                : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'
+            }`}
+            disabled={isRunning}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+            Binary
           </button>
           <button
-            onClick={addProcess}
-            disabled={n >= maxProcesses || isRunning}
-            className={`p-1 rounded-md ${n >= maxProcesses || isRunning ? 'bg-gray-200 text-gray-400' : 'bg-green-100 text-green-600 hover:bg-green-200'}`}
-            title="Add process"
+            onClick={() => {
+              setDimensionMode('barycentric');
+              // Inicializar valores baricéntricos si no existen
+              if (barycentricValues.length === 0) {
+                initializeBarycentricValues(n, dimensions);
+              }
+            }}
+            className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+              dimensionMode === 'barycentric'
+                ? 'bg-purple-500 text-white shadow-sm'
+                : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'
+            }`}
+            disabled={isRunning}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
+            Multi-D
           </button>
         </div>
       </div>
-      
-      {/* Selector de modo de valores */}
-      <div className="mb-2">
-        <label className="text-xs font-medium block mb-1">Value Mode:</label>
-        <select
-          value={valueMode}
-          onChange={(e) => {
-            setValueMode(e.target.value);
-            // Convertir valores existentes al nuevo modo
-            if (e.target.value === 'binary') {
-              setProcessValues(processValues.map(v => Math.round(v)));
-            }
-          }}
-          className="w-full p-1 text-sm border rounded-md"
-          disabled={isRunning}
-        >
-          <option value="binary">Binary (0 or 1)</option>
-          <option value="continuous">Continuous (0.0 to 1.0)</option>
-        </select>
-      </div>
-      
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-        {processValues.map((value, index) => {
-          // Asignar colores específicos para los primeros procesos
-          let color = "#666";
-          if (index === 0) color = ALICE_COLOR;
-          else if (index === 1) color = BOB_COLOR;
-          else if (index === 2) color = CHARLIE_COLOR;
-          else {
-            // Para procesos adicionales, asignar colores del arcoíris
-            const colors = [
-              "#9c27b0", "#e91e63", "#f44336", "#ff9800", 
-              "#ffc107", "#8bc34a", "#009688"
-            ];
-            color = colors[(index - 3) % colors.length];
-          }
-          
-          const processName = index < 3 ? 
-            ["Alice", "Bob", "Charlie"][index] : 
-            `P${index+1}`;
-          
-          return (
-            <div key={index}>
-              <div className="flex justify-between items-center mb-1">
-                <label className="text-xs font-medium" style={{ color }}>
-                  {processName}
-                </label>
-              </div>
-              <input
-                type="number"
-                min="0"
-                max="1"
-                step={valueMode === 'binary' ? "1" : "0.1"}
-                value={value}
-                onChange={(e) => updateProcessValue(index, e.target.value)}
-                className="w-full p-1 text-sm border rounded-md"
-                style={{ borderColor: color }}
-                disabled={isRunning}
-                placeholder={valueMode === 'binary' ? "0 or 1" : "0.0-1.0"}
-              />
+
+      {/* CONDICIONAL: Mostrar controles según el modo */}
+      {dimensionMode === 'binary' ? (
+        // MODO BINARIO - Código existente
+        <>
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="text-sm font-semibold">Initial Values ({n} processes)</h3>
+            <div className="flex space-x-2">
+              <button
+                onClick={removeProcess}
+                disabled={n <= 2 || isRunning}
+                className={`p-1 rounded-md ${n <= 2 || isRunning ? 'bg-gray-200 text-gray-400' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
+                title="Remove process"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              <button
+                onClick={addProcess}
+                disabled={n >= maxProcesses || isRunning}
+                className={`p-1 rounded-md ${n >= maxProcesses || isRunning ? 'bg-gray-200 text-gray-400' : 'bg-green-100 text-green-600 hover:bg-green-200'}`}
+                title="Add process"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
             </div>
-          );
-        })}
-      </div>
-      
-      {valueMode === 'continuous' && (
-        <div className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded">
-          ⚠️ Note: Continuous values are experimental. The paper focuses on binary values.
+          </div>
+          
+          {/* Selector de modo de valores */}
+          <div className="mb-2">
+            <label className="text-xs font-medium block mb-1">Value Mode:</label>
+            <select
+              value={valueMode}
+              onChange={(e) => {
+                setValueMode(e.target.value);
+                if (e.target.value === 'binary') {
+                  setProcessValues(processValues.map(v => Math.round(v)));
+                }
+              }}
+              className="w-full p-1 text-sm border rounded-md"
+              disabled={isRunning}
+            >
+              <option value="binary">Binary (0 or 1)</option>
+              <option value="continuous">Continuous (0.0 to 1.0)</option>
+            </select>
+          </div>
+          
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {processValues.map((value, index) => {
+              let color = "#666";
+              if (index === 0) color = ALICE_COLOR;
+              else if (index === 1) color = BOB_COLOR;
+              else if (index === 2) color = CHARLIE_COLOR;
+              else {
+                const colors = [
+                  "#9c27b0", "#e91e63", "#f44336", "#ff9800", 
+                  "#ffc107", "#8bc34a", "#009688"
+                ];
+                color = colors[(index - 3) % colors.length];
+              }
+              
+              const processName = index < 3 ? 
+                ["Alice", "Bob", "Charlie"][index] : 
+                `P${index+1}`;
+              
+              return (
+                <div key={index}>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs font-medium" style={{ color }}>
+                      {processName}
+                    </label>
+                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step={valueMode === 'binary' ? "1" : "0.1"}
+                    value={value}
+                    onChange={(e) => updateProcessValue(index, e.target.value)}
+                    className="w-full p-1 text-sm border rounded-md"
+                    style={{ borderColor: color }}
+                    disabled={isRunning}
+                    placeholder={valueMode === 'binary' ? "0 or 1" : "0.0-1.0"}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          
+          {valueMode === 'continuous' && (
+            <div className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded">
+              ⚠️ Note: Continuous values are experimental. The paper focuses on binary values.
+            </div>
+          )}
+        </>
+      ) : (
+        // MODO MULTI-DIMENSIONAL - Nuevo
+        <div className="space-y-3">
+          {/* Controles de configuración */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium block mb-1">Dimensions:</label>
+              <select
+                value={dimensions}
+                onChange={(e) => {
+                  const newDim = parseInt(e.target.value);
+                  setDimensions(newDim);
+                  initializeBarycentricValues(n, newDim);
+                }}
+                className="w-full p-1 text-sm border rounded-md"
+                disabled={isRunning}
+              >
+                {[2,3,4,5,6,7,8,9,10].map(d => (
+                  <option key={d} value={d}>{d}D Space</option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="text-xs font-medium block mb-1">Distance Metric:</label>
+              <select
+                value={distanceMetric}
+                onChange={(e) => setDistanceMetric(e.target.value)}
+                className="w-full p-1 text-sm border rounded-md"
+                disabled={isRunning}
+              >
+                <option value="euclidean">Euclidean</option>
+                <option value="l1">L1 (Manhattan)</option>
+                <option value="linf">L∞ (Max)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Control de procesos */}
+          <div className="flex justify-between items-center">
+            <span className="text-xs font-medium">Processes: {n}</span>
+            <div className="flex space-x-1">
+              <button
+                onClick={removeProcess}
+                disabled={n <= 2 || isRunning}
+                className={`px-2 py-1 text-xs rounded ${n <= 2 || isRunning ? 'bg-gray-200' : 'bg-red-100 text-red-600'}`}
+              >
+                -
+              </button>
+              <button
+                onClick={addProcess}
+                disabled={n >= 8 || isRunning}
+                className={`px-2 py-1 text-xs rounded ${n >= 8 || isRunning ? 'bg-gray-200' : 'bg-green-100 text-green-600'}`}
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          {/* Botones de preset */}
+          <div className="flex space-x-1">
+            <button
+              onClick={() => initializeBarycentricValues(n, dimensions, 'vertices')}
+              className="flex-1 px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
+              disabled={isRunning}
+            >
+              Vertices
+            </button>
+            <button
+              onClick={() => initializeBarycentricValues(n, dimensions, 'random')}
+              className="flex-1 px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
+              disabled={isRunning}
+            >
+              Random
+            </button>
+            <button
+              onClick={() => initializeBarycentricValues(n, dimensions, 'centroid')}
+              className="flex-1 px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
+              disabled={isRunning}
+            >
+              Centroid
+            </button>
+          </div>
+
+          {/* Editor de valores baricéntricos */}
+          <div className="bg-gray-50 rounded-lg p-2 max-h-48 overflow-y-auto">
+            <p className="text-xs font-medium text-gray-700 mb-2">Barycentric Coordinates:</p>
+            {Array(n).fill(0).map((_, pIdx) => (
+              <div key={pIdx} className="flex items-center space-x-1 mb-1">
+                <span className="text-xs font-medium text-gray-600 w-10">P{pIdx+1}:</span>
+                <div className="flex-1 grid gap-1" style={{gridTemplateColumns: `repeat(${dimensions}, 1fr)`}}>
+                  {Array(dimensions).fill(0).map((_, dIdx) => (
+                    <input
+                      key={dIdx}
+                      type="number"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={barycentricValues[pIdx]?.[dIdx]?.toFixed(2) || 0}
+                      onChange={(e) => updateBarycentricValue(pIdx, dIdx, parseFloat(e.target.value))}
+                      className="w-full px-1 py-0.5 text-xs border rounded"
+                      disabled={isRunning}
+                    />
+                  ))}
+                </div>
+                <span className={`text-xs w-12 text-right ${
+                  Math.abs((barycentricValues[pIdx]?.reduce((a, b) => a + b, 0) || 0) - 1) < 0.01 
+                    ? 'text-green-600 font-medium' 
+                    : 'text-red-600'
+                }`}>
+                  Σ{(barycentricValues[pIdx]?.reduce((a, b) => a + b, 0) || 0).toFixed(2)}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Meeting Point para AMP */}
+          {algorithm === 'AMP' && (
+            <div className="bg-purple-50 rounded-lg p-2">
+              <p className="text-xs font-medium text-purple-900 mb-1">AMP Meeting Point:</p>
+              <div className="grid gap-1" style={{gridTemplateColumns: `repeat(${dimensions}, 1fr)`}}>
+                {Array(dimensions).fill(0).map((_, dIdx) => (
+                  <input
+                    key={dIdx}
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={customMeetingPoint?.[dIdx]?.toFixed(2) || (1/dimensions).toFixed(2)}
+                    onChange={(e) => {
+                      const newPoint = customMeetingPoint || Array(dimensions).fill(1/dimensions);
+                      newPoint[dIdx] = parseFloat(e.target.value);
+                      const sum = newPoint.reduce((a, b) => a + b, 0);
+                      if (sum > 0) {
+                        setCustomMeetingPoint(newPoint.map(v => v / sum));
+                      }
+                    }}
+                    className="w-full px-1 py-0.5 text-xs border border-purple-300 rounded"
+                    disabled={isRunning}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-2 text-xs text-purple-600 bg-purple-50 p-2 rounded">
+            ℹ️ Multi-dimensional mode is experimental and extends beyond the original paper.
+          </div>
         </div>
       )}
     </div>
@@ -3596,6 +4418,11 @@ function CompleteDistributedComputingSimulator() {
   const [experimentRuns, setExperimentRuns] = useState({});
   const [selectedRepetition, setSelectedRepetition] = useState(0);
   const [useConditionedMode, setUseConditionedMode] = useState(false);
+  const [dimensionMode, setDimensionMode] = useState('binary'); // 'binary' | 'barycentric'
+  const [dimensions, setDimensions] = useState(2);
+  const [barycentricValues, setBarycentricValues] = useState([]);
+  const [distanceMetric, setDistanceMetric] = useState('euclidean');
+  const [customMeetingPoint, setCustomMeetingPoint] = useState(null);
   // Range experiments states
   const [rangeExperiments, setRangeExperiments] = useState({
     minP: 0.0,
@@ -3624,7 +4451,138 @@ function CompleteDistributedComputingSimulator() {
   const [configCode, setConfigCode] = useState("");
   const [selectedAlgorithms, setSelectedAlgorithms] = useState(["auto"]);
   const [selectedAlgorithmForDetails, setSelectedAlgorithmForDetails] = useState("auto");
+  const processCount = processValues.length;
+  // ============================================
+  // EFECTOS DE INICIALIZACIÓN
+  // ============================================
 
+  // Inicializar valores baricéntricos al montar o cambiar de modo
+  useEffect(() => {
+    if (dimensionMode === 'barycentric' && barycentricValues.length === 0) {
+      // Usar processValues.length en lugar de processCount
+      const numProcesses = processValues.length;
+      initializeBarycentricValues(numProcesses, dimensions);
+      addLog("Initialized barycentric values for multi-dimensional mode");
+    }
+  }, [dimensionMode]); // Se ejecuta cuando cambia el modo
+  // ============================================
+  // FUNCIONES PARA MODO BARICÉNTRICO
+  // ============================================
+
+  const initializeBarycentricValues = (procCount, dims) => {
+    if (!SimulationEngine?.barycentric) {
+      addLog("ERROR: Barycentric extension not loaded", "error");
+      return;
+    }
+    
+    const values = SimulationEngine.barycentric.generateInitialBarycentric(
+      procCount,
+      dims,
+      'vertices'
+    );
+    setBarycentricValues(values);
+    addLog(`Initialized ${procCount} processes in ${dims}D space`);
+  };
+
+  const updateBarycentricValue = (processIdx, dimIdx, value) => {
+    const newValues = [...barycentricValues];
+    if (!newValues[processIdx]) {
+      newValues[processIdx] = Array(dimensions).fill(0);
+    }
+    newValues[processIdx][dimIdx] = value;
+    
+    // Auto-normalizar
+    const sum = newValues[processIdx].reduce((a, b) => a + b, 0);
+    if (sum > 0) {
+      newValues[processIdx] = newValues[processIdx].map(v => v / sum);
+    }
+    
+    setBarycentricValues(newValues);
+  };
+
+  const randomizeBarycentricValues = () => {
+    if (!SimulationEngine?.barycentric) return;
+    
+    const numProcesses = processValues.length; // Usar esto en lugar de processCount
+    const values = Array(numProcesses).fill(0).map(() => 
+      SimulationEngine.barycentric.randomBarycentric(dimensions)
+    );
+    setBarycentricValues(values);
+    addLog("Randomized barycentric values");
+  };
+
+  const setToVertices = () => {
+    if (!SimulationEngine?.barycentric) return;
+    
+    const numProcesses = processValues.length; // Usar esto en lugar de processCount
+    const values = SimulationEngine.barycentric.generateInitialBarycentric(
+      numProcesses,
+      dimensions,
+      'vertices'
+    );
+    setBarycentricValues(values);
+    addLog("Set processes to simplex vertices");
+  };
+
+  const setToCentroid = () => {
+    const numProcesses = processValues.length; // Usar esto en lugar de processCount
+    const centroid = Array(dimensions).fill(1 / dimensions);
+    const values = Array(numProcesses).fill(0).map(() => [...centroid]);
+    setBarycentricValues(values);
+    addLog("Set all processes to centroid");
+  };
+
+  const updateMeetingPoint = (dimIdx, value) => {
+    const newPoint = customMeetingPoint || Array(dimensions).fill(1 / dimensions);
+    newPoint[dimIdx] = value;
+    
+    // Normalizar
+    const sum = newPoint.reduce((a, b) => a + b, 0);
+    if (sum > 0) {
+      setCustomMeetingPoint(newPoint.map(v => v / sum));
+    }
+  };
+
+  // Componente de visualización del simplex
+  const SimplexVisualization = ({ values, size = 200 }) => {
+    const toCartesian = (bary) => {
+      const [a, b, c] = bary;
+      const x = 0.5 * a + b;
+      const y = Math.sqrt(3) / 2 * a;
+      return { 
+        x: x * size, 
+        y: (size * 0.866) - y * size 
+      };
+    };
+    
+    const trianglePoints = `${size/2},10 10,${size*0.866} ${size-10},${size*0.866}`;
+    const colors = ["#3498db", "#e67e22", "#2ecc71", "#9b59b6", "#e74c3c"];
+    
+    return (
+      <svg width={size} height={size * 0.9}>
+        <polygon
+          points={trianglePoints}
+          fill="none"
+          stroke="#ddd"
+          strokeWidth="1"
+        />
+        {values.map((coords, i) => {
+          if (!coords || coords.length !== 3) return null;
+          const pos = toCartesian(coords);
+          return (
+            <circle
+              key={i}
+              cx={pos.x}
+              cy={pos.y}
+              r="5"
+              fill={colors[i % colors.length]}
+              opacity="0.8"
+            />
+          );
+        })}
+      </svg>
+    );
+  };
   // Función helper para validar valores
   const validateProcessValue = (value, mode) => {
     if (mode === 'binary') {
@@ -4387,8 +5345,14 @@ function runRangeExperiments() {
   setProgress(0);
   setCurrentRepetition(0);
 
-  const initialProcessValues = getInitialValues();
-  const nProc = initialProcessValues.length;
+  // MODIFICACIÓN: Detectar modo y obtener valores iniciales apropiados
+  const initialProcessValues = dimensionMode === 'binary' 
+    ? getInitialValues() 
+    : barycentricValues;
+    
+  const nProc = dimensionMode === 'binary' 
+    ? initialProcessValues.length 
+    : processCount;
 
   const { minP, maxP, steps, customSteps, customStepValue } = rangeExperiments;
   const actualRounds = rounds;
@@ -4400,6 +5364,9 @@ function runRangeExperiments() {
   if (!Number.isFinite(mp)) mp = 0.5;
   if (Math.abs(mp - 0.5) < 1e-12) mp = 0.5;
   const uiMeetingPoint = mp;
+  
+  // MODIFICACIÓN: Meeting point para modo baricéntrico
+  const barycentricMeetingPoint = customMeetingPoint || Array(dimensions).fill(1 / dimensions);
 
   const currentDeliveryMode = deliveryMode || 'standard';
 
@@ -4410,9 +5377,7 @@ function runRangeExperiments() {
     const p = minP + i * stepSize;
 
     if (currentDeliveryMode === 'guaranteed') {
-      // En conditioned, P(≥1 mensaje)=0 cuando p<=0 → omitir esos puntos
       if (p <= 0) continue;
-      // p=1 es válido (siempre hay entrega)
     }
 
     if (p >= 0 && p <= 1) allProbabilities.push(p);
@@ -4443,13 +5408,20 @@ function runRangeExperiments() {
   for (const p of allProbabilities) {
     for (const algoDisplay of algorithmsToRun) {
       const actualAlgo = algoDisplay === "auto" ? (p > 0.5 ? "AMP" : "FV") : algoDisplay;
-      const key = `${p}_${actualAlgo}`; // <-- sin toFixed para alinear con el viewer
+      const key = `${p}_${actualAlgo}`;
 
-      // Teoría: sólo usamos la condicionada cerrada cuando n=2
-      const theoretical =
-        currentDeliveryMode === 'guaranteed' && nProc === 2
+      // MODIFICACIÓN: Cálculo teórico según el modo
+      let theoretical;
+      if (dimensionMode === 'binary') {
+        theoretical = currentDeliveryMode === 'guaranteed' && nProc === 2
           ? SimulationEngine.calculateTheoreticalConditionedDiscrepancy(p, actualAlgo, actualRounds)
           : SimulationEngine.calculateExpectedDiscrepancy(p, actualAlgo, actualRounds);
+      } else {
+        // Para modo baricéntrico, solo tenemos teoría exacta en 2D
+        theoretical = dimensions === 2 
+          ? SimulationEngine.calculateExpectedDiscrepancy(p, actualAlgo, actualRounds)
+          : null;
+      }
 
       results.push({
         p,
@@ -4459,7 +5431,12 @@ function runRangeExperiments() {
         samples: 0,
         discrepancy: 0,
         deliveryMode: currentDeliveryMode,
-        theoretical
+        theoretical,
+        // MODIFICACIÓN: Agregar información del modo
+        mode: dimensionMode,
+        dimensions: dimensionMode === 'barycentric' ? dimensions : 2,
+        processCount: nProc,
+        distanceMetric: dimensionMode === 'barycentric' ? distanceMetric : 'euclidean'
       });
 
       allRunsData[key] = [];
@@ -4510,7 +5487,12 @@ function runRangeExperiments() {
         setSelectedRepetition(0);
       }
 
-      const modeInfo = currentDeliveryMode === 'guaranteed' ? " (Guaranteed/Conditioned)" : '';
+      // MODIFICACIÓN: Mensaje de log según el modo
+      const modeInfo = dimensionMode === 'barycentric' 
+        ? ` (${dimensions}D Barycentric)` 
+        : currentDeliveryMode === 'guaranteed' 
+          ? " (Guaranteed/Conditioned)" 
+          : '';
       addLog(`Simulation completed: ${results.length} data points${modeInfo}`, "success");
       return;
     }
@@ -4524,13 +5506,23 @@ function runRangeExperiments() {
 
       for (const algoDisplay of algorithmsToRun) {
         const actualAlgo = algoDisplay === "auto" ? (p > 0.5 ? "AMP" : "FV") : algoDisplay;
-        const key = `${p}_${actualAlgo}`; // <-- sin toFixed para alinear con el viewer
+        const key = `${p}_${actualAlgo}`;
 
         let history;
 
-        if (currentDeliveryMode === 'guaranteed') {
-          // Simulación condicionada honesta (válida para todo n):
-          // n=2 & AMP → meetingPoint=0.5 (hipótesis del teorema); otros casos → UI meeting point
+        // MODIFICACIÓN: Rama para modo baricéntrico
+        if (dimensionMode === 'barycentric') {
+          // Simulación baricéntrica
+          history = SimulationEngine.barycentric.runBarycentricExperiment(
+            initialProcessValues,
+            p,
+            actualRounds,
+            actualAlgo,
+            barycentricMeetingPoint
+          );
+          
+        } else if (currentDeliveryMode === 'guaranteed') {
+          // Simulación condicionada binaria
           const mpUsed = (nProc === 2 && actualAlgo === "AMP") ? 0.5 : uiMeetingPoint;
 
           const v0 = [...initialProcessValues];
@@ -4554,13 +5546,11 @@ function runRangeExperiments() {
           });
 
           for (let r = 1; r <= actualRounds; r++) {
-            // FIX: usar mpUsed (no actualMeetingPoint)
             const rr = SimulationEngine.simulateRoundWithConditioning(
               values, p, actualAlgo, mpUsed, conditionedK
             );
             values = rr.newValues;
 
-            // Si la ruta n=2 optimizada no trae matrices, dejamos arrays vacíos para el viewer
             localHistory.push({
               round: r,
               values: [...values],
@@ -4572,7 +5562,7 @@ function runRangeExperiments() {
 
           history = localHistory;
         } else {
-          // Modo estándar
+          // Modo estándar binario
           history = SimulationEngine.runNProcessExperiment(
             initialProcessValues,
             p,
@@ -4592,8 +5582,9 @@ function runRangeExperiments() {
           results[resultIndex].discrepancies.reduce((s, x) => s + x, 0) /
           results[resultIndex].samples;
 
-        // Comparación teórica sólo cuando tenemos fórmula cerrada (n=2)
-        if (currentDeliveryMode === 'guaranteed' && nProc === 2 && p > 0 && p < 1) {
+        // MODIFICACIÓN: Comparación teórica adaptada al modo
+        if (dimensionMode === 'binary' && currentDeliveryMode === 'guaranteed' && 
+            nProc === 2 && p > 0 && p < 1) {
           const theo = SimulationEngine.calculateTheoreticalConditionedDiscrepancy(p, actualAlgo, actualRounds);
           const d = results[resultIndex].discrepancy;
           if (Number.isFinite(d) && Number.isFinite(theo) && theo > 0 && d > theo * 1.10) {
@@ -4615,12 +5606,14 @@ function runRangeExperiments() {
     setTimeout(runNextRepetition, 10);
   }
 
-  addLog(
-    currentDeliveryMode === 'guaranteed'
+  // MODIFICACIÓN: Mensaje de inicio según el modo
+  const startMessage = dimensionMode === 'barycentric'
+    ? `Starting ${dimensions}D barycentric simulation with ${processCount} processes`
+    : currentDeliveryMode === 'guaranteed'
       ? 'Starting simulation with Guaranteed/Conditioned (≥1 message) mode'
-      : 'Starting simulation with Standard Delivery mode',
-    "info"
-  );
+      : 'Starting simulation with Standard Delivery mode';
+      
+  addLog(startMessage, "info");
 
   setTimeout(runNextRepetition, 5);
 }
@@ -5038,19 +6031,229 @@ function runRangeExperiments() {
       <main className="mb-8">
         <div className="flex flex-col lg:flex-row gap-4">
         {/* Sidebar */}
+              
         <div className="lg:w-1/4 flex-shrink-0">
           <div className="bg-white rounded-lg shadow p-6 mb-6 space-y-6">
             <h2 className="text-lg font-semibold">🎛️ Simulation Parameters</h2>
             
-            {/* Process controller */}
-            <NProcessesControl 
+            {/* Toggle para modo Binary/Multi-Dimensional */}
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Initial Values</h3>
+              <div className="flex items-center space-x-1 bg-gray-100 rounded-lg p-0.5">
+                <button
+                  onClick={() => {
+                    setDimensionMode('binary');
+                    addLog("Switched to Binary mode");
+                  }}
+                  className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                    dimensionMode === 'binary'
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                  disabled={isRunning}
+                >
+                  Binary
+                </button>
+                <button
+                  onClick={() => {
+                    setDimensionMode('barycentric');
+                    initializeBarycentricValues(processCount, dimensions);
+                    addLog("Switched to Multi-Dimensional mode");
+                  }}
+                  className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                    dimensionMode === 'barycentric'
+                      ? 'bg-white text-purple-600 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                  disabled={isRunning}
+                >
+                  Multi-Dimensional
+                </button>
+              </div>
+            </div>
+            
+            {/* Condicional según el modo */}
+            {dimensionMode === 'binary' ? (
+              // MANTÉN EL COMPONENTE ORIGINAL
+              <NProcessesControl 
               processValues={processValues}
               setProcessValues={setProcessValues}
               maxProcesses={100}
               valueMode={valueMode}
               setValueMode={setValueMode}
               isRunning={isRunning}
+              // AGREGAR ESTOS NUEVOS PROPS
+              dimensionMode={dimensionMode}
+              setDimensionMode={setDimensionMode}
+              dimensions={dimensions}
+              setDimensions={setDimensions}
+              barycentricValues={barycentricValues}
+              setBarycentricValues={setBarycentricValues}
+              distanceMetric={distanceMetric}
+              setDistanceMetric={setDistanceMetric}
+              customMeetingPoint={customMeetingPoint}
+              setCustomMeetingPoint={setCustomMeetingPoint}
+              algorithm={algorithm}
+              addLog={addLog}
             />
+            ) : (
+              // NUEVO MODO MULTI-DIMENSIONAL
+              <div className="space-y-3">
+                {/* Controles de dimensiones y procesos */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs text-gray-600 block mb-1">Dimensions:</label>
+                    <select
+                      value={dimensions}
+                      onChange={(e) => {
+                        const newDim = parseInt(e.target.value);
+                        setDimensions(newDim);
+                        initializeBarycentricValues(processCount, newDim);
+                        addLog(`Set dimensions to ${newDim}D`);
+                      }}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      disabled={isRunning}
+                    >
+                      {[2, 3, 4, 5, 6, 7, 8, 9, 10].map(d => (
+                        <option key={d} value={d}>{d}D</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="text-xs text-gray-600 block mb-1">Processes:</label>
+                    <select
+                      value={processValues.length}
+                      onChange={(e) => {
+                        const newCount = parseInt(e.target.value);
+                        // Ajustar processValues para tener el número correcto de procesos
+                        const currentCount = processValues.length;
+                        if (newCount > currentCount) {
+                          // Agregar procesos
+                          const newValues = [...processValues];
+                          for (let i = currentCount; i < newCount; i++) {
+                            newValues.push(i % 2); // Alternar 0 y 1
+                          }
+                          setProcessValues(newValues);
+                        } else if (newCount < currentCount) {
+                          // Quitar procesos
+                          setProcessValues(processValues.slice(0, newCount));
+                        }
+                        initializeBarycentricValues(newCount, dimensions);
+                        addLog(`Set process count to ${newCount}`);
+                      }}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      disabled={isRunning}
+                    >
+                      {[2, 3, 4, 5, 6, 7, 8].map(n => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Distance Metric */}
+                <div>
+                  <label className="text-xs text-gray-600 block mb-1">Distance Metric:</label>
+                  <select
+                    value={distanceMetric}
+                    onChange={(e) => setDistanceMetric(e.target.value)}
+                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                    disabled={isRunning}
+                  >
+                    <option value="euclidean">Euclidean</option>
+                    <option value="l1">L1 (Manhattan)</option>
+                    <option value="linf">L∞ (Max)</option>
+                  </select>
+                </div>
+
+                {/* Botones de preset */}
+                <div className="flex space-x-1">
+                  <button
+                    onClick={randomizeBarycentricValues}
+                    className="flex-1 px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
+                    disabled={isRunning}
+                  >
+                    Random
+                  </button>
+                  <button
+                    onClick={setToVertices}
+                    className="flex-1 px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
+                    disabled={isRunning}
+                  >
+                    Vertices
+                  </button>
+                  <button
+                    onClick={setToCentroid}
+                    className="flex-1 px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
+                    disabled={isRunning}
+                  >
+                    Centroid
+                  </button>
+                </div>
+
+                {/* Editor de valores baricéntricos */}
+                <div className="bg-gray-50 rounded-lg p-2 max-h-48 overflow-y-auto">
+                  <p className="text-xs text-gray-600 mb-1">Coordinates (sum to 1):</p>
+                  {Array.from({ length: processCount }).map((_, pIdx) => (
+                    <div key={pIdx} className="flex items-center space-x-1 mb-1">
+                      <span className="text-xs font-medium text-gray-700 w-8">P{pIdx + 1}:</span>
+                      <div className="flex-1 grid gap-1" style={{gridTemplateColumns: `repeat(${dimensions}, 1fr)`}}>
+                        {Array.from({ length: dimensions }).map((_, dIdx) => (
+                          <input
+                            key={dIdx}
+                            type="number"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={barycentricValues[pIdx]?.[dIdx]?.toFixed(2) || 0}
+                            onChange={(e) => updateBarycentricValue(pIdx, dIdx, parseFloat(e.target.value))}
+                            className="w-full px-1 py-0.5 text-xs border border-gray-300 rounded"
+                            disabled={isRunning}
+                          />
+                        ))}
+                      </div>
+                      <span className={`text-xs font-medium w-10 text-right ${
+                        Math.abs((barycentricValues[pIdx]?.reduce((a, b) => a + b, 0) || 0) - 1) < 0.01 
+                          ? 'text-green-600' 
+                          : 'text-red-600'
+                      }`}>
+                        Σ{(barycentricValues[pIdx]?.reduce((a, b) => a + b, 0) || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Visualización 3D si aplica */}
+                {dimensions === 3 && barycentricValues.length > 0 && (
+                  <div className="flex justify-center p-2 bg-white rounded border">
+                    <SimplexVisualization values={barycentricValues} size={150} />
+                  </div>
+                )}
+
+                {/* Meeting Point para AMP */}
+                {algorithm === 'AMP' && (
+                  <div className="bg-purple-50 rounded-lg p-2">
+                    <p className="text-xs font-medium text-purple-900 mb-1">AMP Meeting Point:</p>
+                    <div className="grid gap-1" style={{gridTemplateColumns: `repeat(${dimensions}, 1fr)`}}>
+                      {Array.from({ length: dimensions }).map((_, dIdx) => (
+                        <input
+                          key={dIdx}
+                          type="number"
+                          min="0"
+                          max="1"
+                          step="0.01"
+                          value={customMeetingPoint?.[dIdx]?.toFixed(2) || (1/dimensions).toFixed(2)}
+                          onChange={(e) => updateMeetingPoint(dIdx, parseFloat(e.target.value))}
+                          className="w-full px-1 py-0.5 text-xs border border-purple-300 rounded"
+                          disabled={isRunning}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Load/Generate config */}
             <div className="mb-4 space-y-2">
@@ -5599,8 +6802,21 @@ function runRangeExperiments() {
                 >
                   💾 Saved Experiments
                 </button>
+                <button
+                  onClick={() => setActiveTab('multiple-dimensions')}
+                  className={`px-4 py-2 rounded-t-lg transition-colors ${
+                    activeTab === 'multiple-dimensions'
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  Multiple Dimensions
+                </button>
               </nav>
             </div>
+            {activeTab === 'multiple-dimensions' && (
+              <MultipleDimensionsTab />
+            )}
 
             {/* Theoretical Comparison tab */}
             {activeTab === 'theory' && (
@@ -5877,13 +7093,74 @@ function runRangeExperiments() {
 
                 </div>
                 
-                <RangeResultsTable 
-                  results={experimentalResults} 
-                  processCount={processValues.length} 
-                  selectedAlgorithms={selectedAlgorithms}  // Pasar selectedAlgorithms en lugar de forcedAlgorithm
-                  rounds={rounds} 
+                <ResultsTable 
+                  experimentData={experimentData}
+                  processCount={processCount}
+                  forcedAlgorithm={algorithm}
+                  fvMethod={fvMethod}
+                  rounds={rounds}
                 />
-                
+                {dimensionMode === 'barycentric' && experimentalResults.length > 0 && (
+                  <div className="bg-white rounded-lg shadow p-6 mt-6">
+                    <h3 className="text-lg font-semibold mb-4">
+                      Multi-Dimensional Analysis ({dimensions}D Space)
+                    </h3>
+                    
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="bg-gray-50 p-4 rounded">
+                        <h4 className="font-medium text-sm mb-2">Configuration</h4>
+                        <dl className="space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <dt>Dimensions:</dt>
+                            <dd className="font-medium">{dimensions}D</dd>
+                          </div>
+                          <div className="flex justify-between">
+                            <dt>Processes:</dt>
+                            <dd className="font-medium">{processCount}</dd>
+                          </div>
+                          <div className="flex justify-between">
+                            <dt>Distance Metric:</dt>
+                            <dd className="font-medium">{distanceMetric}</dd>
+                          </div>
+                          <div className="flex justify-between">
+                            <dt>Rounds:</dt>
+                            <dd className="font-medium">{rounds}</dd>
+                          </div>
+                        </dl>
+                      </div>
+                      
+                      <div className="bg-gray-50 p-4 rounded">
+                        <h4 className="font-medium text-sm mb-2">Results Summary</h4>
+                        <dl className="space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <dt>Data Points:</dt>
+                            <dd className="font-medium">{experimentalResults.length}</dd>
+                          </div>
+                          <div className="flex justify-between">
+                            <dt>Best Discrepancy:</dt>
+                            <dd className="font-medium text-green-600">
+                              {Math.min(...experimentalResults.map(r => r.discrepancy)).toFixed(6)}
+                            </dd>
+                          </div>
+                          <div className="flex justify-between">
+                            <dt>Worst Discrepancy:</dt>
+                            <dd className="font-medium text-red-600">
+                              {Math.max(...experimentalResults.map(r => r.discrepancy)).toFixed(6)}
+                            </dd>
+                          </div>
+                        </dl>
+                      </div>
+                    </div>
+                    
+                    {dimensions > 2 && (
+                      <div className="mt-4 p-3 bg-yellow-50 rounded text-xs text-yellow-800">
+                        ⚠️ Note: Theoretical predictions are only available for 2D (binary) case. 
+                        Results for {dimensions}D are experimental.
+                      </div>
+                    )}
+                  </div>
+                )}
+
 
               </div>
 
@@ -6427,6 +7704,9 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
       </div>
     );
   }
+
+
+
   
   return (
     <div className="space-y-4">
@@ -6551,7 +7831,10 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
           </div>
         )}
       </div>
+        
       
+
+
       {/* Main Content Area */}
       {selectedExperiments.length < 2 ? (
         // List View
