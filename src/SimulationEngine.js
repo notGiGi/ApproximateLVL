@@ -1670,6 +1670,46 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
       return matrix.map(v => this.cloneVector(v));
     },
 
+        // --- Helpers de norma/pareja más lejana/mezcla y orden ---
+    distance(a, b, metric = 'euclidean') {
+      if (metric === 'l1') return this.l1Distance(a, b);
+      if (metric === 'linf') return this.lInfDistance(a, b);
+      return this.euclideanDistance(a, b);
+    },
+    farthestPair(points, metric = 'euclidean') {
+      if (!points || points.length < 2) return [null, null, 0];
+      let bi = 0, bj = 1, bd = -1;
+      for (let i = 0; i < points.length; i++) {
+        for (let j = i + 1; j < points.length; j++) {
+          const d = this.distance(points[i], points[j], metric);
+          if (d > bd) { bd = d; bi = i; bj = j; }
+        }
+      }
+      return [bi, bj, bd];
+    },
+    convexCombine(u, v, alpha) {
+      const a = Math.min(1, Math.max(0, Number(alpha)));
+      return u.map((ui, k) => (1 - a) * (ui || 0) + a * (v[k] || 0));
+    },
+    sumCoords(v) {
+      return (Array.isArray(v) ? v : []).reduce((s, x) => s + (x || 0), 0);
+    },
+    lexLess(u, v) {
+      for (let k = 0; k < Math.max(u.length, v.length); k++) {
+        const a = u[k] || 0, b = v[k] || 0;
+        if (a < b) return true;
+        if (a > b) return false;
+      }
+      return false;
+    },
+    chooseMinExtreme(u, v) {
+      const su = this.sumCoords(u), sv = this.sumCoords(v);
+      if (su < sv) return this.cloneVector(u);
+      if (sv < su) return this.cloneVector(v);
+      return this.lexLess(u, v) ? this.cloneVector(u) : this.cloneVector(v);
+    },
+
+
     // ===== ALGORITMOS MULTI-D =====
 
     /**
@@ -1698,206 +1738,150 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
     },
 
     /**
-     * MIN (multi-D) — por dimensión, toma el mínimo entre propio y recibidos.
+     * MIN (multi-D) — elige el extremo "mínimo" entre los dos puntos más lejanos
+     * del conjunto conocido (propio + recibidos). Criterio de "mínimo":
+     * menor suma de coordenadas, con desempate lexicográfico.
      */
-    multiMIN(currentValue, receivedValues) {
-      if (!receivedValues || receivedValues.length === 0) return this.cloneVector(currentValue);
-      const dim = currentValue.length;
-      const result = Array(dim).fill(0);
-      for (let d = 0; d < dim; d++) {
-        let m = currentValue[d];
-        for (const v of receivedValues) {
-          if (v && v[d] !== undefined) m = Math.min(m, v[d]);
-        }
-        result[d] = m;
-      }
-      return result;
+    multiMIN(currentValue, receivedValues, distanceMetric = 'euclidean') {
+      const Si = [this.cloneVector(currentValue), ...((receivedValues || []).map(v => this.cloneVector(v)))];
+      if (Si.length < 2) return this.cloneVector(currentValue);
+      const [I, J] = this.farthestPair(Si, distanceMetric);
+      if (I === null || J === null) return this.cloneVector(currentValue);
+      return this.chooseMinExtreme(Si[I], Si[J]);
     },
 
+
     /**
-     * RECURSIVE AMP (multi-D) — meetingPoint es porcentaje α (escalar o vector).
-     * new = min + α * (max - min) por dimensión, usando propio + recibidos.
+     * RECURSIVE AMP (multi-D) — meetingPoint es α (escalar o primer elemento de array).
+     * Toma el par de puntos más distante del conjunto conocido y hace mezcla convexa:
+     * new = (1-α)*extremo1 + α*extremo2
      */
-    multiRecursiveAMP(currentValue, receivedValues, meetingPoint) {
-      if (!receivedValues || receivedValues.length === 0) {
-        return this.cloneVector(currentValue);
-      }
-      const dim = currentValue.length;
-      const result = Array(dim);
-      for (let d = 0; d < dim; d++) {
-        const known = [currentValue[d]];
-        for (const val of receivedValues) {
-          if (val && val[d] !== undefined) known.push(val[d]);
-        }
-        if (known.length === 1) {
-          result[d] = currentValue[d];
-          continue;
-        }
-        const minVal = Math.min(...known);
-        const maxVal = Math.max(...known);
-        const range = maxVal - minVal;
-        if (range < 1e-10) {
-          result[d] = currentValue[d];
-        } else {
-          const alpha = Array.isArray(meetingPoint) ? meetingPoint[d] : meetingPoint;
-          const a = typeof alpha === 'number' ? Math.min(1, Math.max(0, alpha)) : 0.5;
-          result[d] = minVal + a * range;
-        }
-      }
-      return result;
+    multiRecursiveAMP(currentValue, receivedValues, meetingPoint, distanceMetric = 'euclidean') {
+      const Si = [this.cloneVector(currentValue), ...((receivedValues || []).map(v => this.cloneVector(v)))];
+      if (Si.length < 2) return this.cloneVector(currentValue);
+
+      const [I, J] = this.farthestPair(Si, distanceMetric);
+      if (I === null || J === null) return this.cloneVector(currentValue);
+
+      let alpha = Array.isArray(meetingPoint) ? Number(meetingPoint[0]) : meetingPoint;
+      if (!Number.isFinite(alpha)) alpha = 0.5;
+
+      return this.convexCombine(Si[I], Si[J], alpha);
     },
 
+
     /**
-     * Simula una ronda multi-D (corrigendo defaults/forma de meetingPoint).
+     * Simula una ronda multi-D (con soporte de distanceMetric).
      */
-    simulateMultiDimensionalRound(values, p, algorithm = "auto", meetingPoint = null) {
-        const n = values.length;
-        if (n === 0) {
-          return { 
-            newValues: [], 
-            messages: [], 
-            messageDelivery: [], 
-            discrepancy: 0,
-            algorithm,
-            dimensions: 0,
-            meetingPoint
-          };
-        }
-
-        const dim = values[0].length;
-
-        // Resolver algoritmo
-        let algo = algorithm;
-        if (algo === "auto") {
-          algo = p > 0.5 ? "AMP" : "FV";
-        }
-
-        // Defaults CORREGIDOS
-        if (meetingPoint == null) {
-          if (algo === "AMP") {
-            meetingPoint = Array(dim).fill(0.5);      // vector
-          } else if (algo === "RECURSIVE AMP") {
-            meetingPoint = 0.5;                       // escalar α
-          } else {
-            // No se usa en FV/MIN, pero mantenemos un valor consistente
-            meetingPoint = Array(dim).fill(0.5);
-          }
-        }
-
-        const newValues = this.cloneMatrix(values);
-        const messages = [];
-        const messageDelivery = [];
-
-        // Envío de mensajes
-        for (let sender = 0; sender < n; sender++) {
-          const senderMessages = [];
-          const deliveryRow = [];
-          for (let receiver = 0; receiver < n; receiver++) {
-            if (sender === receiver) continue;
-            const delivered = Math.random() < p;
-            senderMessages.push({
-              to: receiver,
-              value: this.cloneVector(values[sender]),
-              delivered
-            });
-            deliveryRow.push(delivered);
-          }
-          messages.push(senderMessages);
-          messageDelivery.push(deliveryRow);
-        }
-
-        // Procesamiento y actualización
-        for (let receiver = 0; receiver < n; receiver++) {
-          const receivedMessages = [];
-
-          for (let sender = 0; sender < n; sender++) {
-            if (sender === receiver) continue;
-            const msg = messages[sender].find(m => m.to === receiver);
-            if (msg && msg.delivered) {
-              receivedMessages.push(msg.value);
-            }
-          }
-
-          if (receivedMessages.length === 0) continue;
-
-          switch (algo) {
-            case "AMP": {
-              const differentValue = receivedMessages.find(v => 
-                this.areDifferent(values[receiver], v)
-              );
-              if (differentValue) {
-                // Salto directo al meeting point vector
-                newValues[receiver] = this.multiAMP(
-                  values[receiver],
-                  differentValue,
-                  meetingPoint
-                );
-              }
-              break;
-            }
-
-            case "FV": {
-              const differentValue = receivedMessages.find(v => 
-                this.areDifferent(values[receiver], v)
-              );
-              if (differentValue) {
-                newValues[receiver] = this.cloneVector(differentValue);
-              }
-              break;
-            }
-
-            case "MIN": {
-              // Si tienes multiMIN, úsalo; si no, mantener valor
-              if (typeof this.multiMIN === 'function') {
-                newValues[receiver] = this.multiMIN(
-                  values[receiver],
-                  receivedMessages
-                );
-              } else {
-                newValues[receiver] = this.cloneVector(values[receiver]);
-              }
-              break;
-            }
-
-            case "RECURSIVE AMP": {
-              // meetingPoint = α escalar
-              newValues[receiver] = this.multiRecursiveAMP(
-                values[receiver],
-                receivedMessages,
-                meetingPoint
-              );
-              break;
-            }
-
-            default:
-              console.warn(`Algoritmo no reconocido: ${algo}`);
-              break;
-          }
-        }
-
-        // Discrepancia final
-        const discrepancy = this.calculateDiscrepancy(newValues);
-
-        return {
-          newValues,
-          messages,
-          messageDelivery,
-          discrepancy,
-          algorithm: algo,
-          dimensions: dim,
+    simulateMultiDimensionalRound(values, p, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
+      const n = values.length;
+      if (n === 0) {
+        return { 
+          newValues: [], 
+          messages: [], 
+          messageDelivery: [], 
+          discrepancy: 0,
+          algorithm,
+          dimensions: 0,
           meetingPoint
         };
-      },
+      }
+
+      const dim = values[0].length;
+
+      // Resolver algoritmo
+      let algo = algorithm;
+      if (algo === "auto") algo = p > 0.5 ? "AMP" : "FV";
+
+      // Defaults coherentes
+      if (meetingPoint == null) {
+        if (algo === "AMP") {
+          meetingPoint = Array(dim).fill(0.5);     // vector
+        } else if (algo === "RECURSIVE AMP") {
+          meetingPoint = 0.5;                      // escalar α
+        } else {
+          meetingPoint = Array(dim).fill(0.5);
+        }
+      }
+
+      const newValues = this.cloneMatrix(values);
+      const messages = [];
+      const messageDelivery = [];
+
+      // Envío de mensajes
+      for (let sender = 0; sender < n; sender++) {
+        const senderMessages = [];
+        const deliveryRow = [];
+        for (let receiver = 0; receiver < n; receiver++) {
+          if (sender === receiver) continue;
+          const delivered = Math.random() < p;
+          senderMessages.push({ to: receiver, value: this.cloneVector(values[sender]), delivered });
+          deliveryRow.push(delivered);
+        }
+        messages.push(senderMessages);
+        messageDelivery.push(deliveryRow);
+      }
+
+      // Procesamiento y actualización
+      for (let receiver = 0; receiver < n; receiver++) {
+        const receivedMessages = [];
+        for (let sender = 0; sender < n; sender++) {
+          if (sender === receiver) continue;
+          const msg = messages[sender].find(m => m.to === receiver);
+          if (msg && msg.delivered) receivedMessages.push(msg.value);
+        }
+        if (receivedMessages.length === 0) continue;
+
+        switch (algo) {
+          case "AMP": {
+            const differentValue = receivedMessages.find(v => this.areDifferent(values[receiver], v));
+            if (differentValue) {
+              newValues[receiver] = this.multiAMP(values[receiver], differentValue, meetingPoint);
+            }
+            break;
+          }
+          case "FV": {
+            const differentValue = receivedMessages.find(v => this.areDifferent(values[receiver], v));
+            if (differentValue) newValues[receiver] = this.cloneVector(differentValue);
+            break;
+          }
+          case "MIN": {
+            newValues[receiver] = this.multiMIN(values[receiver], receivedMessages, distanceMetric);
+            break;
+          }
+          case "RECURSIVE AMP": {
+            newValues[receiver] = this.multiRecursiveAMP(values[receiver], receivedMessages, meetingPoint, distanceMetric);
+            break;
+          }
+          default:
+            console.warn(`Algoritmo no reconocido: ${algo}`);
+            break;
+        }
+      }
+
+      const discrepancy = this.calculateDiscrepancy(newValues, distanceMetric);
+
+      return {
+        newValues,
+        messages,
+        messageDelivery,
+        discrepancy,
+        algorithm: algo,
+        dimensions: dim,
+        meetingPoint
+      };
+    },
+
 
     // ===== EXPERIMENTOS MULTI-D =====
-    runMultiDimensionalExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null) {
+    runMultiDimensionalExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
       const history = [];
       let currentValues = this.cloneMatrix(initialValues);
 
       history.push({
         round: 0,
         values: this.cloneMatrix(currentValues),
-        discrepancy: this.calculateDiscrepancy(currentValues),
+        discrepancy: this.calculateDiscrepancy(currentValues, distanceMetric),
         algorithm: algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm
       });
 
@@ -1906,7 +1890,8 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
           currentValues,
           p,
           algorithm,
-          meetingPoint
+          meetingPoint,
+          distanceMetric
         );
         currentValues = result.newValues;
         history.push({
@@ -1922,7 +1907,7 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
       return history;
     },
 
-    runMultipleMultiDimensionalExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null) {
+    runMultipleMultiDimensionalExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
       const experiments = [];
       const roundStats = Array(rounds + 1).fill(0).map(() => []);
 
@@ -1932,7 +1917,8 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
           p,
           rounds,
           algorithm,
-          meetingPoint
+          meetingPoint,
+          distanceMetric
         );
         experiments.push(history);
         history.forEach((state, roundIdx) => {
@@ -1957,6 +1943,7 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
         finalDiscrepancy: statistics[rounds]
       };
     },
+
 
     // ===== INICIALES MULTI-D =====
     generateInitialValues(processCount, dimensions, mode = 'corners', range = [0, 1]) {
@@ -2032,38 +2019,58 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
   }, // fin multidimensional
 
 // Alias para compatibilidad con código existente
- barycentric: {
-    generateInitialBarycentric(processCount, dimensions, mode) {
-      // Mapa leve: 'centroid' de la UI → 'center' del motor
-      const mapped = (mode === 'centroid') ? 'center' : mode;
-      return SimulationEngine.multidimensional.generateInitialValues(processCount, dimensions, mapped);
-    },
-    normalizeBarycentric(coords) { return coords; },
-    isValidBarycentric(coords) { return Array.isArray(coords); },
-    calculateDiscrepancy(values, metric) { return SimulationEngine.multidimensional.calculateDiscrepancy(values, metric); },
-    simulateBarycentricRound(values, p, algorithm, meetingPoint) {
-      return SimulationEngine.multidimensional.simulateMultiDimensionalRound(values, p, algorithm, meetingPoint);
-    },
-    runBarycentricExperiment(initialValues, p, rounds, algorithm, meetingPoint) {
-      return SimulationEngine.multidimensional.runMultiDimensionalExperiment(initialValues, p, rounds, algorithm, meetingPoint);
-    },
-    runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint) {
-      return SimulationEngine.multidimensional.runMultipleMultiDimensionalExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint);
-    },
-    randomBarycentric(dimensions) { return Array(dimensions).fill(0).map(() => Math.random()); },
-    euclideanDistance(a, b) { return SimulationEngine.multidimensional.euclideanDistance(a, b); },
-    l1Distance(a, b) { return SimulationEngine.multidimensional.l1Distance(a, b); },
-    lInfDistance(a, b) { return SimulationEngine.multidimensional.lInfDistance(a, b); },
-    areDifferent(a, b, eps) { return SimulationEngine.multidimensional.areDifferent(a, b, eps); }
+barycentric: {
+  generateInitialBarycentric(processCount, dimensions, mode) {
+    // UI 'centroid' → motor 'center'
+    const mapped = (mode === 'centroid') ? 'center' : mode;
+    return SimulationEngine.multidimensional.generateInitialValues(processCount, dimensions, mapped);
+  },
+  normalizeBarycentric(coords) { return coords; },
+  isValidBarycentric(coords) { return Array.isArray(coords); },
+
+  // usa la métrica que te pasen
+  calculateDiscrepancy(values, metric) {
+    return SimulationEngine.multidimensional.calculateDiscrepancy(values, metric);
   },
 
-  // Alias para compatibilidad
-  runBarycentricExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null) {
-    return this.multidimensional.runMultiDimensionalExperiment(initialValues, p, rounds, algorithm, meetingPoint);
+  // ⬇️ añade distanceMetric (con default) y propágala
+  simulateBarycentricRound(values, p, algorithm, meetingPoint, distanceMetric = 'euclidean') {
+    return SimulationEngine.multidimensional.simulateMultiDimensionalRound(
+      values, p, algorithm, meetingPoint, distanceMetric
+    );
   },
-  runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null) {
-    return this.multidimensional.runMultipleMultiDimensionalExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint);
+
+  runBarycentricExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
+    return SimulationEngine.multidimensional.runMultiDimensionalExperiment(
+      initialValues, p, rounds, algorithm, meetingPoint, distanceMetric
+    );
   },
+
+  runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
+    return SimulationEngine.multidimensional.runMultipleMultiDimensionalExperiments(
+      initialValues, p, rounds, repetitions, algorithm, meetingPoint, distanceMetric
+    );
+  },
+
+  randomBarycentric(dimensions) { return Array(dimensions).fill(0).map(() => Math.random()); },
+  euclideanDistance(a, b) { return SimulationEngine.multidimensional.euclideanDistance(a, b); },
+  l1Distance(a, b) { return SimulationEngine.multidimensional.l1Distance(a, b); },
+  lInfDistance(a, b) { return SimulationEngine.multidimensional.lInfDistance(a, b); },
+  areDifferent(a, b, eps) { return SimulationEngine.multidimensional.areDifferent(a, b, eps); }
+},
+
+// Alias para compatibilidad (también con distanceMetric)
+runBarycentricExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
+  return this.multidimensional.runMultiDimensionalExperiment(
+    initialValues, p, rounds, algorithm, meetingPoint, distanceMetric
+  );
+},
+runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
+  return this.multidimensional.runMultipleMultiDimensionalExperiments(
+    initialValues, p, rounds, repetitions, algorithm, meetingPoint, distanceMetric
+  );
+},
+
   /**
    * Validación de las fórmulas de Teo. 4 (+ máximo en p=0.5).
    * Caso p=0.3 corregido: 0.09 / 0.51.

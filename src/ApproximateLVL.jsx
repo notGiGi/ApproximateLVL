@@ -319,8 +319,8 @@ const runSimulation = async () => {
             currentValues,
             probability,
             algoReal,
-            mpToUse
-            // , distanceMetric   // si tu motor lo soporta aquí, descomenta
+            mpToUse,
+            distanceMetric 
           );
 
 
@@ -362,7 +362,8 @@ const runSimulation = async () => {
         rounds,
         repetitions,
         algorithm,      // se puede pasar 'auto'
-        meetingPoint
+        meetingPoint,
+        distanceMetric 
       );
 
       setStatistics(results.statistics);
@@ -5423,7 +5424,8 @@ function runRangeExperiments() {
             p,
             actualRounds,
             actualAlgo,
-            mpEff
+            mpEff,
+            distanceMetric
           );
         } else if (currentDeliveryMode === 'guaranteed') {
           // Simulación condicionada binaria (≥1 mensaje)
