@@ -4771,6 +4771,17 @@ function ExperimentDetailViewer({
   const fmt4 = (x) => (typeof x === 'number' && Number.isFinite(x) ? x.toFixed(4) : '0.0000');
   const fmt3 = (x) => (typeof x === 'number' && Number.isFinite(x) ? x.toFixed(3) : String(x ?? '—'));
 
+
+  const formatKnownValue = (value) => {
+    if (Array.isArray(value)) {
+      // Valor multidimensional: [1.2, 0.8, 0.3] → "(1.20, 0.80, 0.30)"
+      return `(${value.map(v => (typeof v === 'number' ? v.toFixed(2) : String(v))).join(', ')})`;
+    } else {
+      // Valor unidimensional: 0.75 → "0.75"
+      return typeof value === 'number' ? value.toFixed(4) : String(value);
+    }
+  };
+
   const safeDisc = (entry) => {
     if (typeof entry?.discrepancy === 'number' && Number.isFinite(entry.discrepancy)) return entry.discrepancy;
     const vals = Array.isArray(entry?.values) ? entry.values : [];
@@ -5020,6 +5031,7 @@ function ExperimentDetailViewer({
               </div>
 
               {/* Contenido expandido */}
+{/* Contenido expandido */}
               {expandedRound === index && (
                 <div className="border-t border-gray-200 p-4 bg-gray-50">
                   {/* Valores por proceso */}
@@ -5030,7 +5042,21 @@ function ExperimentDetailViewer({
                         const prevValue = index > 0 && Array.isArray(experimentHistory[index-1]?.values)
                           ? experimentHistory[index-1].values[i]
                           : null;
-                        const hasChanged = prevValue !== null && prevValue !== undefined && prevValue !== val;
+                        
+                        // ✅ NUEVO: Comparación mejorada para valores multidimensionales
+                        const hasChanged = prevValue !== null && prevValue !== undefined && 
+                          (Array.isArray(val) && Array.isArray(prevValue)
+                            ? JSON.stringify(val) !== JSON.stringify(prevValue)
+                            : prevValue !== val);
+                        
+                        // ✅ NUEVO: Formateo mejorado para valores multidimensionales
+                        const formatValue = (value) => {
+                          if (Array.isArray(value)) {
+                            return `(${value.map(v => (typeof v === 'number' ? v.toFixed(2) : String(v))).join(', ')})`;
+                          }
+                          return fmt3(value);
+                        };
+
                         return (
                           <div 
                             key={i}
@@ -5041,10 +5067,10 @@ function ExperimentDetailViewer({
                               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getProcessColor(i) }} />
                               <span className="text-sm font-medium">{processNames[i]}</span>
                             </div>
-                            <div className="text-lg font-mono mt-1">{fmt3(val)}</div>
+                            <div className="text-lg font-mono mt-1">{formatValue(val)}</div>
                             {hasChanged && (
                               <div className="text-xs text-green-600 mt-1">
-                                Changed from {fmt3(prevValue)}
+                                Changed from {formatValue(prevValue)}
                               </div>
                             )}
                           </div>
@@ -5053,13 +5079,13 @@ function ExperimentDetailViewer({
                     </div>
                   </div>
 
-                  {/* Known Values Sets (si venían) */}
+                  {/* ✅ CORREGIDO: Known Values Sets - Compatible con multidimensional */}
                   {Array.isArray(round?.knownValuesSets) && (
                     <div className="mb-4">
                       <h5 className="font-medium mb-2 text-sm">
                         Known Values Sets {algorithm === "MIN" ? "(MIN Algorithm)" : `(${algorithm})`}:
                       </h5>
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                         {processNames.map((name, idx) => {
                           const knownSet = round.knownValuesSets[idx] || [];
                           const bgColor = algorithm === "MIN" ? "bg-yellow-50 border-yellow-200" :
@@ -5067,12 +5093,38 @@ function ExperimentDetailViewer({
                                           algorithm === "AMP" ? "bg-green-50 border-green-200" :
                                           algorithm === "FV" ? "bg-red-50 border-red-200" :
                                           "bg-gray-50 border-gray-200";
+                          
+                          // ✅ NUEVO: Función para formatear valores conocidos (1D y multi-D)
+                          const formatKnownValue = (value) => {
+                            if (Array.isArray(value)) {
+                              // Valor multidimensional: [1.2, 0.8, 0.3] → "(1.20, 0.80, 0.30)"
+                              return `(${value.map(v => (typeof v === 'number' ? v.toFixed(2) : String(v))).join(', ')})`;
+                            } else {
+                              // Valor unidimensional: 0.75 → "0.750"
+                              return typeof value === 'number' ? value.toFixed(3) : String(value);
+                            }
+                          };
+
                           return (
-                            <div key={idx} className={`${bgColor} p-2 rounded border text-xs`}>
-                              <span className="font-semibold">{name}:</span>
-                              <span className="ml-1 font-mono">
-                                {"{" + knownSet.map(v => (typeof v === 'number' ? v.toFixed(3) : v)).join(", ") + "}"}
-                              </span>
+                            <div key={idx} className={`${bgColor} p-3 rounded border text-sm`}>
+                              <div className="font-semibold text-gray-800 mb-2">{name}:</div>
+                              <div className="space-y-1">
+                                {knownSet.length > 0 ? (
+                                  knownSet.map((value, valueIdx) => (
+                                    <div 
+                                      key={valueIdx} 
+                                      className="inline-block mr-2 mb-1 px-2 py-1 bg-white rounded font-mono text-xs border border-gray-200"
+                                    >
+                                      {formatKnownValue(value)}
+                                    </div>
+                                  ))
+                                ) : (
+                                  <span className="text-xs text-gray-500 italic">No known values</span>
+                                )}
+                              </div>
+                              <div className="text-xs text-gray-600 mt-2">
+                                Count: {knownSet.length}
+                              </div>
                             </div>
                           );
                         })}

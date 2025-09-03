@@ -1671,6 +1671,36 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
     },
 
         // --- Helpers de norma/pareja más lejana/mezcla y orden ---
+
+
+    finalizeMultiMIN(knownValuesArray) {
+    if (!knownValuesArray || knownValuesArray.length === 0) return null;
+    if (knownValuesArray.length === 1) return this.cloneVector(knownValuesArray[0]);
+
+    // Criterio "mínimo" multidimensional: menor suma de coordenadas + lexicográfico
+    let minVal = knownValuesArray[0];
+    let minSum = this.sumCoords(minVal);
+
+    for (let i = 1; i < knownValuesArray.length; i++) {
+      const currentSum = this.sumCoords(knownValuesArray[i]);
+      
+      if (currentSum < minSum || 
+          (Math.abs(currentSum - minSum) < 1e-12 && this.lexLess(knownValuesArray[i], minVal))) {
+        minVal = knownValuesArray[i];
+        minSum = currentSum;
+      }
+    }
+
+    return this.cloneVector(minVal);
+  },
+
+  initKnownValuesSetsMulti(initialValues) {
+    return initialValues.map(val => new Set([JSON.stringify(val)]));
+  },
+    
+
+        
+      
     distance(a, b, metric = 'euclidean') {
       if (metric === 'l1') return this.l1Distance(a, b);
       if (metric === 'linf') return this.lInfDistance(a, b);
@@ -1737,36 +1767,75 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
         : this.cloneVector(currentValue);
     },
 
+    // ============================================================================
+    // PASO 1: REEMPLAZAR las implementaciones actuales de multiMIN y multiRecursiveAMP
+    // ============================================================================
+
     /**
-     * MIN (multi-D) — elige el extremo "mínimo" entre los dos puntos más lejanos
-     * del conjunto conocido (propio + recibidos). Criterio de "mínimo":
-     * menor suma de coordenadas, con desempate lexicográfico.
+     * MIN (multi-D) CORREGIDO - Idéntico al comportamiento unidimensional
+     * Durante rondas: mantiene valor actual, solo acumula recibidos en estado
      */
     multiMIN(currentValue, receivedValues, distanceMetric = 'euclidean') {
-      const Si = [this.cloneVector(currentValue), ...((receivedValues || []).map(v => this.cloneVector(v)))];
-      if (Si.length < 2) return this.cloneVector(currentValue);
-      const [I, J] = this.farthestPair(Si, distanceMetric);
-      if (I === null || J === null) return this.cloneVector(currentValue);
-      return this.chooseMinExtreme(Si[I], Si[J]);
+      // Durante las rondas, MIN SIEMPRE mantiene el valor actual
+      // Los valores recibidos se acumulan en el estado, no se procesan aquí
+      return this.cloneVector(currentValue);
     },
 
 
     /**
-     * RECURSIVE AMP (multi-D) — meetingPoint es α (escalar o primer elemento de array).
-     * Toma el par de puntos más distante del conjunto conocido y hace mezcla convexa:
-     * new = (1-α)*extremo1 + α*extremo2
+     * RECURSIVE AMP (multi-D) CORREGIDO - Idéntico al comportamiento unidimensional
+     * Usa TODOS los valores conocidos, no solo el par más lejano
      */
     multiRecursiveAMP(currentValue, receivedValues, meetingPoint, distanceMetric = 'euclidean') {
-      const Si = [this.cloneVector(currentValue), ...((receivedValues || []).map(v => this.cloneVector(v)))];
-      if (Si.length < 2) return this.cloneVector(currentValue);
+      if (!receivedValues || receivedValues.length === 0) {
+        return this.cloneVector(currentValue);
+      }
 
-      const [I, J] = this.farthestPair(Si, distanceMetric);
-      if (I === null || J === null) return this.cloneVector(currentValue);
+      // ✅ Como 1D: const knownValues = [values[i], ...receivedMessages]
+      const knownValues = [this.cloneVector(currentValue)];
+      receivedValues.forEach(val => knownValues.push(this.cloneVector(val)));
 
+      // ✅ Extraer α (meetingPoint como escalar)
       let alpha = Array.isArray(meetingPoint) ? Number(meetingPoint[0]) : meetingPoint;
       if (!Number.isFinite(alpha)) alpha = 0.5;
+      alpha = Math.max(0, Math.min(1, alpha));
 
-      return this.convexCombine(Si[I], Si[J], alpha);
+      const dim = currentValue.length;
+      const minVec = Array(dim).fill(Infinity);
+      const maxVec = Array(dim).fill(-Infinity);
+
+      // ✅ Calcular min/max por coordenada
+      knownValues.forEach(vec => {
+        for (let d = 0; d < dim; d++) {
+          const coord = vec[d] || 0;
+          if (coord < minVec[d]) minVec[d] = coord;
+          if (coord > maxVec[d]) maxVec[d] = coord;
+        }
+      });
+
+      // ✅ Verificar rango como en 1D: const range = maxValue - minValue
+      const rangeVec = Array(dim);
+      let hasRange = false;
+      for (let d = 0; d < dim; d++) {
+        rangeVec[d] = maxVec[d] - minVec[d];
+        if (Math.abs(rangeVec[d]) > 1e-12) {
+          hasRange = true;
+        }
+      }
+
+      if (!hasRange) {
+        // ✅ Como 1D: if (range === 0) newValues[i] = values[i]
+        return this.cloneVector(currentValue);
+      }
+
+      // ✅ FÓRMULA EXACTA del código 1D: newValues[i] = kmin + a * kr
+      // Multi-D: newValue[d] = min[d] + α * range[d]
+      const newValue = Array(dim);
+      for (let d = 0; d < dim; d++) {
+        newValue[d] = minVec[d] + alpha * rangeVec[d];
+      }
+
+      return newValue;
     },
 
 
@@ -1783,22 +1852,27 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
           discrepancy: 0,
           algorithm,
           dimensions: 0,
-          meetingPoint
+          meetingPoint,
+          knownValuesSets: null  // ⚠️ AÑADIR esta línea
         };
       }
 
       const dim = values[0].length;
-
-      // Resolver algoritmo
       let algo = algorithm;
       if (algo === "auto") algo = p > 0.5 ? "AMP" : "FV";
 
-      // Defaults coherentes
+      // ⚠️ NUEVO: Manejar knownValuesSets para MIN
+      let knownValuesSets = null;
+      if (algo === "MIN" && this.multiKnownValuesSets) {
+        knownValuesSets = this.multiKnownValuesSets;
+      }
+
+      // Defaults coherentes para meetingPoint
       if (meetingPoint == null) {
         if (algo === "AMP") {
-          meetingPoint = Array(dim).fill(0.5);     // vector
+          meetingPoint = Array(dim).fill(0.5);
         } else if (algo === "RECURSIVE AMP") {
-          meetingPoint = 0.5;                      // escalar α
+          meetingPoint = 0.5;
         } else {
           meetingPoint = Array(dim).fill(0.5);
         }
@@ -1846,7 +1920,19 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
             break;
           }
           case "MIN": {
-            newValues[receiver] = this.multiMIN(values[receiver], receivedMessages, distanceMetric);
+            // MIN mantiene valor actual durante rondas
+            newValues[receiver] = this.cloneVector(values[receiver]);
+            
+            // ⚠️ NUEVO: Acumular valores recibidos en knownValuesSets
+            if (knownValuesSets && knownValuesSets[receiver]) {
+              receivedMessages.forEach(val => {
+                knownValuesSets[receiver].add(JSON.stringify(val));
+              });
+            }
+            break;
+          }
+          case "CENTROID": {
+            newValues[receiver] = this.multiCENTROID(values[receiver], receivedMessages);
             break;
           }
           case "RECURSIVE AMP": {
@@ -1861,6 +1947,14 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
 
       const discrepancy = this.calculateDiscrepancy(newValues, distanceMetric);
 
+      // ⚠️ NUEVO: Retornar knownValuesSets convertido a arrays para compatibilidad
+      let knownValuesSetsForReturn = null;
+      if (algo === "MIN" && knownValuesSets) {
+        knownValuesSetsForReturn = knownValuesSets.map(set => 
+          Array.from(set).map(str => JSON.parse(str))
+        );
+      }
+
       return {
         newValues,
         messages,
@@ -1868,7 +1962,8 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
         discrepancy,
         algorithm: algo,
         dimensions: dim,
-        meetingPoint
+        meetingPoint,
+        knownValuesSets: knownValuesSetsForReturn  // ⚠️ AÑADIR esta línea
       };
     },
 
@@ -1877,30 +1972,64 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
     runMultiDimensionalExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
       const history = [];
       let currentValues = this.cloneMatrix(initialValues);
+      
+      // ⚠️ NUEVO: Inicializar estado para MIN (como en unidimensional)
+      let multiKnownValuesSets = null;
+      const resolvedAlgorithm = algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm;
+      
+      if (resolvedAlgorithm === "MIN") {
+        // Inicializar conjuntos con valor propio de cada proceso (como JSON strings)
+        multiKnownValuesSets = initialValues.map(val => new Set([JSON.stringify(val)]));
+        this.multiKnownValuesSets = multiKnownValuesSets; // Estado global para simulateRound
+      }
+
+      // ⚠️ NUEVO: Historia inicial con knownValuesSets
+      const initialKnownValuesSets = resolvedAlgorithm === "MIN" 
+        ? multiKnownValuesSets.map(set => Array.from(set).map(str => JSON.parse(str)))
+        : null;
 
       history.push({
         round: 0,
         values: this.cloneMatrix(currentValues),
         discrepancy: this.calculateDiscrepancy(currentValues, distanceMetric),
-        algorithm: algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm
+        algorithm: resolvedAlgorithm,
+        dimensions: currentValues[0]?.length || 0,
+        meetingPoint,
+        knownValuesSets: initialKnownValuesSets  // ⚠️ AÑADIR esta línea
       });
 
+      // Ejecutar rondas
       for (let round = 1; round <= rounds; round++) {
         const result = this.simulateMultiDimensionalRound(
-          currentValues,
-          p,
-          algorithm,
-          meetingPoint,
-          distanceMetric
+          currentValues, p, algorithm, meetingPoint, distanceMetric
         );
+        
         currentValues = result.newValues;
+        
+        // ⚠️ NUEVO: Para MIN, decidir valores finales solo al terminar TODAS las rondas
+        if (resolvedAlgorithm === "MIN" && round === rounds) {
+          // Cada proceso decide el "mínimo" multidimensional de su conjunto
+          for (let i = 0; i < currentValues.length; i++) {
+            if (multiKnownValuesSets[i] && multiKnownValuesSets[i].size > 0) {
+              const knownVectors = Array.from(multiKnownValuesSets[i]).map(str => JSON.parse(str));
+              currentValues[i] = this.selectMinVectorFromSet(knownVectors);
+            }
+          }
+          
+          // Limpiar estado global
+          this.multiKnownValuesSets = null;
+        }
+
         history.push({
           round,
           values: this.cloneMatrix(currentValues),
-          discrepancy: result.discrepancy,
-          messages: result.messages,
-          messageDelivery: result.messageDelivery,
-          algorithm: result.algorithm
+          discrepancy: this.calculateDiscrepancy(currentValues, distanceMetric),
+          algorithm: resolvedAlgorithm,
+          dimensions: currentValues[0]?.length || 0,
+          meetingPoint,
+          messages: result.messages || [],
+          messageDelivery: result.messageDelivery || [],
+          knownValuesSets: result.knownValuesSets  // ⚠️ AÑADIR esta línea
         });
       }
 
@@ -1943,7 +2072,34 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
         finalDiscrepancy: statistics[rounds]
       };
     },
+    
+    /**
+     * Selecciona el vector "mínimo" de un conjunto (extensión lógica de Math.min para multi-D)
+     * Criterio: menor suma de coordenadas, desempate lexicográfico
+     */
+    selectMinVectorFromSet(vectorSet) {
+      if (!vectorSet || vectorSet.length === 0) return null;
+      if (vectorSet.length === 1) return this.cloneVector(vectorSet[0]);
 
+      let minVector = vectorSet[0];
+      let minSum = this.sumCoords(minVector);
+
+      for (let i = 1; i < vectorSet.length; i++) {
+        const currentSum = this.sumCoords(vectorSet[i]);
+        
+        if (currentSum < minSum) {
+          minVector = vectorSet[i];
+          minSum = currentSum;
+        } else if (Math.abs(currentSum - minSum) < 1e-12) {
+          // Desempate lexicográfico (menor en primera coord diferente)
+          if (this.lexLess(vectorSet[i], minVector)) {
+            minVector = vectorSet[i];
+          }
+        }
+      }
+
+      return this.cloneVector(minVector);
+    },
 
     // ===== INICIALES MULTI-D =====
     generateInitialValues(processCount, dimensions, mode = 'corners', range = [0, 1]) {
