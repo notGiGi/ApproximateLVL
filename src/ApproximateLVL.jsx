@@ -23,7 +23,7 @@ import {
 // Importar el motor de simulación
 import { SimulationEngine } from './SimulationEngine.js';
 
-  // ============================================
+// ============================================
 // MULTIPLE DIMENSIONS TAB COMPONENT
 // ============================================
 
@@ -142,9 +142,8 @@ function MeetingPointEditor({
 
 
 
-// Helper: resuelve el meeting point según el algoritmo (sin 1/dim y sin normalizar Σ=1)
 function resolveMeetingPoint(actualAlgo, customMP, dimensions) {
-  // RECURSIVE AMP → escalar α ∈ [0,1]
+
   if (actualAlgo === 'RECURSIVE AMP') {
     let alpha;
     if (Array.isArray(customMP) && customMP.length > 0) alpha = Number(customMP[0]);
@@ -161,7 +160,7 @@ function resolveMeetingPoint(actualAlgo, customMP, dimensions) {
     });
   }
 
-  // si te pasan un número, réplícalo a vector
+
   const num = Number(customMP);
   if (Number.isFinite(num)) {
     const v = Math.max(0, Math.min(1, num));
@@ -224,8 +223,7 @@ function MultipleDimensionsTab() {
     setInitialValues(newValues);
   };
 
-  // ---------- SIMULATION ----------
-  // --- MultipleDimensionsTab.jsx ---
+  
   // Reemplazo COMPLETO y CORREGIDO de la función `runSimulation`:
 
 const runSimulation = async () => {
@@ -288,7 +286,7 @@ const runSimulation = async () => {
 
       for (let round = 0; round <= rounds; round++) {
         if (round > 0) {
-          // 1) decide el algoritmo REAL (no pases "auto" al motor)
+         
           const uiAlgo = algorithm; // puede ser "auto"
           const actualAlgo = uiAlgo === 'auto'
             ? (probability > 0.5 ? 'AMP' : 'FV')
@@ -483,10 +481,10 @@ const runSimulation = async () => {
   // ---------- RENDER ----------
   return (
     <div className="space-y-6">
-      {/* … (todo el JSX que compartiste, sin cambios visuales, salvo runSimulation) … */}
+
       {/* Botón de Run */}
       <div className="bg-white p-6 rounded-lg shadow-md">
-        {/* (panel de configuración original que pegaste) */}
+
         <button
           onClick={runSimulation}
           disabled={isRunning || (initialValues?.length ?? 0) === 0}
@@ -500,7 +498,7 @@ const runSimulation = async () => {
         </button>
       </div>
 
-      {/* … (resto de secciones Visualization / Analysis / Tables sin cambios estructurales) … */}
+   
     </div>
   );
 }
@@ -2841,7 +2839,7 @@ function TheoryPlot({
 
 
 
-// FV method comparison chart
+
 function FVMethodComparisonChart({ comparisonResults }) {
   if (!comparisonResults || !Array.isArray(comparisonResults) || comparisonResults.length === 0) {
     return (
@@ -4755,7 +4753,7 @@ function runSingleExperimentForDetails(p) {
   addLog(`Generated detailed view for p=${p.toFixed(3)}`, "info");
 }
 // Componente para visualización detallada del experimento
-// === Reemplazar COMPLETAMENTE ===
+
 function ExperimentDetailViewer({ 
   experimentHistory, 
   algorithm, 
@@ -5269,8 +5267,7 @@ function ExperimentDetailViewer({
 
 
 
-// === Reemplazar COMPLETAMENTE ===
-// Reemplaza TODO el contenido de runRangeExperiments por esto:
+
 function runRangeExperiments() {
   if (isRunning) return;
 
@@ -8030,8 +8027,6 @@ function ComparisonOverview({ experiments }) {
   );
 }
 
-// Convergence Analysis
-// REEMPLAZA TODO EL COMPONENTE ConvergenceAnalysis CON ESTA VERSIÓN MEJORADA:
 
 function ConvergenceAnalysis({ experiments }) {
   // Detectar tipos de experimentos
@@ -8335,8 +8330,6 @@ function ConvergenceAnalysis({ experiments }) {
   );
 }
 
-// Performance Metrics
-// REEMPLAZA LA SECCIÓN DE Performance Metrics EN EL COMPONENTE PerformanceMetrics:
 
 function PerformanceMetrics({ experiments }) {
   // Calculate comprehensive metrics

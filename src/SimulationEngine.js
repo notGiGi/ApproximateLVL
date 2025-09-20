@@ -923,8 +923,6 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
     return zones;
   },
 
-  // IMPLEMENTACIÓN HONESTA - Sin forzar resultados
-  // Solo implementa fielmente la condición: "al menos un mensaje por ronda"
 
   simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint = 0.5) {
     const decP = toDecimal(p);
@@ -1014,19 +1012,19 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
       }
     }
     
-    // NO PONER NINGÚN CAP O LÍMITE - Dejar que el resultado emerja naturalmente
+
     
     return {
       newValues,
       messages,
       messageDelivery,
-      discrepancy: maxDiscrepancy.toNumber(), // Resultado natural, sin forzar
+      discrepancy: maxDiscrepancy.toNumber(), 
       wasConditioned,
       totalDelivered: wasConditioned ? 1 : totalDelivered
     };
   },
 
-  // Cálculo teórico HONESTO - Solo las fórmulas del paper, sin caps artificiales
+ 
   calculateExpectedDiscrepancyConditioned: function(p, algorithm = "auto", rounds = 1) {
     const decP = toDecimal(p);
     const q = toDecimal(1).minus(decP);
@@ -1051,14 +1049,12 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
       singleRoundFactor = pSquared.div(oneMinusQSquared);
     }
     
-    // NO PONER NINGÚN CAP - Si el teorema dice que el máximo es 1/3,
-    // debe emerger naturalmente de las fórmulas, no ser forzado
-    
-    // Para múltiples rondas: factor^rounds
+
+
     return pow(singleRoundFactor, rounds).toNumber();
   },
 
-  // Actualizar calculateExpectedDiscrepancy para usar la versión honesta
+
   calculateExpectedDiscrepancy: function(p, algorithm = "auto", rounds = 1, deliveryMode = 'standard') {
     const decP = toDecimal(p);
     const q = toDecimal(1).minus(decP);
@@ -1104,7 +1100,7 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
       console.log(`p=${p.toFixed(2)}, algo=${algorithm}, E[D|≥1 msg]=${factor.toFixed(4)}`);
     });
     
-    // Encontrar el máximo natural
+ 
     let maxP = 0;
     let maxValue = 0;
     for (let p = 0.01; p <= 0.99; p += 0.01) {
@@ -1134,7 +1130,7 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
     }
   },
 
-  // Función para ejecutar un test experimental honesto
+
   runHonestExperimentalTest: function(p = 0.54, repetitions = 1000) {
     console.log(`=== Honest Experimental Test at p=${p} ===`);
     
@@ -1178,15 +1174,7 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
     };
   },
 
-  // ============================================================
-  // ======= NUEVA IMPLEMENTACIÓN INTEGRADA (Teo.4 & 7) =========
-  // (Nombres NO conflictivos para no sobreescribir nada previo)
-  // ============================================================
 
-  /**
-   * Cálculo teórico condicionado (dos procesos): Teo. 4 y 7.
-   * Retorna (factor_1_ronda)^rounds, sin caps artificiales.
-   */
   calculateTheoreticalConditionedDiscrepancy: function(p, algorithm = "auto", rounds = 1) {
     const decP = toDecimal(p);
     const q = toDecimal(1).minus(decP);
@@ -1256,7 +1244,7 @@ simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPo
       bobToAlice = true;
     }
 
-    // *** CORRECCIÓN CLAVE: meetingPoint como fracción del rango (afinidad) ***
+   
     const a = toDecimal(meetingPoint).toNumber();
     const vmin = Math.min(values[0], values[1]);
     const vmax = Math.max(values[0], values[1]);
@@ -1457,7 +1445,7 @@ simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPo
     return Math.max(0, Math.min(1, 1 - Phi));
   })();
 
-  // Intentos; sube si aceptación baja, con hard cap para no colgar UI
+
   const targetSuccess = 0.99;
   const needed = approxPgeK > 0 ? Math.ceil(Math.log(1 - targetSuccess) / Math.log(1 - approxPgeK)) : Infinity;
   const MAX_ATTEMPTS = Number.isFinite(needed) ? Math.max(needed, 50) : 50_000;
@@ -1483,7 +1471,7 @@ simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPo
     }
   }
 
-  // No se logró cumplir ≥K; devolvemos último intento (honesto)
+
   const dyn = applyDynamics(last ? last.messages : Array.from({length:n}, ()=>[]));
   return {
     newValues: dyn.newValues,
@@ -1501,9 +1489,6 @@ simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPo
 
 
 
-  /**
-   * Ejecuta múltiples experimentos condicionados (rechazo por ronda).
-   */
   runConditionedExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
     if (initialValues.length !== 2) {
       throw new Error("Conditioned experiments only defined for 2 processes");
@@ -1558,9 +1543,7 @@ simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPo
     };
   },
 
-  /**
-   * Comparación teórica estándar vs condicionado (nueva variante con sufijo).
-   */
+
   compareStandardVsConditioned_T47: function(p, rounds = 1) {
     const q = 1 - p;
     const algorithm = p > 0.5 ? "AMP" : "FV";
@@ -1585,7 +1568,7 @@ simulateRoundWithConditioning: function(values, p, algorithm = "auto", meetingPo
       improvement: (conditionedDiscrepancy !== 0) ? (standardDiscrepancy / conditionedDiscrepancy) : Infinity
     };
   },
-// 1) AUTODETECCIÓN (scalar vs baricéntrico)
+
 isBarycentricMatrix(values) {
   return Array.isArray(values) &&
          values.length > 0 &&
@@ -1597,7 +1580,7 @@ isBarycentricMatrix(values) {
          );
 },
 
-// 2) RUTAS AUTO-ESPACIO (no rompen APIs)
+
 runExperimentAutoSpace(initialValues, p, rounds = 1, algorithm = "auto", meetingPoint = 0.5) {
   if (this.isBarycentricMatrix(initialValues)) {
     return this.barycentric.runBarycentricExperiment(initialValues, p, rounds, algorithm, meetingPoint);
@@ -1670,14 +1653,13 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
       return matrix.map(v => this.cloneVector(v));
     },
 
-        // --- Helpers de norma/pareja más lejana/mezcla y orden ---
 
 
     finalizeMultiMIN(knownValuesArray) {
     if (!knownValuesArray || knownValuesArray.length === 0) return null;
     if (knownValuesArray.length === 1) return this.cloneVector(knownValuesArray[0]);
 
-    // Criterio "mínimo" multidimensional: menor suma de coordenadas + lexicográfico
+
     let minVal = knownValuesArray[0];
     let minSum = this.sumCoords(minVal);
 
@@ -1767,14 +1749,7 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
         : this.cloneVector(currentValue);
     },
 
-    // ============================================================================
-    // PASO 1: REEMPLAZAR las implementaciones actuales de multiMIN y multiRecursiveAMP
-    // ============================================================================
 
-    /**
-     * MIN (multi-D) CORREGIDO - Idéntico al comportamiento unidimensional
-     * Durante rondas: mantiene valor actual, solo acumula recibidos en estado
-     */
     multiMIN(currentValue, receivedValues, distanceMetric = 'euclidean') {
       // Durante las rondas, MIN SIEMPRE mantiene el valor actual
       // Los valores recibidos se acumulan en el estado, no se procesan aquí
@@ -1782,10 +1757,6 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
     },
 
 
-    /**
-     * RECURSIVE AMP (multi-D) CORREGIDO - Idéntico al comportamiento unidimensional
-     * Usa TODOS los valores conocidos, no solo el par más lejano
-     */
     multiRecursiveAMP(currentValue, receivedValues, meetingPoint, distanceMetric = 'euclidean') {
       if (!receivedValues || receivedValues.length === 0) {
         return this.cloneVector(currentValue);
@@ -1963,7 +1934,7 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
         algorithm: algo,
         dimensions: dim,
         meetingPoint,
-        knownValuesSets: knownValuesSetsForReturn  // ⚠️ AÑADIR esta línea
+        knownValuesSets: knownValuesSetsForReturn  
       };
     },
 
@@ -1995,7 +1966,7 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
         algorithm: resolvedAlgorithm,
         dimensions: currentValues[0]?.length || 0,
         meetingPoint,
-        knownValuesSets: initialKnownValuesSets  // ⚠️ AÑADIR esta línea
+        knownValuesSets: initialKnownValuesSets  
       });
 
       // Ejecutar rondas
@@ -2006,9 +1977,9 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
         
         currentValues = result.newValues;
         
-        // ⚠️ NUEVO: Para MIN, decidir valores finales solo al terminar TODAS las rondas
+        
         if (resolvedAlgorithm === "MIN" && round === rounds) {
-          // Cada proceso decide el "mínimo" multidimensional de su conjunto
+        
           for (let i = 0; i < currentValues.length; i++) {
             if (multiKnownValuesSets[i] && multiKnownValuesSets[i].size > 0) {
               const knownVectors = Array.from(multiKnownValuesSets[i]).map(str => JSON.parse(str));
@@ -2016,7 +1987,7 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
             }
           }
           
-          // Limpiar estado global
+       
           this.multiKnownValuesSets = null;
         }
 
@@ -2029,7 +2000,7 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
           meetingPoint,
           messages: result.messages || [],
           messageDelivery: result.messageDelivery || [],
-          knownValuesSets: result.knownValuesSets  // ⚠️ AÑADIR esta línea
+          knownValuesSets: result.knownValuesSets  
         });
       }
 
@@ -2073,10 +2044,7 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
       };
     },
     
-    /**
-     * Selecciona el vector "mínimo" de un conjunto (extensión lógica de Math.min para multi-D)
-     * Criterio: menor suma de coordenadas, desempate lexicográfico
-     */
+
     selectMinVectorFromSet(vectorSet) {
       if (!vectorSet || vectorSet.length === 0) return null;
       if (vectorSet.length === 1) return this.cloneVector(vectorSet[0]);
@@ -2184,12 +2152,12 @@ barycentric: {
   normalizeBarycentric(coords) { return coords; },
   isValidBarycentric(coords) { return Array.isArray(coords); },
 
-  // usa la métrica que te pasen
+
   calculateDiscrepancy(values, metric) {
     return SimulationEngine.multidimensional.calculateDiscrepancy(values, metric);
   },
 
-  // ⬇️ añade distanceMetric (con default) y propágala
+
   simulateBarycentricRound(values, p, algorithm, meetingPoint, distanceMetric = 'euclidean') {
     return SimulationEngine.multidimensional.simulateMultiDimensionalRound(
       values, p, algorithm, meetingPoint, distanceMetric
