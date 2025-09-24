@@ -22,23 +22,23 @@
 
 ---
 
-## 📚 About
+##  About
 
 ApproximateLVL is a simulator for distributed computing agreement algorithms. It provides an interactive visualization of how nodes in a distributed system converge to agreement despite probabilistic channels.
 
 The simulator explores the theoretical properties of two algorithms - **Agreed Meeting Point (AMP)** and **Flip Value (FV)** - and demonstrates how their performance varies under different probabilities.
 
-## ✨ Key Features
+##  Key Features
 
-- **🔄 Real-time Simulation**: Watch Alice and Bob nodes converge through iterative message exchanges
-- **📊 Dynamic Visualization**: Interactive charts showing convergence behavior over time
-- **⚙️ Configurable Parameters**: Adjust message delivery probability, initial values, algorithm selection, and more
-- **📈 Statistical Analysis**: Run multiple experiments to validate theoretical predictions
-- **📚 Range Experiments**: Test algorithm performance across a probability range
-- **💾 Experiment Storage**: Save, load, and compare different experiments
-- **🔍 Detailed Analysis**: Data tables, histograms, and comparative visualizations
+- **Real-time Simulation**: Watch Alice and Bob nodes converge through iterative message exchanges
+- ** Dynamic Visualization**: Interactive charts showing convergence behavior over time
+- ** Configurable Parameters**: Adjust message delivery probability, initial values, algorithm selection, and more
+- ** Statistical Analysis**: Run multiple experiments to validate theoretical predictions
+- ** Range Experiments**: Test algorithm performance across a probability range
+- ** Experiment Storage**: Save, load, and compare different experiments
+- ** Detailed Analysis**: Data tables, histograms, and comparative visualizations
 
-## 🧠 Theoretical Background
+##  Theoretical Background
 
 ### The Agreement Problem
 
@@ -58,7 +58,7 @@ The simulator implements two theoretically optimal algorithms:
 - **Behavior**: When a node receives a message, it directly adopts the sender's value
 - **Expected discrepancy**: (1-p)² + p²
 
-## 📖 How to Use
+##  How to Use
 
 ### Single Experiment
 
@@ -95,7 +95,7 @@ The simulator implements two theoretically optimal algorithms:
    - Review detailed error metrics
    - Save interesting configurations of parameters for comparison
 
-## 📊 Interface Overview
+##  Interface Overview
 
 ### Simulation Tab
 - Real-time visualization of algorithms
@@ -115,13 +115,11 @@ The simulator implements two theoretically optimal algorithms:
 - Compare multiple experiment configurations
 
 
-## 🙏 Acknowledgements
+##  Acknowledgements
 
 - Based on theoretical work in distributed computing agreement protocols by PIERRE FRAIGNIAUD, IRIF, University Paris Cité, CNRS, France; BOAZ PATT-SHAMIR, Tel Aviv University, Israel; SERGIO RAJSBAUM, IRIF and Instituto de Matemáticas, UNAM, Mexico.
 
 
 ---
 
-<div align="center">
-  <sub>Built with ❤️ LVL</sub>
-</div>
+
