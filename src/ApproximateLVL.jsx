@@ -804,6 +804,19 @@ function NProcessesControl({
       const defaultValue = valueMode === 'binary' ? n % 2 : 0.5;
       setProcessValues([...processValues, defaultValue]);
 
+      // Reset algorithms if we're moving away from 3 processes
+      if (n === 3) {
+        const has3PAlgos = selectedAlgorithms.some(a => 
+          ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a)
+        );
+        if (has3PAlgos) {
+          setSelectedAlgorithms(prev => 
+            prev.filter(a => !["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a))
+          );
+          addLog("3-process algorithms removed (now have 4 processes)", "warning");
+        }
+      }
+
       if (dimensionMode === 'barycentric' && SimulationEngine?.barycentric) {
         const newBaryValues = [...barycentricValues];
         const newCoords = Array(dimensions).fill(0);
@@ -817,6 +830,20 @@ function NProcessesControl({
   const removeProcess = () => {
     if (n > 2) {
       setProcessValues(processValues.slice(0, -1));
+      
+      // Reset algorithms if we're moving away from 3 processes
+      if (n === 4) {
+        const has3PAlgos = selectedAlgorithms.some(a => 
+          ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a)
+        );
+        if (has3PAlgos) {
+          setSelectedAlgorithms(prev => 
+            prev.filter(a => !["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a))
+          );
+          addLog("3-process algorithms removed (now have 2 processes)", "warning");
+        }
+      }
+      
       if (dimensionMode === 'barycentric') {
         setBarycentricValues(barycentricValues.slice(0, -1));
       }
@@ -929,9 +956,24 @@ function NProcessesControl({
             <select
               value={valueMode}
               onChange={(e) => {
-                setValueMode(e.target.value);
-                if (e.target.value === 'binary') {
+                const newMode = e.target.value;
+                setValueMode(newMode);
+                
+                if (newMode === 'binary') {
                   setProcessValues(processValues.map(v => Math.round(v)));
+                }
+                
+                // Reset 3-process algorithms if switching to continuous
+                if (newMode === 'continuous' && processValues.length === 3) {
+                  const has3PAlgos = selectedAlgorithms.some(a => 
+                    ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a)
+                  );
+                  if (has3PAlgos) {
+                    setSelectedAlgorithms(prev => 
+                      prev.filter(a => !["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a))
+                    );
+                    addLog("3-process binary algorithms removed (switched to continuous mode)", "warning");
+                  }
                 }
               }}
               className="w-full p-1 text-sm border rounded-md"
@@ -6409,9 +6451,63 @@ function runRangeExperiments() {
                       </span>
                     </label>
                   ))}
+                  
+                  {/* Nuevos algoritmos para 3 procesos binarios */}
+                  {processValues.length === 3 && processValues.every(v => v === 0 || v === 1) && (
+                    <>
+                      <div className="border-t my-2"></div>
+                      <div className="text-xs font-semibold text-gray-600 mb-1">3-Process Binary Algorithms:</div>
+                      {["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].map(algo => (
+                        <label key={algo} className="flex items-center py-1 hover:bg-gray-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedAlgorithms.includes(algo)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                if (!selectedAlgorithms.includes(algo)) setSelectedAlgorithms(prev => [...prev, algo]);
+                              } else {
+                                setSelectedAlgorithms(prev => prev.filter(a => a !== algo));
+                              }
+                            }}
+                            disabled={isRunning}
+                            className="mr-2"
+                          />
+                          <span className={`text-xs px-2 py-0.5 rounded ${
+                            algo === "COURTEOUS" ? "bg-indigo-100 text-indigo-700" :
+                            algo === "SELFISH"   ? "bg-orange-100 text-orange-700" :
+                            algo === "CYCLIC"    ? "bg-teal-100 text-teal-700"     :
+                                                  "bg-pink-100 text-pink-700"
+                          }`}>
+                            {algo}
+                          </span>
+                        </label>
+                      ))}
+                    </>
+                  )}
                 </div>
+                
+                {/* Descripción de algoritmos seleccionados */}
+                {selectedAlgorithms.some(a => ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a)) && (
+                  <div className="mt-2 p-2 bg-blue-50 rounded text-xs space-y-1">
+                    {selectedAlgorithms.includes("COURTEOUS") && (
+                      <p><b>Courteous:</b> Adopts different value if heard from 1 process</p>
+                    )}
+                    {selectedAlgorithms.includes("SELFISH") && (
+                      <p><b>Selfish:</b> Keeps own value if heard from 1 process</p>
+                    )}
+                    {selectedAlgorithms.includes("CYCLIC") && (
+                      <p><b>Cyclic:</b> Follows A→B, B→C, C→A order</p>
+                    )}
+                    {selectedAlgorithms.includes("BIASED0") && (
+                      <p><b>Biased-0:</b> Always decides 0 if any process has 0</p>
+                    )}
+                  </div>
+                )}
+                
                 <p className="text-xs text-gray-500 mt-1">
-                  {selectedAlgorithms.length === 1 ? "Select multiple algorithms to compare" : `Comparing ${selectedAlgorithms.length} algorithms`}
+                  {selectedAlgorithms.length === 1 ? 
+                    "Select multiple algorithms to compare" : 
+                    `Comparing ${selectedAlgorithms.length} algorithms`}
                 </p>
               </div>
 
