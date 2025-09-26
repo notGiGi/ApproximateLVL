@@ -104,13 +104,18 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
   // Procesar mensajes recibidos y actualizar valores
   // Procesar mensajes recibidos y actualizar valores
   // IMPORTANTE: Para MIN, mantener los Sets existentes, NO crear nuevos
+  // Procesar mensajes recibidos y actualizar valores
   let updatedKnownValuesSets;
-  if (algorithm === "MIN" && knownValuesSets) {
-    // Para MIN: usar los Sets existentes (ya vienen como arrays desde la ronda anterior)
-    updatedKnownValuesSets = knownValuesSets.map(arr => new Set(arr));
-  } else if (algorithm === "RECURSIVE AMP" || algorithm === "MIN") {
-    // Primera ronda de MIN o RECURSIVE AMP: crear Sets nuevos
-    updatedKnownValuesSets = Array(processCount).fill(null).map(() => new Set());
+
+  // Solo MIN y RECURSIVE AMP usan knownValuesSets
+  if (algorithm === "MIN" || algorithm === "RECURSIVE AMP") {
+    if (knownValuesSets) {
+      // Ya tenemos Sets de rondas anteriores - mantenerlos (vienen como arrays)
+      updatedKnownValuesSets = knownValuesSets.map(arr => new Set(arr));
+    } else {
+      // Primera ronda - inicializar con Sets vacíos
+      updatedKnownValuesSets = Array(processCount).fill(null).map(() => new Set());
+    }
   } else {
     // Otros algoritmos no usan knownValuesSets
     updatedKnownValuesSets = null;
@@ -127,18 +132,25 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
         
         if (messageToI && messageToI.delivered) {
           receivedMessages.push(messageToI.value);
-          updatedKnownValuesSets[i].add(messageToI.value);
+          // Solo agregar a knownValuesSets si existe (para MIN y RECURSIVE AMP)
+          if (updatedKnownValuesSets && updatedKnownValuesSets[i]) {
+            updatedKnownValuesSets[i].add(messageToI.value);
+          }
         }
       }
     }
     
     // Siempre conoce su propio valor
     // MIN: Siempre conoce su valor ORIGINAL (no el actual)
-    if (algorithm === "MIN" && originalValues) {
-      updatedKnownValuesSets[i].add(originalValues[i]);
-    } else {
-      updatedKnownValuesSets[i].add(values[i]);
-    }    
+    // Siempre conoce su propio valor
+    // MIN: Siempre conoce su valor ORIGINAL (no el actual)
+    if (updatedKnownValuesSets && updatedKnownValuesSets[i]) {
+      if (algorithm === "MIN" && originalValues) {
+        updatedKnownValuesSets[i].add(originalValues[i]);
+      } else {
+        updatedKnownValuesSets[i].add(values[i]);
+      }
+    }   
     // NUEVOS ALGORITMOS PARA 3 PROCESOS
     if (processCount === 3 && ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm)) {
       const heardValues = [...receivedMessages];
@@ -289,7 +301,7 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
     messageDelivery: messageDelivery,
     discrepancy: maxDiscrepancy.toNumber(),
     newValues: newValues,
-    knownValuesSets: knownValuesSetsAsArrays  // ← Usar el array convertido
+    knownValuesSets: knownValuesSetsAsArrays
   };
 },
 
