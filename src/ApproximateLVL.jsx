@@ -623,20 +623,25 @@ const getValueRange = () => {
   return { min, max };
 };
 
+const getProcessColor = (index) => {
+  const colors = ["#3498db", "#e67e22", "#2ecc71", "#9b59b6", "#e74c3c", 
+                  "#f39c12", "#1abc9c", "#34495e", "#d35400", "#27ae60"];
+  return colors[index % colors.length];
+};
+
 function MessageDeliveryTable({
   messages,
   processNames,
   selectedProcess,
   previousValues = [],
   finalValues = [],
-  algorithm = null // Añadir prop para saber el algoritmo
+  algorithm = null,
+  knownValuesSets = null
 }) {
-  // Si hay un proceso seleccionado, filtra solo sus mensajes
   const filtered = selectedProcess != null
     ? messages.filter(m => m.from === selectedProcess || m.to === selectedProcess)
     : messages;
 
-  // Agrupar mensajes por receptor para ver qué recibió cada proceso
   const messagesByReceiver = {};
   messages.forEach(msg => {
     if (!messagesByReceiver[msg.to]) {
@@ -650,6 +655,99 @@ function MessageDeliveryTable({
     }
   });
 
+  const getChangeReason = (toIdx, prevVal, newVal, isDelivered, sentVal, fromIdx) => {
+    if (!isDelivered) return "";
+    
+    const changed = prevVal !== undefined && newVal !== undefined && prevVal !== newVal;
+    
+    // Algoritmos de 3 procesos
+    if (["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm)) {
+      const receivedVals = messagesByReceiver[toIdx] || [];
+      
+      if (algorithm === "COURTEOUS") {
+        if (changed && receivedVals.length === 1) {
+          return `COURTEOUS: Adopted different value from ${processNames[fromIdx]}`;
+        } else if (changed && receivedVals.length === 2) {
+          return "COURTEOUS: Majority decision (heard from all)";
+        }
+      } else if (algorithm === "SELFISH") {
+        if (!changed && receivedVals.length === 1 && sentVal !== prevVal) {
+          return `SELFISH: Kept own value (ignoring ${processNames[fromIdx]})`;
+        } else if (changed && receivedVals.length === 2) {
+          return "SELFISH: Majority decision (heard from all)";
+        }
+      } else if (algorithm === "CYCLIC") {
+        const cyclicPrev = toIdx === 0 ? 2 : toIdx - 1;
+        if (changed && fromIdx === cyclicPrev) {
+          return `CYCLIC: Adopted from ${processNames[fromIdx]} (cyclic order)`;
+        } else if (!changed && fromIdx !== cyclicPrev) {
+          return `CYCLIC: Ignored ${processNames[fromIdx]} (not in cyclic order)`;
+        }
+      } else if (algorithm === "BIASED0") {
+        if (changed && newVal === 0) {
+          return `BIASED0: Decided 0 (detected 0 from ${processNames[fromIdx]})`;
+        } else if (!changed && sentVal === 0) {
+          return "BIASED0: Already 0";
+        }
+      }
+      
+      return isDelivered ? `${algorithm}: Message received` : "";
+    }
+    
+    // Algoritmos MIN y RECURSIVE AMP
+    if (algorithm === "MIN") {
+      if (knownValuesSets && knownValuesSets[toIdx]) {
+        const minKnown = Math.min(...knownValuesSets[toIdx]);
+        if (changed && newVal === minKnown) {
+          return `MIN: Selected minimum (${minKnown.toFixed(3)}) from known set`;
+        } else if (isDelivered) {
+          return `MIN: Added ${sentVal.toFixed(3)} to known set`;
+        }
+      }
+      return changed ? "MIN: updated to minimum" : "MIN: value accumulated";
+    } else if (algorithm === "RECURSIVE AMP") {
+      if (changed) {
+        const receivedVals = messagesByReceiver[toIdx] || [];
+        if (receivedVals.length > 0) {
+          const allVals = [prevVal, ...receivedVals.map(r => r.value)];
+          const minVal = Math.min(...allVals);
+          const maxVal = Math.max(...allVals);
+          return `RECURSIVE AMP: Applied α to range [${minVal.toFixed(3)}, ${maxVal.toFixed(3)}]`;
+        }
+      }
+      return isDelivered ? "RECURSIVE AMP: value received" : "";
+    } 
+    
+    // Algoritmos básicos AMP y FV
+    if (changed) {
+      const receivedMessages = messagesByReceiver[toIdx] || [];
+      const differentValue = receivedMessages.find(m => m.value !== prevVal);
+      
+      if (algorithm === "AMP" && differentValue) {
+        return `AMP: Moved to meeting point (received ${differentValue.value.toFixed(3)} ≠ ${prevVal.toFixed(3)})`;
+      } else if (algorithm === "FV" && differentValue) {
+        return `FV: Adopted received value ${differentValue.value.toFixed(3)}`;
+      }
+    }
+    
+    return "";
+  };
+
+  // Función para determinar color según algoritmo
+  const getAlgorithmColor = () => {
+    switch(algorithm) {
+      case "MIN": return "text-yellow-700";
+      case "RECURSIVE AMP": return "text-indigo-700";
+      case "AMP": return "text-blue-700";
+      case "FV": return "text-purple-700";
+      case "COURTEOUS": return "text-indigo-700";
+      case "SELFISH": return "text-orange-700";
+      case "CYCLIC": return "text-teal-700";
+      case "BIASED0": return "text-pink-700";
+      default: return "text-gray-700";
+    }
+  };
+
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
@@ -661,7 +759,7 @@ function MessageDeliveryTable({
             <th className="px-2 py-1 text-center">Delivered</th>
             <th className="px-2 py-1 text-left">To's Prev Value</th>
             <th className="px-2 py-1 text-left">To's New Value</th>
-            <th className="px-2 py-1 text-left">Reason</th>
+            <th className="px-2 py-1 text-left">Effect</th>
           </tr>
         </thead>
         <tbody>
@@ -677,57 +775,43 @@ function MessageDeliveryTable({
                           newValueOfReceiver !== undefined && 
                           prevValueOfReceiver !== newValueOfReceiver;
 
-            // Determinar la razón del cambio
-            let changeReason = "";
-            if (algorithm === "MIN") {
-              // Para MIN, el cambio ocurre al final cuando se decide el mínimo
-              if (changed) {
-                changeReason = "MIN: selected minimum from known values";
-              } else if (isDelivered) {
-                changeReason = "MIN: value added to known set";
-              }
-            } else if (changed) {
-              const receivedMessages = messagesByReceiver[toIdx] || [];
-              const differentValues = receivedMessages.filter(m => m.value !== prevValueOfReceiver);
-              
-              if (differentValues.length > 0) {
-                if (algorithm === "FV" && newValueOfReceiver === differentValues[0].value) {
-                  changeReason = `FV: adopted value from ${processNames[differentValues[0].from]}`;
-                } else if (algorithm === "AMP" && typeof newValueOfReceiver === 'number' && 
-                          newValueOfReceiver >= 0 && newValueOfReceiver <= 1) {
-                  changeReason = `AMP: moved to meeting point`;
-                }
-              }
-            } else if (!changed && isDelivered && sentVal !== prevValueOfReceiver) {
-              if (algorithm === "MIN") {
-                changeReason = "MIN: maintaining current value";
-              } else {
-                changeReason = "No change (algo else decided)";
-              }
-            }
+            const changeReason = getChangeReason(
+              toIdx, prevValueOfReceiver, newValueOfReceiver, 
+              isDelivered, sentVal, fromIdx
+            );
 
             return (
               <tr key={i} className={isDelivered ? 'bg-green-50' : 'bg-red-50'}>
-                <td className="px-2 py-1">{processNames[fromIdx] || `P${fromIdx}`}</td>
-                <td className="px-2 py-1">{processNames[toIdx] || `P${toIdx}`}</td>
-                <td className="px-2 py-1">
-                  {typeof sentVal === 'number' ? sentVal.toFixed(3) : String(sentVal)}
+                <td className="px-2 py-1 flex items-center space-x-1">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getProcessColor(fromIdx) }} />
+                  <span>{processNames[fromIdx]}</span>
                 </td>
+                <td className="px-2 py-1">
+                  <div className="flex items-center space-x-1">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getProcessColor(toIdx) }} />
+                    <span>{processNames[toIdx]}</span>
+                  </div>
+                </td>
+                <td className="px-2 py-1 font-mono">{sentVal?.toFixed(4)}</td>
                 <td className="px-2 py-1 text-center">
-                  {isDelivered ? '✓' : '✗'}
+                  {isDelivered ? (
+                    <span className="text-green-600">✓</span>
+                  ) : (
+                    <span className="text-red-600">✗</span>
+                  )}
                 </td>
-                <td className="px-2 py-1">
-                  {typeof prevValueOfReceiver === 'number' ? 
-                    prevValueOfReceiver.toFixed(3) : String(prevValueOfReceiver)}
-                </td>
-                <td className="px-2 py-1">
+                <td className="px-2 py-1 font-mono">{prevValueOfReceiver?.toFixed(4) || '—'}</td>
+                <td className="px-2 py-1 font-mono">
                   <span className={changed ? 'font-bold text-blue-600' : ''}>
-                    {typeof newValueOfReceiver === 'number' ? 
-                      newValueOfReceiver.toFixed(3) : String(newValueOfReceiver)}
+                    {newValueOfReceiver?.toFixed(4) || '—'}
                   </span>
                 </td>
-                <td className="px-2 py-1 text-xs text-gray-600">
-                  {changeReason}
+                <td className="px-2 py-1 text-xs">
+                  {changeReason && (
+                    <span className={getAlgorithmColor()}>
+                      {changeReason}
+                    </span>
+                  )}
                 </td>
               </tr>
             );
@@ -4381,6 +4465,23 @@ function CompleteDistributedComputingSimulator() {
   const [selectedAlgorithms, setSelectedAlgorithms] = useState(["auto"]);
   const [selectedAlgorithmForDetails, setSelectedAlgorithmForDetails] = useState("auto");
   const processCount = processValues.length;
+  // SOLO AGREGAR ESTO - Detectar si es algoritmo de 3 procesos
+  const is3ProcessAlgorithm = ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm);
+
+  // SOLO AGREGAR ESTO - Información adicional para algoritmos de 3 procesos
+  const getAlgorithmInfo = () => {
+    if (is3ProcessAlgorithm) {
+      switch(algorithm) {
+        case "COURTEOUS": return "Adopts different value from single sender";
+        case "SELFISH": return "Keeps own value when hearing from one";
+        case "CYCLIC": return "Follows cyclic order A→B→C→A";
+        case "BIASED0": return "Always chooses 0 if present";
+        default: return "";
+      }
+    }
+    return "";
+  };
+  
   // ============================================
   // EFECTOS DE INICIALIZACIÓN
   // ============================================
@@ -4845,11 +4946,7 @@ function ExperimentDetailViewer({
     i < 3 ? ["Alice", "Bob", "Charlie"][i] : `P${i+1}`
   );
 
-  const getProcessColor = (index) => {
-    const colors = ["#3498db", "#e67e22", "#2ecc71", "#9b59b6", "#e74c3c", 
-                    "#f39c12", "#1abc9c", "#34495e", "#d35400", "#27ae60"];
-    return colors[index % colors.length];
-  };
+
 
   // Normaliza 'messages' anidados (por emisor); si no existen, intenta derivar desde messageDelivery
   const getNestedMessages = (round, prevValues) => {
@@ -5070,8 +5167,7 @@ function ExperimentDetailViewer({
                 </div>
               </div>
 
-              {/* Contenido expandido */}
-{/* Contenido expandido */}
+
               {expandedRound === index && (
                 <div className="border-t border-gray-200 p-4 bg-gray-50">
                   {/* Valores por proceso */}
@@ -5119,56 +5215,338 @@ function ExperimentDetailViewer({
                     </div>
                   </div>
 
-                  {/* ✅ CORREGIDO: Known Values Sets - Compatible con multidimensional */}
-                  {Array.isArray(round?.knownValuesSets) && (
+                  {/* Received Values Section - Mejorada para TODOS los algoritmos */}
+                  {index > 0 && Array.isArray(round?.messages) && (
                     <div className="mb-4">
-                      <h5 className="font-medium mb-2 text-sm">
-                        Known Values Sets {algorithm === "MIN" ? "(MIN Algorithm)" : `(${algorithm})`}:
-                      </h5>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {processNames.map((name, idx) => {
-                          const knownSet = round.knownValuesSets[idx] || [];
-                          const bgColor = algorithm === "MIN" ? "bg-yellow-50 border-yellow-200" :
-                                          algorithm === "RECURSIVE AMP" ? "bg-purple-50 border-purple-200" :
-                                          algorithm === "AMP" ? "bg-green-50 border-green-200" :
-                                          algorithm === "FV" ? "bg-red-50 border-red-200" :
-                                          "bg-gray-50 border-gray-200";
-                          
-                          // ✅ NUEVO: Función para formatear valores conocidos (1D y multi-D)
-                          const formatKnownValue = (value) => {
-                            if (Array.isArray(value)) {
-                              // Valor multidimensional: [1.2, 0.8, 0.3] → "(1.20, 0.80, 0.30)"
-                              return `(${value.map(v => (typeof v === 'number' ? v.toFixed(2) : String(v))).join(', ')})`;
-                            } else {
-                              // Valor unidimensional: 0.75 → "0.750"
-                              return typeof value === 'number' ? value.toFixed(3) : String(value);
-                            }
-                          };
-
-                          return (
-                            <div key={idx} className={`${bgColor} p-3 rounded border text-sm`}>
-                              <div className="font-semibold text-gray-800 mb-2">{name}:</div>
-                              <div className="space-y-1">
-                                {knownSet.length > 0 ? (
-                                  knownSet.map((value, valueIdx) => (
-                                    <div 
-                                      key={valueIdx} 
-                                      className="inline-block mr-2 mb-1 px-2 py-1 bg-white rounded font-mono text-xs border border-gray-200"
-                                    >
-                                      {formatKnownValue(value)}
-                                    </div>
-                                  ))
+                      <h5 className="font-medium mb-2">Received Values:</h5>
+                      <div className="bg-gray-50 rounded p-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {processNames.map((receiverName, receiverIdx) => {
+                            const receivedValues = [];
+                            const senderInfo = [];
+                            
+                            round.messages.forEach((senderMsgs, senderIdx) => {
+                              if (Array.isArray(senderMsgs)) {
+                                senderMsgs.forEach(msg => {
+                                  if (msg.to === receiverIdx && msg.delivered) {
+                                    receivedValues.push(msg.value);
+                                    senderInfo.push({
+                                      from: processNames[senderIdx],
+                                      value: msg.value,
+                                      fromIdx: senderIdx
+                                    });
+                                  }
+                                });
+                              }
+                            });
+                            
+                            const hasReceivedDifferent = receivedValues.some(val => 
+                              val !== round?.values?.[receiverIdx]
+                            );
+                            
+                            return (
+                              <div 
+                                key={receiverIdx}
+                                className={`p-2 rounded ${
+                                  hasReceivedDifferent ? 'bg-white border-2 border-green-300' : 'bg-white border border-gray-200'
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2 mb-1">
+                                  <div 
+                                    className="w-2 h-2 rounded-full" 
+                                    style={{ backgroundColor: getProcessColor(receiverIdx) }} 
+                                  />
+                                  <span className="text-xs font-medium">{receiverName}</span>
+                                  {receivedValues.length > 0 && (
+                                    <span className="text-xs text-gray-500">
+                                      ({receivedValues.length} msg{receivedValues.length > 1 ? 's' : ''})
+                                    </span>
+                                  )}
+                                </div>
+                                
+                                {senderInfo.length > 0 ? (
+                                  <div className="space-y-1 mt-1">
+                                    {senderInfo.map((info, infoIdx) => (
+                                      <div key={infoIdx} className="flex items-center space-x-1 text-xs">
+                                        <span className="text-gray-500">from</span>
+                                        <div 
+                                          className="w-2 h-2 rounded-full" 
+                                          style={{ backgroundColor: getProcessColor(info.fromIdx) }} 
+                                        />
+                                        <span className="text-gray-600">{info.from}:</span>
+                                        <span className={`font-mono ${
+                                          info.value !== round?.values?.[receiverIdx] ? 'text-green-600 font-semibold' : 'text-gray-600'
+                                        }`}>
+                                          {fmt3(info.value)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
                                 ) : (
-                                  <span className="text-xs text-gray-500 italic">No known values</span>
+                                  <div className="text-xs text-gray-400 mt-1">No messages received</div>
+                                )}
+                                
+                                {/* Mostrar decisión según el algoritmo */}
+                                {hasReceivedDifferent && (
+                                  <div className="mt-2 pt-1 border-t border-gray-200">
+                                    <div className="text-xs">
+                                      {algorithm === "AMP" && (
+                                        <span className="text-blue-600">→ Moved to meeting point: {fmt3(meetingPoint)}</span>
+                                      )}
+                                      {algorithm === "FV" && (
+                                        <span className="text-purple-600">
+                                          → Adopted: {fmt3(receivedValues.find(v => v !== round?.values?.[receiverIdx]))}
+                                        </span>
+                                      )}
+                                      {algorithm === "MIN" && (
+                                        <span className="text-yellow-600">→ Added to known set</span>
+                                      )}
+                                      {algorithm === "RECURSIVE AMP" && (
+                                        <span className="text-indigo-600">→ Applied recursive meeting point</span>
+                                      )}
+                                      {algorithm === "COURTEOUS" && (
+                                        <span className="text-indigo-600">
+                                          → Courteous: {receivedValues.length === 1 ? "Adopted different value" : "Majority decision"}
+                                        </span>
+                                      )}
+                                      {algorithm === "SELFISH" && (
+                                        <span className="text-orange-600">
+                                          → Selfish: {receivedValues.length === 1 ? "Kept own value" : "Majority decision"}
+                                        </span>
+                                      )}
+                                      {algorithm === "CYCLIC" && (
+                                        <span className="text-teal-600">→ Cyclic rule applied</span>
+                                      )}
+                                      {algorithm === "BIASED0" && (
+                                        <span className="text-pink-600">→ Biased to 0</span>
+                                      )}
+                                    </div>
+                                  </div>
                                 )}
                               </div>
-                              <div className="text-xs text-gray-600 mt-2">
-                                Count: {knownSet.length}
-                              </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Known Values Sets - Compatible con TODOS los algoritmos */}
+                  {(Array.isArray(round?.knownValuesSets) || 
+                    ["MIN", "RECURSIVE AMP", "COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm)) && (
+                    <div className="mb-4">
+                      <h5 className="font-medium mb-2 text-sm">
+                        {algorithm === "MIN" ? "Known Values Sets (MIN Algorithm)" : 
+                        algorithm === "RECURSIVE AMP" ? "Known Values Sets (RECURSIVE AMP)" :
+                        ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm) ? 
+                        `Decision Logic (${algorithm})` :
+                        "Known Values Sets"}:
+                      </h5>
+                      
+                      {/* Para algoritmos de 3 procesos, mostrar lógica especial */}
+                      {["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm) ? (
+                        <div className="bg-blue-50 p-4 rounded">
+                          <div className="space-y-2">
+                            {processNames.map((name, idx) => {
+                              const currentValue = round?.values?.[idx];
+                              const prevValue = index > 0 ? experimentHistory[index - 1]?.values?.[idx] : null;
+                              
+                              // Recopilar mensajes recibidos
+                              const receivedMessages = [];
+                              if (Array.isArray(round?.messages)) {
+                                round.messages.forEach((senderMsgs, senderIdx) => {
+                                  if (senderIdx !== idx && Array.isArray(senderMsgs)) {
+                                    senderMsgs.forEach(msg => {
+                                      if (msg.to === idx && msg.delivered) {
+                                        receivedMessages.push({
+                                          from: processNames[senderIdx],
+                                          value: msg.value
+                                        });
+                                      }
+                                    });
+                                  }
+                                });
+                              }
+                              
+                              const heardDifferent = receivedMessages.some(m => m.value !== currentValue);
+                              const heardCount = receivedMessages.length;
+                              
+                              // Determinar la decisión basada en el algoritmo
+                              let decisionReason = "";
+                              let decisionColor = "text-gray-600";
+                              
+                              if (algorithm === "COURTEOUS") {
+                                if (heardCount === 0) {
+                                  decisionReason = "No messages → Keep own value";
+                                } else if (heardCount === 2) {
+                                  const allVals = [currentValue, ...receivedMessages.map(m => m.value)];
+                                  const count0 = allVals.filter(v => v === 0).length;
+                                  decisionReason = `All heard → Majority (${count0 > 1 ? '0' : '1'})`;
+                                  decisionColor = "text-indigo-600";
+                                } else if (heardCount === 1 && heardDifferent) {
+                                  decisionReason = `Heard different → Adopt ${receivedMessages[0].value}`;
+                                  decisionColor = "text-green-600";
+                                } else {
+                                  decisionReason = "Keep own value";
+                                }
+                              } else if (algorithm === "SELFISH") {
+                                if (heardCount === 0) {
+                                  decisionReason = "No messages → Keep own value";
+                                } else if (heardCount === 2) {
+                                  const allVals = [currentValue, ...receivedMessages.map(m => m.value)];
+                                  const count0 = allVals.filter(v => v === 0).length;
+                                  decisionReason = `All heard → Majority (${count0 > 1 ? '0' : '1'})`;
+                                  decisionColor = "text-orange-600";
+                                } else if (heardCount === 1 && heardDifferent) {
+                                  decisionReason = "Heard different → Keep own (selfish)";
+                                  decisionColor = "text-red-600";
+                                } else {
+                                  decisionReason = "Keep own value";
+                                }
+                              } else if (algorithm === "CYCLIC") {
+                                const cyclicPrev = idx === 0 ? 2 : idx - 1;
+                                const cyclicNext = idx === 2 ? 0 : idx + 1;
+                                const heardFromPrev = receivedMessages.find(m => 
+                                  m.from === processNames[cyclicPrev]
+                                );
+                                
+                                if (heardCount === 0) {
+                                  decisionReason = "No messages → Keep own value";
+                                } else if (heardCount === 2) {
+                                  const allVals = [currentValue, ...receivedMessages.map(m => m.value)];
+                                  const count0 = allVals.filter(v => v === 0).length;
+                                  decisionReason = `All heard → Majority (${count0 > 1 ? '0' : '1'})`;
+                                  decisionColor = "text-teal-600";
+                                } else if (heardFromPrev && heardDifferent) {
+                                  decisionReason = `Cyclic: heard from ${processNames[cyclicPrev]} → Adopt`;
+                                  decisionColor = "text-cyan-600";
+                                } else {
+                                  decisionReason = "Keep own value (cyclic rule)";
+                                }
+                              } else if (algorithm === "BIASED0") {
+                                const allVals = [currentValue, ...receivedMessages.map(m => m.value)];
+                                if (allVals.includes(0)) {
+                                  decisionReason = "Heard or has 0 → Decide 0";
+                                  decisionColor = "text-pink-600";
+                                } else {
+                                  decisionReason = "No 0 detected → Keep 1";
+                                }
+                              }
+                              
+                              return (
+                                <div key={idx} className="flex items-start space-x-3">
+                                  <div className="flex items-center space-x-2">
+                                    <div 
+                                      className="w-3 h-3 rounded-full" 
+                                      style={{ backgroundColor: getProcessColor(idx) }}
+                                    />
+                                    <span className="font-medium text-sm">{name}:</span>
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="text-sm">
+                                      <span className="font-mono">{prevValue?.toFixed(1)}</span>
+                                      <span className="mx-2">→</span>
+                                      <span className="font-mono font-bold">{currentValue?.toFixed(1)}</span>
+                                    </div>
+                                    <div className={`text-xs mt-1 ${decisionColor}`}>
+                                      {decisionReason}
+                                    </div>
+                                    {receivedMessages.length > 0 && (
+                                      <div className="text-xs text-gray-500 mt-1">
+                                        Received: {receivedMessages.map(m => `${m.value} from ${m.from}`).join(", ")}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        /* Código existente para MIN y RECURSIVE AMP */
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {processNames.map((name, idx) => {
+                            let knownSet = [];
+                            
+                            if (Array.isArray(round?.knownValuesSets) && round.knownValuesSets[idx]) {
+                              knownSet = round.knownValuesSets[idx];
+                            } else if (algorithm === "MIN" || algorithm === "RECURSIVE AMP") {
+                              const receivedMessages = [];
+                              if (Array.isArray(round?.messages)) {
+                                round.messages.forEach((senderMsgs, senderIdx) => {
+                                  if (senderIdx !== idx && Array.isArray(senderMsgs)) {
+                                    senderMsgs.forEach(msg => {
+                                      if (msg.to === idx && msg.delivered) {
+                                        receivedMessages.push(msg.value);
+                                      }
+                                    });
+                                  }
+                                });
+                              }
+                              knownSet = [round?.values?.[idx], ...receivedMessages].filter(v => v !== undefined);
+                              knownSet = Array.from(new Set(knownSet.map(v => JSON.stringify(v)))).map(v => JSON.parse(v));
+                            }
+                            
+                            const bgColor = algorithm === "MIN" ? 
+                              (knownSet.length > 1 ? 'bg-yellow-50' : 'bg-gray-50') :
+                              algorithm === "RECURSIVE AMP" ?
+                              (knownSet.length > 1 ? 'bg-purple-50' : 'bg-gray-50') :
+                              'bg-gray-50';
+                            
+                            const formatKnownValue = (value) => {
+                              if (Array.isArray(value)) {
+                                return `(${value.map(v => (typeof v === 'number' ? v.toFixed(2) : String(v))).join(', ')})`;
+                              }
+                              return typeof value === 'number' ? value.toFixed(4) : String(value);
+                            };
+                            
+                            return (
+                              <div 
+                                key={idx}
+                                className={`p-3 rounded ${bgColor} border ${selectedProcess === idx ? 'border-blue-500' : 'border-gray-200'}`}
+                              >
+                                <div className="flex items-center space-x-2 mb-2">
+                                  <div 
+                                    className="w-3 h-3 rounded-full" 
+                                    style={{ backgroundColor: getProcessColor(idx) }} 
+                                  />
+                                  <span className="text-sm font-medium">{name}</span>
+                                  <span className="text-xs text-gray-500">({knownSet.length} values)</span>
+                                </div>
+                                
+                                <div className="space-y-1">
+                                  {knownSet.length > 0 ? (
+                                    knownSet.map((val, kIdx) => (
+                                      <div 
+                                        key={kIdx}
+                                        className={`text-xs font-mono ${
+                                          kIdx === 0 ? 'text-blue-600' : 'text-gray-600'
+                                        }`}
+                                      >
+                                        {kIdx === 0 ? '▸ Own: ' : '▸ Recv: '}
+                                        {formatKnownValue(val)}
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <div className="text-xs text-gray-400">No values known</div>
+                                  )}
+                                </div>
+                                
+                                {(algorithm === "MIN" || algorithm === "RECURSIVE AMP") && knownSet.length > 1 && (
+                                  <div className="mt-2 pt-2 border-t border-gray-200">
+                                    <div className="text-xs text-gray-600">
+                                      {algorithm === "MIN" ? 
+                                        `Min value: ${formatKnownValue(Math.min(...knownSet.filter(v => typeof v === 'number')))}` :
+                                        `Range: [${formatKnownValue(Math.min(...knownSet.filter(v => typeof v === 'number')))}, ${formatKnownValue(Math.max(...knownSet.filter(v => typeof v === 'number')))}]`
+                                      }
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -6453,6 +6831,7 @@ function runRangeExperiments() {
                   ))}
                   
                   {/* Nuevos algoritmos para 3 procesos binarios */}
+                  {/* Nuevos algoritmos para 3 procesos binarios */}
                   {processValues.length === 3 && processValues.every(v => v === 0 || v === 1) && (
                     <>
                       <div className="border-t my-2"></div>
@@ -6472,11 +6851,11 @@ function runRangeExperiments() {
                             disabled={isRunning}
                             className="mr-2"
                           />
-                          <span className={`text-xs px-2 py-0.5 rounded ${
-                            algo === "COURTEOUS" ? "bg-indigo-100 text-indigo-700" :
-                            algo === "SELFISH"   ? "bg-orange-100 text-orange-700" :
-                            algo === "CYCLIC"    ? "bg-teal-100 text-teal-700"     :
-                                                  "bg-pink-100 text-pink-700"
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                            algo === "COURTEOUS" ? "bg-indigo-200 text-indigo-800 border border-indigo-300" :
+                            algo === "SELFISH"   ? "bg-orange-200 text-orange-800 border border-orange-300" :
+                            algo === "CYCLIC"    ? "bg-teal-200 text-teal-800 border border-teal-300"     :
+                                                  "bg-rose-200 text-rose-800 border border-rose-300"
                           }`}>
                             {algo}
                           </span>
@@ -7499,100 +7878,120 @@ function runRangeExperiments() {
                               </div>
                             </div>
                             
-                            {/* Sección 5: Tabla de Datos Detallada */}
-                            <div className="mb-4">
-                              <h4 className="font-medium mb-2">Detailed Results Table</h4>
-                              <div className="overflow-x-auto">
-                                <table className="min-w-full divide-y divide-gray-200">
-                                  <thead className="bg-gray-50">
-                                    <tr>
-                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">p</th>
-                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Algorithm</th>
-                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Experimental</th>
-                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Samples</th>
-                                      {hasTheoretical && (
-                                        <>
-                                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Theoretical</th>
-                                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Error</th>
-                                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Error %</th>
-                                        </>
-                                      )}
-                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Std Dev</th>
-                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">CV %</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="bg-white divide-y divide-gray-200">
-                                    {experimentalResults.map((result, idx) => {
-                                      const hasTheory = result.theoretical !== null && 
-                                                      result.theoretical !== undefined && 
-                                                      !isNaN(result.theoretical);
-                                      
-                                      // Calcular estadísticas adicionales
-                                      let stdDev = 0;
-                                      let cv = 0;
-                                      if (result.discrepancies && result.discrepancies.length > 1) {
-                                        const mean = result.discrepancy;
-                                        const variance = result.discrepancies.reduce(
-                                          (sum, val) => sum + Math.pow(val - mean, 2), 0
-                                        ) / result.discrepancies.length;
-                                        stdDev = Math.sqrt(variance);
-                                        cv = mean !== 0 ? (stdDev / Math.abs(mean)) * 100 : 0;
-                                      }
-                                      
-                                      const error = hasTheory ? Math.abs(result.theoretical - result.discrepancy) : null;
-                                      const errorPercent = hasTheory && result.theoretical !== 0 ? 
-                                        (error / Math.abs(result.theoretical)) * 100 : null;
-                                      
-                                      return (
-                                        <tr key={idx} className={idx % 2 === 0 ? "" : "bg-gray-50"}>
-                                          <td className="px-3 py-2 text-sm">{result.p.toFixed(3)}</td>
+                          {/* Sección 5: Tabla de Datos Detallada */}
+                          <div className="mb-4">
+                            <h4 className="font-medium mb-2">Detailed Results Table</h4>
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">p</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Algorithm</th>
+                                    {/* SOLO AGREGAR ESTA COLUMNA SI HAY ALGORITMOS DE 3 PROCESOS */}
+                                    {experimentalResults.some(r => ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(r.algorithm)) && (
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Type</th>
+                                    )}
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Experimental</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Samples</th>
+                                    {hasTheoretical && (
+                                      <>
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Theoretical</th>
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Error</th>
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Error %</th>
+                                      </>
+                                    )}
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Std Dev</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">CV %</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                  {experimentalResults.map((result, idx) => {
+                                    const hasTheory = result.theoretical !== null && 
+                                                    result.theoretical !== undefined && 
+                                                    !isNaN(result.theoretical);
+                                    
+                                    // Calcular estadísticas adicionales
+                                    let stdDev = 0;
+                                    let cv = 0;
+                                    if (result.discrepancies && result.discrepancies.length > 1) {
+                                      const mean = result.discrepancy;
+                                      const variance = result.discrepancies.reduce(
+                                        (sum, val) => sum + Math.pow(val - mean, 2), 0
+                                      ) / result.discrepancies.length;
+                                      stdDev = Math.sqrt(variance);
+                                      cv = mean !== 0 ? (stdDev / Math.abs(mean)) * 100 : 0;
+                                    }
+                                    
+                                    const error = hasTheory ? Math.abs(result.theoretical - result.discrepancy) : null;
+                                    const errorPercent = hasTheory && result.theoretical !== 0 ? 
+                                      (error / Math.abs(result.theoretical)) * 100 : null;
+                                    
+                                    return (
+                                      <tr key={idx} className={idx % 2 === 0 ? "" : "bg-gray-50"}>
+                                        <td className="px-3 py-2 text-sm">{result.p.toFixed(3)}</td>
+                                        <td className="px-3 py-2 text-sm">
+                                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                            result.algorithm === "AMP" ? "bg-green-100 text-green-800" : 
+                                            result.algorithm === "FV" ? "bg-red-100 text-red-800" :
+                                            result.algorithm === "COURTEOUS" ? "bg-indigo-100 text-indigo-800" :
+                                            result.algorithm === "SELFISH" ? "bg-orange-100 text-orange-800" :
+                                            result.algorithm === "CYCLIC" ? "bg-teal-100 text-teal-800" :
+                                            result.algorithm === "BIASED0" ? "bg-rose-100 text-rose-800" :
+                                            result.algorithm === "RECURSIVE AMP" ? "bg-purple-100 text-purple-800" :
+                                            result.algorithm === "MIN" ? "bg-yellow-100 text-yellow-800" :
+                                            "bg-gray-100 text-gray-800"
+                                          }`}>
+                                            {result.algorithm}
+                                          </span>
+                                        </td>
+                                        {/* SOLO AGREGAR ESTA CELDA SI HAY ALGORITMOS DE 3 PROCESOS */}
+                                        {experimentalResults.some(r => ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(r.algorithm)) && (
                                           <td className="px-3 py-2 text-sm">
-                                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                              result.algorithm === "AMP" ? 
-                                                "bg-green-100 text-green-800" : 
-                                                "bg-red-100 text-red-800"
-                                            }`}>
-                                              {result.algorithm}
-                                            </span>
+                                            {["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(result.algorithm) ? (
+                                              <span className="text-xs text-purple-600 font-medium">3-Proc</span>
+                                            ) : (
+                                              <span className="text-xs text-gray-500">Std</span>
+                                            )}
                                           </td>
-                                          <td className="px-3 py-2 text-sm font-mono">
-                                            {result.discrepancy.toFixed(6)}
-                                          </td>
-                                          <td className="px-3 py-2 text-sm">{result.samples || repetitions}</td>
-                                          {hasTheoretical && (
-                                            <>
-                                              <td className="px-3 py-2 text-sm font-mono text-gray-600">
-                                                {hasTheory ? result.theoretical.toFixed(6) : 'N/A'}
-                                              </td>
-                                              <td className="px-3 py-2 text-sm font-mono">
-                                                {error !== null ? error.toFixed(6) : 'N/A'}
-                                              </td>
-                                              <td className="px-3 py-2 text-sm">
-                                                {errorPercent !== null ? (
-                                                  <span className={`font-medium ${
-                                                    errorPercent < 5 ? 'text-green-600' :
-                                                    errorPercent < 10 ? 'text-yellow-600' :
-                                                    'text-red-600'
-                                                  }`}>
-                                                    {errorPercent.toFixed(2)}%
-                                                  </span>
-                                                ) : 'N/A'}
-                                              </td>
-                                            </>
-                                          )}
-                                          <td className="px-3 py-2 text-sm font-mono">
-                                            {stdDev.toFixed(6)}
-                                          </td>
-                                          <td className="px-3 py-2 text-sm">
-                                            {cv.toFixed(2)}%
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
+                                        )}
+                                        <td className="px-3 py-2 text-sm font-mono">
+                                          {result.discrepancy.toFixed(6)}
+                                        </td>
+                                        <td className="px-3 py-2 text-sm">{result.samples || repetitions}</td>
+                                        {hasTheoretical && (
+                                          <>
+                                            <td className="px-3 py-2 text-sm font-mono text-gray-600">
+                                              {hasTheory ? result.theoretical.toFixed(6) : 'N/A'}
+                                            </td>
+                                            <td className="px-3 py-2 text-sm font-mono">
+                                              {error !== null ? error.toFixed(6) : 'N/A'}
+                                            </td>
+                                            <td className="px-3 py-2 text-sm">
+                                              {errorPercent !== null ? (
+                                                <span className={`font-medium ${
+                                                  errorPercent < 5 ? 'text-green-600' :
+                                                  errorPercent < 10 ? 'text-yellow-600' :
+                                                  'text-red-600'
+                                                }`}>
+                                                  {errorPercent.toFixed(2)}%
+                                                </span>
+                                              ) : 'N/A'}
+                                            </td>
+                                          </>
+                                        )}
+                                        <td className="px-3 py-2 text-sm font-mono">
+                                          {stdDev.toFixed(6)}
+                                        </td>
+                                        <td className="px-3 py-2 text-sm">
+                                          {cv.toFixed(2)}%
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
                             </div>
+                          </div>
                             
                             {/* Botón para guardar experimento */}
                             <div className="mt-6 text-center">
