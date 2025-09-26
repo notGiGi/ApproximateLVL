@@ -102,9 +102,19 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
   }
   
   // Procesar mensajes recibidos y actualizar valores
-  let updatedKnownValuesSets = knownValuesSets ? 
-    knownValuesSets.map(() => new Set()) : 
-    Array(processCount).fill(null).map(() => new Set());
+  // Procesar mensajes recibidos y actualizar valores
+  // IMPORTANTE: Para MIN, mantener los Sets existentes, NO crear nuevos
+  let updatedKnownValuesSets;
+  if (algorithm === "MIN" && knownValuesSets) {
+    // Para MIN: usar los Sets existentes (ya vienen como arrays desde la ronda anterior)
+    updatedKnownValuesSets = knownValuesSets.map(arr => new Set(arr));
+  } else if (algorithm === "RECURSIVE AMP" || algorithm === "MIN") {
+    // Primera ronda de MIN o RECURSIVE AMP: crear Sets nuevos
+    updatedKnownValuesSets = Array(processCount).fill(null).map(() => new Set());
+  } else {
+    // Otros algoritmos no usan knownValuesSets
+    updatedKnownValuesSets = null;
+  }
   
   for (let i = 0; i < processCount; i++) {
     const receivedMessages = [];
@@ -123,8 +133,12 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
     }
     
     // Siempre conoce su propio valor
-    updatedKnownValuesSets[i].add(valuesToSend[i]);
-    
+    // MIN: Siempre conoce su valor ORIGINAL (no el actual)
+    if (algorithm === "MIN" && originalValues) {
+      updatedKnownValuesSets[i].add(originalValues[i]);
+    } else {
+      updatedKnownValuesSets[i].add(values[i]);
+    }    
     // NUEVOS ALGORITMOS PARA 3 PROCESOS
     if (processCount === 3 && ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm)) {
       const heardValues = [...receivedMessages];
@@ -238,16 +252,17 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
       }
     }
     else if (algorithm === "MIN" && knownValuesSets) {
-      const minKnown = Math.min(...Array.from(updatedKnownValuesSets[i]));
-      newValues[i] = minKnown;
-    }
-    else if (algorithm === "RECURSIVE AMP") {
+      newValues[i] = values[i];
+    } else if (algorithm === "RECURSIVE AMP") {
       const knownVals = Array.from(updatedKnownValuesSets[i]);
       if (knownVals.length > 1) {
         const vmin = Math.min(...knownVals);
         const vmax = Math.max(...knownVals);
         const alpha = meetingPoint || 0.5;
         newValues[i] = vmin + alpha * (vmax - vmin);
+      } else {
+        // Si solo conoce su propio valor, mantenerlo
+        newValues[i] = values[i];
       }
     }
   }
@@ -263,13 +278,18 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
     }
   }
   
+  // Convertir Sets a Arrays antes de retornar
+  // Convertir Sets a Arrays para serialización
+  const knownValuesSetsAsArrays = updatedKnownValuesSets ? 
+    updatedKnownValuesSets.map(set => Array.from(set)) : null;
+
   return {
     values: newValues,
     messages: messages,
     messageDelivery: messageDelivery,
     discrepancy: maxDiscrepancy.toNumber(),
     newValues: newValues,
-    knownValuesSets: updatedKnownValuesSets
+    knownValuesSets: knownValuesSetsAsArrays  // ← Usar el array convertido
   };
 },
 
@@ -344,8 +364,11 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
       );
       
       values = result.newValues;
-      if (algorithm === "MIN") {
-        knownValuesSets = result.knownValuesSets.map(arr => new Set(arr));
+      // IMPORTANTE: Mantener knownValuesSets acumulado para MIN y RECURSIVE AMP
+      if (algorithm === "MIN" || algorithm === "RECURSIVE AMP") {
+        // Los knownValuesSets ya vienen como arrays desde simulateRound
+        // Los guardamos para pasarlos a la siguiente ronda
+        knownValuesSets = result.knownValuesSets;
       }
       
       // Para la última ronda de MIN, decidir valores finales
@@ -378,9 +401,9 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
           return obj;
         }, {}),
         discrepancy: result.discrepancy,
-        messageDelivery: result.messageDelivery,
         messages: result.messages,
-        knownValuesSets: result.knownValuesSets || null
+        messageDelivery: result.messageDelivery,
+        knownValuesSets: result.knownValuesSets  // Ya viene como arrays desde simulateRound
       });
     }
     

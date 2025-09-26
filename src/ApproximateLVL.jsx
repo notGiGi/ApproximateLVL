@@ -5516,17 +5516,13 @@ function ExperimentDetailViewer({
                                 
                                 <div className="space-y-1">
                                   {knownSet.length > 0 ? (
-                                    knownSet.map((val, kIdx) => (
-                                      <div 
-                                        key={kIdx}
-                                        className={`text-xs font-mono ${
-                                          kIdx === 0 ? 'text-blue-600' : 'text-gray-600'
-                                        }`}
-                                      >
-                                        {kIdx === 0 ? '▸ Own: ' : '▸ Recv: '}
-                                        {formatKnownValue(val)}
-                                      </div>
-                                    ))
+                                    <div className="text-sm font-mono text-gray-700">
+                                      {/* Mostrar como conjunto simple */}
+                                      <span className="text-xs text-gray-500">Set: </span>
+                                      <span className="font-semibold">
+                                        {`{${knownSet.map(val => formatKnownValue(val)).join(', ')}}`}
+                                      </span>
+                                    </div>
                                   ) : (
                                     <div className="text-xs text-gray-400">No values known</div>
                                   )}
@@ -5536,7 +5532,9 @@ function ExperimentDetailViewer({
                                   <div className="mt-2 pt-2 border-t border-gray-200">
                                     <div className="text-xs text-gray-600">
                                       {algorithm === "MIN" ? 
-                                        `Min value: ${formatKnownValue(Math.min(...knownSet.filter(v => typeof v === 'number')))}` :
+                                        <span className="text-yellow-700 font-semibold">
+                                          → Will decide: {formatKnownValue(Math.min(...knownSet.filter(v => typeof v === 'number')))}
+                                        </span> :
                                         `Range: [${formatKnownValue(Math.min(...knownSet.filter(v => typeof v === 'number')))}, ${formatKnownValue(Math.max(...knownSet.filter(v => typeof v === 'number')))}]`
                                       }
                                     </div>
