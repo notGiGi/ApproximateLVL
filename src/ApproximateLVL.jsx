@@ -7586,23 +7586,34 @@ function runRangeExperiments() {
                     <div className="bg-white rounded-lg shadow p-4 mb-4">
                       <h3 className="text-lg font-semibold mb-3">Statistical Analysis</h3>
                       
-                      {/* Detectar si tenemos valores teóricos disponibles */}
+                      {/* Detectar algoritmos únicos en los resultados */}
                       {(() => {
-                        const hasTheoretical = experimentalResults.some(r => 
-                          r.theoretical !== null && 
-                          r.theoretical !== undefined && 
-                          !isNaN(r.theoretical) && 
-                          isFinite(r.theoretical)
-                        );
+                        // Agrupar resultados por algoritmo
+                        const algorithmGroups = {};
+                        experimentalResults.forEach(result => {
+                          const algo = result.algorithm || result.displayAlgorithm || 'Unknown';
+                          if (!algorithmGroups[algo]) {
+                            algorithmGroups[algo] = [];
+                          }
+                          algorithmGroups[algo].push(result);
+                        });
+
+                        const uniqueAlgorithms = Object.keys(algorithmGroups);
+                        const hasMultipleAlgorithms = uniqueAlgorithms.length > 1;
+                        
+                        // Algoritmos con respaldo teórico del paper
+                        const PAPER_ALGORITHMS = ['AMP', 'FV'];
+                        const hasTheoreticalSupport = (algo) => {
+                          return PAPER_ALGORITHMS.includes(algo) && processValues.length === 2;
+                        };
                         
                         const processCount = processValues.length;
                         const isConditioned = deliveryMode === 'guaranteed';
-                        const hasLimitedTheory = processCount === 2 || (processCount <= 3 && !isConditioned);
                         
                         return (
                           <>
                             {/* Advertencia sobre limitaciones teóricas */}
-                            {!hasTheoretical && (
+                            {processCount > 2 && (
                               <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                                 <div className="flex items-start">
                                   <svg className="w-5 h-5 text-amber-600 mt-0.5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -7611,394 +7622,336 @@ function runRangeExperiments() {
                                   <div>
                                     <h4 className="text-sm font-semibold text-amber-800">Limited Theoretical Values</h4>
                                     <p className="text-sm text-amber-700 mt-1">
-                                      {processCount > 2 ? (
-                                        <>Theoretical formulas are only available for 2 processes. 
-                                        Showing experimental statistics only for {processCount} processes.</>
-                                      ) : isConditioned && processCount > 2 ? (
-                                        <>Conditioned mode theoretical values are only available for 2 processes. 
-                                        Showing experimental statistics only.</>
-                                      ) : (
-                                        <>Theoretical values may not be available for all configurations. 
-                                        Showing available experimental statistics.</>
-                                      )}
+                                      Theoretical formulas from the paper are only available for 2 processes with AMP/FV algorithms.
+                                      {uniqueAlgorithms.filter(a => !PAPER_ALGORITHMS.includes(a)).length > 0 && 
+                                        <> Experimental algorithms ({uniqueAlgorithms.filter(a => !PAPER_ALGORITHMS.includes(a)).join(', ')}) show empirical results only.</>
+                                      }
                                     </p>
                                   </div>
                                 </div>
                               </div>
                             )}
-                            
-                            {/* Sección 1: Configuración del Experimento */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                              <div className="bg-blue-50 p-3 rounded-lg">
-                                <h4 className="font-medium mb-2">Experiment Configuration</h4>
-                                <ul className="text-sm space-y-1">
-                                  <li><span className="font-medium">Processes:</span> {processCount}</li>
-                                  <li><span className="font-medium">Initial Values:</span> [{processValues.join(', ')}]</li>
-                                  <li><span className="font-medium">Zero-valued:</span> {processValues.filter(v => v === 0).length} processes</li>
-                                  <li><span className="font-medium">One-valued:</span> {processValues.filter(v => v === 1).length} processes</li>
-                                  <li><span className="font-medium">Algorithm:</span> {
-                                    experimentalResults[0]?.displayAlgorithm || 
-                                    experimentalResults[0]?.algorithm || 
-                                    forcedAlgorithm || 
-                                    'Auto'
-                                  }</li>
-                                  {experimentalResults[0]?.algorithm === 'AMP' && (
-                                    <li><span className="font-medium">Meeting Point:</span> {meetingPoint}</li>
-                                  )}
-                                  <li><span className="font-medium">Rounds:</span> {rounds}</li>
-                                  <li><span className="font-medium">Repetitions:</span> {repetitions}</li>
-                                  <li><span className="font-medium">Delivery Mode:</span> {
-                                    isConditioned ? 'Guaranteed (≥1 message)' : 'Standard'
-                                  }</li>
-                                </ul>
-                              </div>
-                              
-                              {/* Sección 2: Estadísticas Experimentales (SIEMPRE SE MUESTRA) */}
-                              <div className="bg-gray-50 p-3 rounded-lg">
-                                <h4 className="font-medium mb-2">Experimental Statistics</h4>
-                                {(() => {
-                                  const discrepancies = experimentalResults.map(r => r.discrepancy);
-                                  const avgDiscrepancy = discrepancies.reduce((sum, d) => sum + d, 0) / discrepancies.length;
-                                  const minDiscrepancy = Math.min(...discrepancies);
-                                  const maxDiscrepancy = Math.max(...discrepancies);
+
+                            {/* Mostrar estadísticas por algoritmo */}
+                            {hasMultipleAlgorithms ? (
+                              // Vista para múltiples algoritmos
+                              <div className="space-y-4">
+                                <div className="text-sm text-gray-600 mb-2">
+                                  Comparing {uniqueAlgorithms.length} algorithms: {uniqueAlgorithms.join(', ')}
+                                </div>
+                                
+                                {uniqueAlgorithms.map((algorithm, algoIdx) => {
+                                  const algoResults = algorithmGroups[algorithm];
+                                  const isPaperAlgo = PAPER_ALGORITHMS.includes(algorithm);
+                                  const showTheory = hasTheoreticalSupport(algorithm);
                                   
-                                  const variance = discrepancies.reduce((sum, d) => 
-                                    sum + Math.pow(d - avgDiscrepancy, 2), 0
-                                  ) / discrepancies.length;
+                                  // Calcular estadísticas para este algoritmo
+                                  const allDiscrepancies = [];
+                                  algoResults.forEach(result => {
+                                    if (result.discrepancies && result.discrepancies.length > 0) {
+                                      allDiscrepancies.push(...result.discrepancies);
+                                    } else if (typeof result.discrepancy === 'number') {
+                                      allDiscrepancies.push(result.discrepancy);
+                                    }
+                                  });
+                                  
+                                  if (allDiscrepancies.length === 0) return null;
+                                  
+                                  const avgDiscrepancy = allDiscrepancies.reduce((a, b) => a + b, 0) / allDiscrepancies.length;
+                                  const minDiscrepancy = Math.min(...allDiscrepancies);
+                                  const maxDiscrepancy = Math.max(...allDiscrepancies);
+                                  const variance = allDiscrepancies.reduce((sum, val) => sum + Math.pow(val - avgDiscrepancy, 2), 0) / allDiscrepancies.length;
                                   const stdDev = Math.sqrt(variance);
                                   const cv = avgDiscrepancy !== 0 ? (stdDev / Math.abs(avgDiscrepancy)) * 100 : 0;
-                                  const stderr = stdDev / Math.sqrt(repetitions);
+                                  
+                                  return (
+                                    <div key={algorithm} className="border rounded-lg p-3">
+                                      <div className="flex items-center justify-between mb-2">
+                                        <h4 className="font-medium flex items-center gap-2">
+                                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                            algorithm === "AMP" ? "bg-green-100 text-green-800" : 
+                                            algorithm === "FV" ? "bg-red-100 text-red-800" :
+                                            isPaperAlgo ? "bg-blue-100 text-blue-800" :
+                                            "bg-purple-100 text-purple-800"
+                                          }`}>
+                                            {algorithm}
+                                          </span>
+                                          {!isPaperAlgo && <span className="text-xs text-gray-500">(Experimental)</span>}
+                                        </h4>
+                                        <span className="text-xs text-gray-500">{algoResults.length} data points</span>
+                                      </div>
+                                      
+                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                        <div>
+                                          <p className="text-gray-600 text-xs">Mean</p>
+                                          <p className="font-mono font-semibold">
+                                            {avgDiscrepancy < 1e-6 ? avgDiscrepancy.toExponential(3) : avgDiscrepancy.toFixed(6)}
+                                          </p>
+                                        </div>
+                                        <div>
+                                          <p className="text-gray-600 text-xs">Std Dev</p>
+                                          <p className="font-mono">{stdDev < 1e-6 ? stdDev.toExponential(3) : stdDev.toFixed(6)}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-gray-600 text-xs">Min</p>
+                                          <p className="font-mono">{minDiscrepancy < 1e-6 ? minDiscrepancy.toExponential(3) : minDiscrepancy.toFixed(6)}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-gray-600 text-xs">Max</p>
+                                          <p className="font-mono">{maxDiscrepancy < 1e-6 ? maxDiscrepancy.toExponential(3) : maxDiscrepancy.toFixed(6)}</p>
+                                        </div>
+                                      </div>
+                                      
+                                      {showTheory && (
+                                        <div className="mt-2 pt-2 border-t">
+                                          <p className="text-xs text-gray-600 mb-1">Theoretical Comparison (Paper Algorithm):</p>
+                                          {(() => {
+                                            const theoreticalErrors = algoResults
+                                              .filter(r => r.theoretical !== null && r.theoretical !== undefined)
+                                              .map(r => Math.abs(r.discrepancy - r.theoretical) / (r.theoretical || 1) * 100);
+                                            
+                                            if (theoreticalErrors.length > 0) {
+                                              const avgError = theoreticalErrors.reduce((a, b) => a + b, 0) / theoreticalErrors.length;
+                                              return (
+                                                <p className="text-sm">
+                                                  Average error vs theory: <span className={`font-medium ${
+                                                    avgError < 5 ? 'text-green-600' :
+                                                    avgError < 10 ? 'text-yellow-600' :
+                                                    'text-red-600'
+                                                  }`}>{avgError.toFixed(2)}%</span>
+                                                </p>
+                                              );
+                                            }
+                                            return <p className="text-xs text-gray-500">No theoretical values available</p>;
+                                          })()}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              // Vista para un solo algoritmo - tabla tradicional
+                              <div>
+                                <div className="overflow-x-auto">
+                                  <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                      <tr>
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">P</th>
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Algorithm</th>
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Experimental</th>
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Samples</th>
+                                        {hasTheoreticalSupport(uniqueAlgorithms[0]) && (
+                                          <>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Theoretical</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Error</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Error %</th>
+                                          </>
+                                        )}
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Std Dev</th>
+                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">CV %</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                      {experimentalResults.map((result, idx) => {
+                                        const isPaperAlgo = PAPER_ALGORITHMS.includes(result.algorithm);
+                                        const hasTheory = hasTheoreticalSupport(result.algorithm) && 
+                                                        result.theoretical !== null && 
+                                                        result.theoretical !== undefined && 
+                                                        !isNaN(result.theoretical);
+                                        
+                                        // Calcular estadísticas adicionales
+                                        let stdDev = 0;
+                                        let cv = 0;
+                                        if (result.discrepancies && result.discrepancies.length > 1) {
+                                          const mean = result.discrepancy;
+                                          const variance = result.discrepancies.reduce(
+                                            (sum, val) => sum + Math.pow(val - mean, 2), 0
+                                          ) / result.discrepancies.length;
+                                          stdDev = Math.sqrt(variance);
+                                          cv = mean !== 0 ? (stdDev / Math.abs(mean)) * 100 : 0;
+                                        }
+                                        
+                                        const error = hasTheory ? Math.abs(result.theoretical - result.discrepancy) : null;
+                                        const errorPercent = hasTheory && result.theoretical !== 0 ? 
+                                          (error / Math.abs(result.theoretical)) * 100 : null;
+                                        
+                                        return (
+                                          <tr key={idx} className={idx % 2 === 0 ? "" : "bg-gray-50"}>
+                                            <td className="px-3 py-2 text-sm">{result.p.toFixed(3)}</td>
+                                            <td className="px-3 py-2 text-sm">
+                                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                                result.algorithm === "AMP" ? "bg-green-100 text-green-800" : 
+                                                result.algorithm === "FV" ? "bg-red-100 text-red-800" :
+                                                isPaperAlgo ? "bg-blue-100 text-blue-800" :
+                                                "bg-purple-100 text-purple-800"
+                                              }`}>
+                                                {result.algorithm}
+                                                {!isPaperAlgo && " (Exp)"}
+                                              </span>
+                                            </td>
+                                            <td className="px-3 py-2 text-sm font-mono">
+                                              {result.discrepancy < 1e-6 ? 
+                                                result.discrepancy.toExponential(3) : 
+                                                result.discrepancy.toFixed(6)}
+                                            </td>
+                                            <td className="px-3 py-2 text-sm">{result.samples || 0}</td>
+                                            {hasTheoreticalSupport(uniqueAlgorithms[0]) && (
+                                              <>
+                                                <td className="px-3 py-2 text-sm font-mono">
+                                                  {hasTheory ? 
+                                                    (result.theoretical < 1e-6 ? 
+                                                      result.theoretical.toExponential(3) : 
+                                                      result.theoretical.toFixed(6)) 
+                                                    : '—'}
+                                                </td>
+                                                <td className="px-3 py-2 text-sm font-mono">
+                                                  {error !== null ? 
+                                                    (error < 1e-6 ? error.toExponential(3) : error.toFixed(6)) 
+                                                    : '—'}
+                                                </td>
+                                                <td className="px-3 py-2 text-sm">
+                                                  {errorPercent !== null ? (
+                                                    <span className={`font-medium ${
+                                                      errorPercent < 5 ? 'text-green-600' :
+                                                      errorPercent < 10 ? 'text-yellow-600' :
+                                                      'text-red-600'
+                                                    }`}>
+                                                      {errorPercent.toFixed(2)}%
+                                                    </span>
+                                                  ) : '—'}
+                                                </td>
+                                              </>
+                                            )}
+                                            <td className="px-3 py-2 text-sm font-mono">
+                                              {stdDev.toFixed(6)}
+                                            </td>
+                                            <td className="px-3 py-2 text-sm">
+                                              {cv.toFixed(2)}%
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Sección de estadísticas agregadas */}
+                            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {/* Estadísticas generales */}
+                              <div className="p-3 bg-blue-50 rounded-lg">
+                                <h4 className="font-medium mb-2">Overall Statistics</h4>
+                                {(() => {
+                                  const allDiscrepancies = [];
+                                  experimentalResults.forEach(r => {
+                                    if (r.discrepancies && r.discrepancies.length > 0) {
+                                      allDiscrepancies.push(...r.discrepancies);
+                                    } else if (typeof r.discrepancy === 'number') {
+                                      allDiscrepancies.push(r.discrepancy);
+                                    }
+                                  });
+                                  
+                                  if (allDiscrepancies.length === 0) {
+                                    return <p className="text-sm text-gray-600">No data available</p>;
+                                  }
+                                  
+                                  const avgDiscrepancy = allDiscrepancies.reduce((a, b) => a + b, 0) / allDiscrepancies.length;
+                                  const variance = allDiscrepancies.reduce((sum, val) => sum + Math.pow(val - avgDiscrepancy, 2), 0) / allDiscrepancies.length;
+                                  const stdDev = Math.sqrt(variance);
+                                  const cv = avgDiscrepancy !== 0 ? (stdDev / Math.abs(avgDiscrepancy)) * 100 : 0;
+                                  const stderr = stdDev / Math.sqrt(allDiscrepancies.length);
                                   
                                   return (
                                     <ul className="text-sm space-y-1">
                                       <li><span className="font-medium">Mean Discrepancy:</span> {avgDiscrepancy.toFixed(6)}</li>
-                                      <li><span className="font-medium">Minimum:</span> {minDiscrepancy.toFixed(6)}</li>
-                                      <li><span className="font-medium">Maximum:</span> {maxDiscrepancy.toFixed(6)}</li>
                                       <li><span className="font-medium">Standard Deviation:</span> {stdDev.toFixed(6)}</li>
-                                      <li><span className="font-medium">Coeff. of Variation:</span> {cv.toFixed(2)}%</li>
+                                      <li><span className="font-medium">Coefficient of Variation:</span> {cv.toFixed(2)}%</li>
                                       <li><span className="font-medium">Standard Error:</span> {stderr.toFixed(6)}</li>
                                       <li><span className="font-medium">95% CI:</span> [{
                                         (avgDiscrepancy - 1.96 * stderr).toFixed(6)
                                       }, {
                                         (avgDiscrepancy + 1.96 * stderr).toFixed(6)
                                       }]</li>
-                                      <li><span className="font-medium">Data Points:</span> {experimentalResults.length}</li>
+                                      <li><span className="font-medium">Total Samples:</span> {allDiscrepancies.length}</li>
                                     </ul>
                                   );
                                 })()}
                               </div>
-                            </div>
-                            
-                            {/* Sección 3: Comparación Teórica (SOLO SI HAY VALORES TEÓRICOS) */}
-                            {hasTheoretical && (
-                              <div className="mb-4 p-3 bg-green-50 rounded-lg">
-                                <h4 className="font-medium mb-2">Theoretical Comparison</h4>
-                                {(() => {
-                                  // Solo considerar puntos con valores teóricos
-                                  const pointsWithTheory = experimentalResults.filter(r => 
-                                    r.theoretical !== null && 
-                                    r.theoretical !== undefined && 
-                                    !isNaN(r.theoretical) && 
-                                    isFinite(r.theoretical)
-                                  );
-                                  
-                                  if (pointsWithTheory.length === 0) {
-                                    return <p className="text-sm text-gray-600">No valid theoretical values available</p>;
-                                  }
-                                  
-                                  const errors = pointsWithTheory.map(r => 
-                                    Math.abs(r.discrepancy - r.theoretical)
-                                  );
-                                  const errorPercents = pointsWithTheory.map(r => 
-                                    r.theoretical !== 0 ? 
-                                      (Math.abs(r.discrepancy - r.theoretical) / Math.abs(r.theoretical)) * 100 : 
-                                      0
-                                  );
-                                  
-                                  const avgError = errors.reduce((a, b) => a + b, 0) / errors.length;
-                                  const avgErrorPercent = errorPercents.reduce((a, b) => a + b, 0) / errorPercents.length;
-                                  const maxError = Math.max(...errors);
-                                  const maxErrorPercent = Math.max(...errorPercents);
-                                  
-                                  return (
-                                    <div className="grid grid-cols-2 gap-4">
-                                      <ul className="text-sm space-y-1">
-                                        <li><span className="font-medium">Points with Theory:</span> {pointsWithTheory.length}/{experimentalResults.length}</li>
-                                        <li><span className="font-medium">Avg. Absolute Error:</span> {avgError.toFixed(6)}</li>
-                                        <li><span className="font-medium">Max. Absolute Error:</span> {maxError.toFixed(6)}</li>
-                                      </ul>
-                                      <ul className="text-sm space-y-1">
-                                        <li>
-                                          <span className="font-medium">Avg. Relative Error:</span> 
-                                          <span className={`ml-2 font-semibold ${
-                                            avgErrorPercent < 5 ? 'text-green-600' :
-                                            avgErrorPercent < 10 ? 'text-yellow-600' :
-                                            'text-red-600'
-                                          }`}>
-                                            {avgErrorPercent.toFixed(2)}%
-                                          </span>
-                                        </li>
-                                        <li><span className="font-medium">Max. Relative Error:</span> {maxErrorPercent.toFixed(2)}%</li>
-                                        <li className="text-xs text-gray-600 mt-2">
-                                          {avgErrorPercent < 5 ? '✅ Excellent agreement' :
-                                          avgErrorPercent < 10 ? '⚠️ Good agreement' :
-                                          '❌ Poor agreement - check parameters'}
-                                        </li>
-                                      </ul>
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            )}
-                            
-                            {/* Sección 4: Gráfico de Distribución */}
-                            <div className="mb-4">
-                              <h4 className="font-medium mb-2">Discrepancy Distribution</h4>
-                              <div className="h-72">
-                                <ResponsiveContainer width="100%" height="100%">
-                                  <ComposedChart
-                                    data={(() => {
-                                      const sortedData = [...experimentalResults].sort((a, b) => a.p - b.p);
-                                      
-                                      // Limitar puntos si son demasiados
-                                      const maxPoints = 200;
-                                      let dataToShow = sortedData;
-                                      if (sortedData.length > maxPoints) {
-                                        const step = Math.ceil(sortedData.length / maxPoints);
-                                        dataToShow = sortedData.filter((_, idx) => idx % step === 0);
-                                      }
-                                      
-                                      return dataToShow.map(result => {
-                                        let upperBound = result.discrepancy;
-                                        let lowerBound = result.discrepancy;
-                                        
-                                        // Calcular intervalos de confianza si hay múltiples muestras
-                                        if (result.discrepancies && result.discrepancies.length > 1) {
-                                          const mean = result.discrepancy;
-                                          const variance = result.discrepancies.reduce(
-                                            (sum, val) => sum + Math.pow(val - mean, 2), 0
-                                          ) / result.discrepancies.length;
-                                          const stdDev = Math.sqrt(variance);
-                                          
-                                          upperBound = mean + 2 * stdDev;
-                                          lowerBound = Math.max(0, mean - 2 * stdDev);
+                              
+                              {/* Análisis por algoritmo si hay múltiples */}
+                              {hasMultipleAlgorithms && (
+                                <div className="p-3 bg-green-50 rounded-lg">
+                                  <h4 className="font-medium mb-2">Algorithm Performance</h4>
+                                  {(() => {
+                                    const algoStats = uniqueAlgorithms.map(algo => {
+                                      const algoResults = algorithmGroups[algo];
+                                      const discrepancies = [];
+                                      algoResults.forEach(r => {
+                                        if (r.discrepancies && r.discrepancies.length > 0) {
+                                          discrepancies.push(...r.discrepancies);
+                                        } else if (typeof r.discrepancy === 'number') {
+                                          discrepancies.push(r.discrepancy);
                                         }
-                                        
-                                        return {
-                                          p: result.p,
-                                          experimental: result.discrepancy,
-                                          theoretical: result.theoretical,
-                                          upperBound,
-                                          lowerBound,
-                                          bandLower: lowerBound,
-                                          bandGap: upperBound - lowerBound,
-                                          hasTheory: result.theoretical !== null && 
-                                                    result.theoretical !== undefined && 
-                                                    !isNaN(result.theoretical)
-                                        };
                                       });
-                                    })()}
-                                    margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
-                                  >
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                                    <XAxis 
-                                      dataKey="p" 
-                                      type="number"
-                                      domain={[0, 1]}
-                                      ticks={[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]}
-                                      tickFormatter={v => v.toFixed(1)}
-                                      label={{ value: 'Probability (p)', position: 'insideBottom', offset: -5 }}
-                                    />
-                                    <YAxis 
-                                      label={{ value: 'Discrepancy', angle: -90, position: 'insideLeft' }}
-                                      domain={[0, 'dataMax']}
-                                      tickFormatter={v => v.toFixed(3)}
-                                    />
-                                    <Tooltip 
-                                      formatter={(value, name) => {
-                                        if (typeof value === 'number') {
-                                          return [value.toFixed(6), name];
-                                        }
-                                        return [value, name];
-                                      }}
-                                      labelFormatter={label => `p = ${Number(label).toFixed(3)}`}
-                                    />
-                                    <Legend />
+                                      
+                                      const mean = discrepancies.length > 0 ?
+                                        discrepancies.reduce((a, b) => a + b, 0) / discrepancies.length : 0;
+                                      
+                                      return { algo, mean, count: discrepancies.length };
+                                    }).sort((a, b) => a.mean - b.mean);
                                     
-                                    {/* Banda de confianza */}
-                                    {experimentalResults.some(r => r.discrepancies && r.discrepancies.length > 1) && (
-                                      <Area
-                                        type="monotone"
-                                        dataKey="bandGap"
-                                        stackId="1"
-                                        stroke="none"
-                                        fill="#3b82f6"
-                                        fillOpacity={0.1}
-                                        name="95% CI"
-                                      />
-                                    )}
-                                    
-                                    {/* Línea experimental */}
-                                    <Line
-                                      type="monotone"
-                                      dataKey="experimental"
-                                      stroke="#3b82f6"
-                                      strokeWidth={2}
-                                      dot={false}
-                                      name="Experimental"
-                                    />
-                                    
-                                    {/* Línea teórica (solo si existe) */}
-                                    {hasTheoretical && (
-                                      <Line
-                                        type="monotone"
-                                        dataKey="theoretical"
-                                        stroke="#ef4444"
-                                        strokeWidth={2}
-                                        strokeDasharray="5 5"
-                                        dot={false}
-                                        name="Theoretical"
-                                        connectNulls={false}
-                                      />
-                                    )}
-                                    
-                                    {/* Línea de referencia en p=0.5 */}
-                                    {experimentalResults.some(r => r.p === 0.5) && (
-                                      <ReferenceLine 
-                                        x={0.5} 
-                                        stroke="#666" 
-                                        strokeDasharray="3 3" 
-                                        label={{ value: "p=0.5", position: "top" }}
-                                      />
-                                    )}
-                                  </ComposedChart>
-                                </ResponsiveContainer>
-                              </div>
-                            </div>
-                            
-                          {/* Sección 5: Tabla de Datos Detallada */}
-                          <div className="mb-4">
-                            <h4 className="font-medium mb-2">Detailed Results Table</h4>
-                            <div className="overflow-x-auto">
-                              <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                  <tr>
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">p</th>
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Algorithm</th>
-                                    {/* SOLO AGREGAR ESTA COLUMNA SI HAY ALGORITMOS DE 3 PROCESOS */}
-                                    {experimentalResults.some(r => ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(r.algorithm)) && (
-                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Type</th>
-                                    )}
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Experimental</th>
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Samples</th>
-                                    {hasTheoretical && (
-                                      <>
-                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Theoretical</th>
-                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Error</th>
-                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Error %</th>
-                                      </>
-                                    )}
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Std Dev</th>
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">CV %</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                  {experimentalResults.map((result, idx) => {
-                                    const hasTheory = result.theoretical !== null && 
-                                                    result.theoretical !== undefined && 
-                                                    !isNaN(result.theoretical);
-                                    
-                                    // Calcular estadísticas adicionales
-                                    let stdDev = 0;
-                                    let cv = 0;
-                                    if (result.discrepancies && result.discrepancies.length > 1) {
-                                      const mean = result.discrepancy;
-                                      const variance = result.discrepancies.reduce(
-                                        (sum, val) => sum + Math.pow(val - mean, 2), 0
-                                      ) / result.discrepancies.length;
-                                      stdDev = Math.sqrt(variance);
-                                      cv = mean !== 0 ? (stdDev / Math.abs(mean)) * 100 : 0;
-                                    }
-                                    
-                                    const error = hasTheory ? Math.abs(result.theoretical - result.discrepancy) : null;
-                                    const errorPercent = hasTheory && result.theoretical !== 0 ? 
-                                      (error / Math.abs(result.theoretical)) * 100 : null;
+                                    const best = algoStats[0];
+                                    const worst = algoStats[algoStats.length - 1];
                                     
                                     return (
-                                      <tr key={idx} className={idx % 2 === 0 ? "" : "bg-gray-50"}>
-                                        <td className="px-3 py-2 text-sm">{result.p.toFixed(3)}</td>
-                                        <td className="px-3 py-2 text-sm">
-                                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                            result.algorithm === "AMP" ? "bg-green-100 text-green-800" : 
-                                            result.algorithm === "FV" ? "bg-red-100 text-red-800" :
-                                            result.algorithm === "COURTEOUS" ? "bg-indigo-100 text-indigo-800" :
-                                            result.algorithm === "SELFISH" ? "bg-orange-100 text-orange-800" :
-                                            result.algorithm === "CYCLIC" ? "bg-teal-100 text-teal-800" :
-                                            result.algorithm === "BIASED0" ? "bg-rose-100 text-rose-800" :
-                                            result.algorithm === "RECURSIVE AMP" ? "bg-purple-100 text-purple-800" :
-                                            result.algorithm === "MIN" ? "bg-yellow-100 text-yellow-800" :
-                                            "bg-gray-100 text-gray-800"
-                                          }`}>
-                                            {result.algorithm}
-                                          </span>
-                                        </td>
-                                        {/* SOLO AGREGAR ESTA CELDA SI HAY ALGORITMOS DE 3 PROCESOS */}
-                                        {experimentalResults.some(r => ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(r.algorithm)) && (
-                                          <td className="px-3 py-2 text-sm">
-                                            {["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(result.algorithm) ? (
-                                              <span className="text-xs text-purple-600 font-medium">3-Proc</span>
-                                            ) : (
-                                              <span className="text-xs text-gray-500">Std</span>
-                                            )}
-                                          </td>
+                                      <div className="text-sm space-y-2">
+                                        <div>
+                                          <p className="text-green-700">
+                                            <strong>Best Performance:</strong> {best.algo}
+                                            <span className="ml-1 font-mono">({best.mean.toFixed(6)})</span>
+                                          </p>
+                                        </div>
+                                        {algoStats.length > 1 && (
+                                          <div>
+                                            <p className="text-orange-700">
+                                              <strong>Worst Performance:</strong> {worst.algo}
+                                              <span className="ml-1 font-mono">({worst.mean.toFixed(6)})</span>
+                                            </p>
+                                          </div>
                                         )}
-                                        <td className="px-3 py-2 text-sm font-mono">
-                                          {result.discrepancy.toFixed(6)}
-                                        </td>
-                                        <td className="px-3 py-2 text-sm">{result.samples || repetitions}</td>
-                                        {hasTheoretical && (
-                                          <>
-                                            <td className="px-3 py-2 text-sm font-mono text-gray-600">
-                                              {hasTheory ? result.theoretical.toFixed(6) : 'N/A'}
-                                            </td>
-                                            <td className="px-3 py-2 text-sm font-mono">
-                                              {error !== null ? error.toFixed(6) : 'N/A'}
-                                            </td>
-                                            <td className="px-3 py-2 text-sm">
-                                              {errorPercent !== null ? (
-                                                <span className={`font-medium ${
-                                                  errorPercent < 5 ? 'text-green-600' :
-                                                  errorPercent < 10 ? 'text-yellow-600' :
-                                                  'text-red-600'
-                                                }`}>
-                                                  {errorPercent.toFixed(2)}%
-                                                </span>
-                                              ) : 'N/A'}
-                                            </td>
-                                          </>
+                                        {algoStats.length > 2 && (
+                                          <div className="mt-2 pt-2 border-t border-green-300">
+                                            <p className="font-medium mb-1">Ranking:</p>
+                                            <ol className="list-decimal list-inside">
+                                              {algoStats.map((stat, idx) => (
+                                                <li key={stat.algo} className="text-xs">
+                                                  {stat.algo}: {stat.mean.toFixed(6)}
+                                                </li>
+                                              ))}
+                                            </ol>
+                                          </div>
                                         )}
-                                        <td className="px-3 py-2 text-sm font-mono">
-                                          {stdDev.toFixed(6)}
-                                        </td>
-                                        <td className="px-3 py-2 text-sm">
-                                          {cv.toFixed(2)}%
-                                        </td>
-                                      </tr>
+                                      </div>
                                     );
-                                  })}
-                                </tbody>
-                              </table>
+                                  })()}
+                                </div>
+                              )}
                             </div>
-                          </div>
                             
-                            {/* Botón para guardar experimento */}
-                            <div className="mt-6 text-center">
-                              <button
-                                onClick={prepareRangeExperiment}
-                                className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 transition-colors"
-                              >
-                                💾 Save Experiment
-                              </button>
+                            {/* Información adicional */}
+                            <div className="mt-4 p-3 bg-gray-50 rounded text-xs text-gray-600">
+                              <p className="mb-1">
+                                <strong>Note:</strong> Statistics shown are based on {experimentalResults.length} probability points
+                                {rounds > 1 && ` over ${rounds} rounds`}.
+                              </p>
+                              {uniqueAlgorithms.some(a => !PAPER_ALGORITHMS.includes(a)) && (
+                                <p>
+                                  Experimental algorithms are not defined in the original paper and show empirical results only.
+                                  Theoretical comparison is only available for AMP and FV algorithms with 2 processes.
+                                </p>
+                              )}
                             </div>
                           </>
                         );
