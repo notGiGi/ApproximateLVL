@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -2791,6 +2791,21 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
 }
 
   
+const ALGORITHM_COLOR_MAP = {
+  "RECURSIVE AMP": "#8b5cf6",
+  "AMP": "#10b981",
+  "FV": "#ef4444",
+  "MIN": "#f59e0b",
+  "COURTEOUS": "#FF6B35",
+  "auto": "#6b7280"
+};
+
+const normalizeProbability = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return Number(num.toFixed(6));
+};
+
 function TheoryPlot({ 
   currentP = 0.5, 
   experimentalData = [], 
@@ -2837,8 +2852,8 @@ function TheoryPlot({
       fvD = fvV;
     }
 
-    ampData.push({ p, discrepancy: ampD });
-    fvData.push({ p, discrepancy: fvD });
+    ampData.push({ p, discrepancy: ampD, __isOriginal: true });
+    fvData.push({ p, discrepancy: fvD, __isOriginal: true });
   }
 
   // NUEVO: Generar datos teóricos para COURTEOUS (solo si hay 3 procesos)
@@ -2848,7 +2863,7 @@ function TheoryPlot({
       const p = i / steps;
       const singleRoundDiscrepancy = 1 - 2*p + 4*Math.pow(p, 2) - 4*Math.pow(p, 3) + Math.pow(p, 4);
       const discrepancy = Math.pow(singleRoundDiscrepancy, selectedRound);
-      courteousData.push({ p, discrepancy });
+      courteousData.push({ p, discrepancy, __isOriginal: true });
     }
   }
 
@@ -2877,7 +2892,7 @@ function TheoryPlot({
         }
         D = V;
       }
-      arr.push({ p: 0.5, discrepancy: D });
+      arr.push({ p: 0.5, discrepancy: D, __isOriginal: true });
       arr.sort((a, b) => a.p - b.p);
     }
   };
@@ -2893,19 +2908,104 @@ function TheoryPlot({
   const showCourteous = (displayCurves?.theoreticalCourteous ?? false) && n === 3;
   const showExp = displayCurves?.experimental && validExperimentalData.length > 0;
 
-  const algorithmColors = {
-    "RECURSIVE AMP": "#8b5cf6",
-    "AMP": "#10b981",
-    "FV": "#ef4444",
-    "MIN": "#f59e0b",
-    "COURTEOUS": "#FF6B35",
-    "auto": "#6b7280"
-  };
+  const experimentalSeries = useMemo(() => {
+    if (!showExp) return [];
+
+    return selectedAlgorithms
+      .map(algo => {
+        const filtered = validExperimentalData.filter(item => {
+          if (algo === "auto") {
+            return item.displayAlgorithm === "auto" ||
+              (item.algorithm === (item.p > 0.5 ? "AMP" : "FV") && item.displayAlgorithm === "auto");
+          }
+          return item.algorithm === algo || item.displayAlgorithm === algo;
+        });
+
+        if (filtered.length === 0) return null;
+
+        const flagged = filtered.map(item => (
+          item.__isOriginal ? item : { ...item, __isOriginal: true }
+        ));
+
+        return {
+          algo,
+          data: flagged,
+          stroke: ALGORITHM_COLOR_MAP[algo] || "#6b7280"
+        };
+      })
+      .filter(Boolean);
+  }, [showExp, selectedAlgorithms, validExperimentalData]);
+
+  const allowedProbabilities = useMemo(() => {
+    const set = new Set();
+    const addValues = (arr) => {
+      if (!Array.isArray(arr)) return;
+      arr.forEach(item => {
+        if (!item || !item.__isOriginal) return;
+        const normalized = normalizeProbability(item.p);
+        if (normalized != null) set.add(normalized);
+      });
+    };
+
+    if (showAMP) addValues(ampData);
+    if (showFV) addValues(fvData);
+    if (showCourteous) addValues(courteousData);
+    experimentalSeries.forEach(series => addValues(series.data));
+
+    return set;
+  }, [showAMP, showFV, showCourteous, ampData, fvData, courteousData, experimentalSeries]);
+
+  const renderTheoryTooltip = useCallback(({ active, payload, label }) => {
+    if (!active || !Array.isArray(payload) || payload.length === 0) {
+      return null;
+    }
+
+    const normalizedLabel = normalizeProbability(label);
+    if (normalizedLabel == null || !allowedProbabilities.has(normalizedLabel)) {
+      return null;
+    }
+
+    const validEntries = payload.filter(entry => {
+      if (!entry?.payload?.__isOriginal) return false;
+      const normalizedPoint = normalizeProbability(entry.payload?.p);
+      return normalizedPoint != null && normalizedPoint === normalizedLabel;
+    });
+
+    if (validEntries.length === 0) return null;
+
+    const displayProbability = normalizeProbability(validEntries[0]?.payload?.p);
+
+    return (
+      <div className="bg-white p-2 border border-gray-300 rounded shadow-lg">
+        {displayProbability != null && (
+          <p className="font-semibold text-sm mb-1">{`p = ${displayProbability.toFixed(2)}`}</p>
+        )}
+        {validEntries.map((entry, idx) => {
+          const rawValue = entry?.payload?.discrepancy;
+          const displayValue =
+            typeof rawValue === 'number' && Number.isFinite(rawValue)
+              ? rawValue.toFixed(6)
+              : 'N/A';
+          return (
+            <p
+              key={`theory-tooltip-${idx}`}
+              className="text-xs"
+              style={{ color: entry.color || '#111' }}
+            >
+              {`${entry.name}: ${displayValue}`}
+            </p>
+          );
+        })}
+      </div>
+    );
+  }, [allowedProbabilities]);
 
   return (
     <div className="bg-white rounded-lg shadow p-4">
       <ResponsiveContainer width="100%" height={400}>
-        <ComposedChart margin={{ top: 5, right: 30, left: 20, bottom: 25 }}>
+        <ComposedChart
+          margin={{ top: 5, right: 30, left: 20, bottom: 25 }}
+        >
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis
             dataKey="p"
@@ -2921,10 +3021,7 @@ function TheoryPlot({
             domain={[0, 1]}
             label={{ value: 'Discrepancy', angle: -90, position: 'insideLeft', offset: -10 }}
           />
-          <Tooltip
-            formatter={val => (val != null && !isNaN(val) ? Number(val).toFixed(4) : 'N/A')}
-            labelFormatter={val => `p = ${val != null && !isNaN(val) ? Number(val).toFixed(2) : 'N/A'}`}
-          />
+          <Tooltip content={renderTheoryTooltip} />
           <Legend verticalAlign="top" height={36} />
 
           {showAMP && (
@@ -2963,30 +3060,18 @@ function TheoryPlot({
             />
           )}
 
-          {showExp && selectedAlgorithms.map((algo) => {
-            const algoData = validExperimentalData.filter(item => {
-              if (algo === "auto") {
-                return item.displayAlgorithm === "auto" ||
-                       (item.algorithm === (item.p > 0.5 ? "AMP" : "FV") && item.displayAlgorithm === "auto");
-              }
-              return item.algorithm === algo || item.displayAlgorithm === algo;
-            });
-
-            if (algoData.length === 0) return null;
-
-            return (
-              <Line
-                key={algo}
-                data={algoData}
-                dataKey="discrepancy"
-                name={`${algo} (Experimental)`}
-                stroke={algorithmColors[algo] || "#6b7280"}
-                strokeWidth={2}
-                dot={{ r: 3 }}
-                connectNulls
-              />
-            );
-          })}
+          {showExp && experimentalSeries.map(series => (
+            <Line
+              key={series.algo}
+              data={series.data}
+              dataKey="discrepancy"
+              name={`${series.algo} (Experimental)`}
+              stroke={series.stroke}
+              strokeWidth={2}
+              dot={{ r: 3 }}
+              connectNulls
+            />
+          ))}
         </ComposedChart>
       </ResponsiveContainer>
     </div>
@@ -3689,7 +3774,7 @@ function MultiRoundConvergenceChart({ analysisData, maxRounds = 3 }) {
               domain={useLogScale ? [0.001, 1] : [0, 1]}
               tickFormatter={(value) => value.toFixed(useLogScale ? 3 : 2)}
             />
-            <Tooltip formatter={(value) => value.toFixed(4)} labelFormatter={(label) => `Round ${label}`} />
+            <Tooltip formatter={(value) => value.toFixed(4)} labelFormatter={(label) => `Round ${label}`} isAnimationActive={false} />
             <Legend />
             
             {showTheoreticalAMP && (
@@ -4165,7 +4250,59 @@ function TheoreticalVsExperimentalTable({ p, maxRounds = 3, repetitions = 100 })
                   label={{ value: 'Discrepancy', angle: -90, position: 'insideLeft', offset: -10 }}
                   domain={[0, 1]}
                 />
-                <Tooltip formatter={(value) => value.toFixed(6)} />
+                <Tooltip 
+                  isAnimationActive={false}
+                  cursor={{ stroke: '#666', strokeWidth: 1, strokeDasharray: '3 3' }}
+                  content={({ active, payload, label }) => {
+                    // Solo mostrar si hay payload Y si el label coincide exactamente con un round en los datos
+                    if (!active || !payload || payload.length === 0) return null;
+
+                    // Validar que el label sea un número entero (round exacto)
+                    const roundValue = Number(label);
+                    if (!Number.isFinite(roundValue) || Math.abs(roundValue - Math.round(roundValue)) > 1e-6) {
+                      return null;
+                    }
+
+                    // Validar que exista un punto de datos real en esta posición
+                    const exactRound = Math.round(roundValue);
+                    const dataPoint = results.comparisonResults.find(d => d.round === exactRound);
+                    if (!dataPoint) return null;
+
+                    if (hoveredRound == null || hoveredRound !== exactRound) return null;
+
+                    // Evitar mostrar valores interpolados entre puntos reales
+                    const epsilon = 1e-6;
+                    const shouldShow = payload.every((entry) => {
+                      const key = entry?.dataKey;
+                      const actual = dataPoint?.[key];
+                      if (actual == null || entry?.value == null) return false;
+                      return Math.abs(Number(entry.value) - Number(actual)) <= epsilon;
+                    });
+
+                    if (!shouldShow) return null;
+
+                    const formatValue = (key) => {
+                      const raw = dataPoint?.[key];
+                      if (typeof raw !== 'number' || Number.isNaN(raw)) return 'N/A';
+                      return raw.toFixed(6);
+                    };
+
+                    return (
+                      <div className="bg-white p-2 border border-gray-300 rounded shadow-lg">
+                        <p className="font-semibold text-sm mb-1">{`Round: ${exactRound}`}</p>
+                        {payload.map((entry, index) => (
+                          <p 
+                            key={`tooltip-${entry.dataKey}-${index}`} 
+                            style={{ color: entry.color }}
+                            className="text-xs"
+                          >
+                            {`${entry.name}: ${formatValue(entry.dataKey)}`}
+                          </p>
+                        ))}
+                      </div>
+                    );
+                  }}
+                />
                 <Legend />
                 <Line
                   type="monotone"
@@ -4174,6 +4311,8 @@ function TheoreticalVsExperimentalTable({ p, maxRounds = 3, repetitions = 100 })
                   stroke="#3498db"
                   strokeWidth={2}
                   dot={{ r: 4 }}
+                  activeDot={<EnhancedActiveDot />}
+                  isAnimationActive={false}
                 />
                 <Line
                   type="monotone"
@@ -4182,6 +4321,8 @@ function TheoreticalVsExperimentalTable({ p, maxRounds = 3, repetitions = 100 })
                   stroke="#e74c3c"
                   strokeWidth={2}
                   dot={{ r: 4 }}
+                  activeDot={<EnhancedActiveDot />}
+                  isAnimationActive={false}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -4212,10 +4353,38 @@ function ErrorAnalysisByProbability({ maxRounds = 3, repetitions = 50 }) {
   const [results, setResults] = useState(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [roundToShow, setRoundToShow] = useState(1);
-  
+  const [hoveredRound, setHoveredRound] = useState(null);
+
+  const EnhancedActiveDot = (props) => {
+    const { cx, cy, stroke, fill, payload, r = 6, strokeWidth = 2 } = props;
+
+    const handleEnter = (event) => {
+      setHoveredRound(payload?.round ?? null);
+      if (typeof props.onMouseEnter === 'function') props.onMouseEnter(event);
+    };
+
+    const handleLeave = (event) => {
+      setHoveredRound(null);
+      if (typeof props.onMouseLeave === 'function') props.onMouseLeave(event);
+    };
+
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={r}
+        stroke={stroke}
+        fill={fill ?? '#fff'}
+        strokeWidth={strokeWidth}
+        onMouseEnter={handleEnter}
+        onMouseLeave={handleLeave}
+      />
+    );
+  };
+
   const runAnalysis = useCallback(async () => {
     if (isCalculating) return;
-    
+
     setIsCalculating(true);
     
     // Simulate with setTimeout to not block UI

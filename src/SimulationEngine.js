@@ -633,6 +633,11 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
       } else if (algorithm === "RECURSIVE AMP") {
         // Para recursive AMP, usar la misma fórmula que AMP estándar
         return pow(q, rounds).toNumber();
+      } else if (algorithm === "COURTEOUS") {
+        // Ecuación teórica para COURTEOUS (solo válida para 3 procesos)
+        const pNum = decP.toNumber();
+        const singleRoundDiscrepancy = 1 - 2*pNum + 4*Math.pow(pNum, 2) - 4*Math.pow(pNum, 3) + Math.pow(pNum, 4);
+        return Math.pow(singleRoundDiscrepancy, rounds);
       } else {
         // Para otros algoritmos, devolver valor por defecto
         return 1;
@@ -654,12 +659,20 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
     
     const q = toDecimal(1).minus(decP);
     
+    if (algorithm === "COURTEOUS") {
+      const pNum = decP.toNumber();
+      const singleRoundFactor = 1 - 2*pNum + 4*Math.pow(pNum, 2) - 4*Math.pow(pNum, 3) + Math.pow(pNum, 4);
+      return Math.pow(singleRoundFactor, rounds);
+    }
+
     if (algorithm === "AMP") {
       return pow(q, rounds).toNumber();
     } else {
       const pSquaredPlusQSquared = pow(decP, 2).plus(pow(q, 2));
       return pow(pSquaredPlusQSquared, rounds).toNumber();
     }
+
+    
   },
 
   // Calculate expected discrepancy for 3 players according to paper
@@ -777,26 +790,16 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
     const count0 = initialValues.filter(v => v === 0).length;
     const count1 = initialValues.filter(v => v === 1).length;
     
-    // These are approximations - actual theoretical analysis would be needed
     switch(algorithm) {
       case "COURTEOUS":
-        // Approximation based on tendency to adopt different values
-        return 0.5 * Math.pow(q, 2);
+        // Ecuación teórica EXACTA del paper para Courteous
+        return 1 - 2*p + 4*Math.pow(p, 2) - 4*Math.pow(p, 3) + Math.pow(p, 4);
         
       case "SELFISH":
-        // Approximation based on tendency to keep own values
-        return 0.5 * (1 - Math.pow(p, 2));
-        
       case "CYCLIC":
-        // Approximation based on cyclic dependencies
-        return 0.333 * (1 - p);
-        
       case "BIASED0":
-        // If any process has 0, all converge to 0
-        if (count0 > 0) {
-          return count1 / 3 * Math.pow(q, count0);
-        }
-        return 0;
+        // Estos algoritmos NO tienen ecuaciones teóricas - retornar null
+        return null;
         
       default:
         return null;
