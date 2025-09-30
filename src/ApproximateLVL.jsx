@@ -2791,32 +2791,31 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
 }
 
   
-function TheoryPlot({
-  currentP,
-  experimentalData,
-  displayCurves,
+function TheoryPlot({ 
+  currentP = 0.5, 
+  experimentalData = [], 
+  displayCurves = {}, 
   rounds = 1,
-  processValues = [0, 1],
+  processValues = [],
   meetingPoint = 0.5,
-  steps = 51,
-  selectedAlgorithms = ["auto"]
+  selectedAlgorithms = [],
+  deliveryMode = 'standard'
 }) {
-  if (currentP == null) currentP = 0.5;
+  const steps = 100;
+  const selectedRound = rounds;
 
-  const [selectedRound, setSelectedRound] = useState(rounds);
-  useEffect(() => setSelectedRound(rounds), [rounds]);
-
-  const validExperimentalData = Array.isArray(experimentalData)
-    ? experimentalData.filter(item =>
-        item && typeof item.p === 'number' && typeof item.discrepancy === 'number'
-      )
+  const validExperimentalData = Array.isArray(experimentalData) ?
+    experimentalData.filter(item =>
+      item && typeof item.p === 'number' && typeof item.discrepancy === 'number'
+    )
     : [];
 
   const n = processValues.length;
   const m = processValues.filter(v => v === 0).length;
 
+  // Generar datos para AMP
   const ampData = [];
-  const fvData  = [];
+  const fvData = [];
   for (let i = 0; i <= steps; i++) {
     const p = i / steps;
     const q = 1 - p;
@@ -2824,22 +2823,33 @@ function TheoryPlot({
 
     if (n === 2) {
       ampD = Math.pow(q, selectedRound);
-      fvD  = Math.pow(p*p + q*q, selectedRound);
+      fvD = Math.pow(p*p + q*q, selectedRound);
     } else {
       const A = Math.pow(1 - Math.pow(q, n - m), m);
       const B = Math.pow(1 - Math.pow(q, m), n - m);
       let ampV = 1 - (meetingPoint * A + (1 - meetingPoint) * B);
-      let fvV  = 1 - (Math.pow(q, m*(n-m)) * (A + B));
+      let fvV = 1 - (Math.pow(q, m*(n-m)) * (A + B));
       for (let r = 1; r < selectedRound; r++) {
         ampV *= (1 - p);
-        fvV  *= (p*p + q*q);
+        fvV *= (p*p + q*q);
       }
       ampD = ampV;
-      fvD  = fvV;
+      fvD = fvV;
     }
 
     ampData.push({ p, discrepancy: ampD });
     fvData.push({ p, discrepancy: fvD });
+  }
+
+  // NUEVO: Generar datos teóricos para COURTEOUS (solo si hay 3 procesos)
+  const courteousData = [];
+  if (n === 3) {
+    for (let i = 0; i <= steps; i++) {
+      const p = i / steps;
+      const singleRoundDiscrepancy = 1 - 2*p + 4*Math.pow(p, 2) - 4*Math.pow(p, 3) + Math.pow(p, 4);
+      const discrepancy = Math.pow(singleRoundDiscrepancy, selectedRound);
+      courteousData.push({ p, discrepancy });
+    }
   }
 
   // Inyectar p=0.5 exacto si el grid no lo contiene (evita "pico" visual corrido)
@@ -2848,7 +2858,11 @@ function TheoryPlot({
     if (!hasHalf) {
       const p = 0.5, q = 0.5;
       let D;
-      if (n === 2) {
+      
+      if (which === 'COURTEOUS' && n === 3) {
+        const singleRound = 1 - 2*p + 4*Math.pow(p, 2) - 4*Math.pow(p, 3) + Math.pow(p, 4);
+        D = Math.pow(singleRound, selectedRound);
+      } else if (n === 2) {
         D = which === 'AMP'
           ? Math.pow(q, selectedRound)
           : Math.pow(p*p + q*q, selectedRound);
@@ -2867,11 +2881,16 @@ function TheoryPlot({
       arr.sort((a, b) => a.p - b.p);
     }
   };
+  
   ensureHalfPoint(ampData, 'AMP');
   ensureHalfPoint(fvData, 'FV');
+  if (n === 3) {
+    ensureHalfPoint(courteousData, 'COURTEOUS');
+  }
 
   const showAMP = displayCurves?.theoreticalAmp ?? true;
-  const showFV  = displayCurves?.theoreticalFv  ?? true;
+  const showFV = displayCurves?.theoreticalFv ?? true;
+  const showCourteous = (displayCurves?.theoreticalCourteous ?? false) && n === 3;
   const showExp = displayCurves?.experimental && validExperimentalData.length > 0;
 
   const algorithmColors = {
@@ -2879,6 +2898,7 @@ function TheoryPlot({
     "AMP": "#10b981",
     "FV": "#ef4444",
     "MIN": "#f59e0b",
+    "COURTEOUS": "#FF6B35",
     "auto": "#6b7280"
   };
 
@@ -2929,15 +2949,29 @@ function TheoryPlot({
               dot={false}
             />
           )}
+          
+          {/* NUEVO: Línea teórica para COURTEOUS */}
+          {showCourteous && (
+            <Line
+              data={courteousData}
+              dataKey="discrepancy"
+              name="COURTEOUS (Theoretical)"
+              stroke="#FF6B35"
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              dot={false}
+            />
+          )}
 
           {showExp && selectedAlgorithms.map((algo) => {
             const algoData = validExperimentalData.filter(item => {
               if (algo === "auto") {
                 return item.displayAlgorithm === "auto" ||
-                       (item.algorithm === (item.p > 0.5 ? "AMP" : "FV") && !item.displayAlgorithm);
+                       (item.algorithm === (item.p > 0.5 ? "AMP" : "FV") && item.displayAlgorithm === "auto");
               }
-              return item.algorithm === algo;
+              return item.algorithm === algo || item.displayAlgorithm === algo;
             });
+
             if (algoData.length === 0) return null;
 
             return (
@@ -2946,15 +2980,13 @@ function TheoryPlot({
                 data={algoData}
                 dataKey="discrepancy"
                 name={`${algo} (Experimental)`}
-                stroke={algorithmColors[algo] || "#000000"}
-                strokeWidth={3}
-                dot={{ r: 2, fill: 'white' }}
+                stroke={algorithmColors[algo] || "#6b7280"}
+                strokeWidth={2}
+                dot={{ r: 3 }}
                 connectNulls
               />
             );
           })}
-
-          <ReferenceLine x={0.5} stroke="#666" strokeDasharray="3 3" />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
@@ -3706,6 +3738,42 @@ function MultiRoundConvergenceChart({ analysisData, maxRounds = 3 }) {
                 strokeDasharray="5 5"
                 dot={{ r: 4, fill: FV_COLOR, stroke: 'white', strokeWidth: 1 }}
               />
+            )}
+
+            {processValues.length === 3 && (
+              <>
+                <label className="flex items-center">
+                  <input 
+                    type="checkbox" 
+                    checked={showTheoreticalCourteous} 
+                    onChange={() => setShowTheoreticalCourteous(!showTheoreticalCourteous)}
+                    className="mr-2"
+                  />
+                  <span className="text-sm flex items-center">
+                    <span 
+                      className="inline-block w-3 h-3 mr-1 rounded-full" 
+                      style={{ backgroundColor: '#FF6B35' }}
+                    ></span>
+                    Theoretical COURTEOUS
+                  </span>
+                </label>
+                
+                <label className="flex items-center">
+                  <input 
+                    type="checkbox" 
+                    checked={showExperimentalCourteous} 
+                    onChange={() => setShowExperimentalCourteous(!showExperimentalCourteous)}
+                    className="mr-2"
+                  />
+                  <span className="text-sm flex items-center">
+                    <span 
+                      className="inline-block w-3 h-3 mr-1 rounded-full" 
+                      style={{ backgroundColor: '#FF6B35', opacity: 0.6 }}
+                    ></span>
+                    Experimental COURTEOUS
+                  </span>
+                </label>
+              </>
             )}
           </LineChart>
         </ResponsiveContainer>
@@ -4467,7 +4535,8 @@ function CompleteDistributedComputingSimulator() {
   const processCount = processValues.length;
   // SOLO AGREGAR ESTO - Detectar si es algoritmo de 3 procesos
   const is3ProcessAlgorithm = ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm);
-
+  const [showTheoreticalCourteous, setShowTheoreticalCourteous] = useState(false);
+  const [showExperimentalCourteous, setShowExperimentalCourteous] = useState(false);
   // SOLO AGREGAR ESTO - Información adicional para algoritmos de 3 procesos
   const getAlgorithmInfo = () => {
     if (is3ProcessAlgorithm) {
@@ -4670,7 +4739,8 @@ function CompleteDistributedComputingSimulator() {
   const [rangeDisplayCurves, setRangeDisplayCurves] = useState({
     experimental: true,
     theoreticalAmp: false,
-    theoreticalFv: false
+    theoreticalFv: false,
+    theoreticalCourteous: false 
   });
   const [comparisonResults, setComparisonResults] = useState(null);
   const animationTimerRef = useRef(null);
@@ -5758,9 +5828,17 @@ function runRangeExperiments() {
       // Teoría
       let theoretical;
       if (dimensionMode === 'binary') {
-        theoretical = currentDeliveryMode === 'guaranteed' && nProc === 2
-          ? SimulationEngine.calculateTheoreticalConditionedDiscrepancy(p, actualAlgo, actualRounds)
-          : SimulationEngine.calculateExpectedDiscrepancy(p, actualAlgo, actualRounds);
+        if (actualAlgo === "COURTEOUS" && nProc === 3) {
+          // Usar la ecuación teórica específica de COURTEOUS para 3 procesos
+          theoretical = SimulationEngine.calculate3ProcessBinaryDiscrepancy(p, "COURTEOUS", initialProcessValues);
+          if (actualRounds > 1) {
+            theoretical = Math.pow(theoretical, actualRounds);
+          }
+        } else if (currentDeliveryMode === 'guaranteed' && nProc === 2) {
+          theoretical = SimulationEngine.calculateTheoreticalConditionedDiscrepancy(p, actualAlgo, actualRounds);
+        } else {
+          theoretical = SimulationEngine.calculateExpectedDiscrepancy(p, actualAlgo, actualRounds);
+        }
       } else {
         theoretical = dimensions === 2
           ? SimulationEngine.calculateExpectedDiscrepancy(p, actualAlgo, actualRounds)
@@ -6083,6 +6161,7 @@ function runRangeExperiments() {
     processNextMethod();
   }
 
+
   // Handle curve display settings for range experiments
   function handleCurveDisplayChange(curve) {
     if (curve === 'algorithmChange') {
@@ -6091,19 +6170,29 @@ function runRangeExperiments() {
         newDisplayCurves = {
           experimental: true,
           theoreticalAmp: false,
-          theoreticalFv: false
+          theoreticalFv: false,
+          theoreticalCourteous: false  
         };
       } else if (forcedAlgorithm === 'FV') {
         newDisplayCurves = {
           experimental: true,
           theoreticalAmp: false,
-          theoreticalFv: false
+          theoreticalFv: false,
+          theoreticalCourteous: false  
+        };
+      } else if (forcedAlgorithm === 'COURTEOUS') {  
+        newDisplayCurves = {
+          experimental: true,
+          theoreticalAmp: false,
+          theoreticalFv: false,
+          theoreticalCourteous: false
         };
       } else {
         newDisplayCurves = {
           experimental: true,
           theoreticalAmp: false,
-          theoreticalFv: false
+          theoreticalFv: false,
+          theoreticalCourteous: false  
         };
       }
       setRangeDisplayCurves(newDisplayCurves);
@@ -7115,38 +7204,29 @@ function runRangeExperiments() {
             <div className="space-y-2">
               <h4 className="text-xs font-semibold">Display Options:</h4>
               <div className="grid grid-cols-1 gap-2">
+                {/* Checkboxes existentes... */}
+                
+                {/* COURTEOUS CHECKBOX - VERSIÓN ROBUSTA */}
                 <div className="flex items-center">
                   <input
                     type="checkbox"
-                    id="showExperimental"
-                    checked={rangeDisplayCurves.experimental}
-                    onChange={() => handleCurveDisplayChange('experimental')}
+                    id="showTheoreticalCourteous"
+                    checked={rangeDisplayCurves?.theoreticalCourteous || false}
+                    onChange={() => {
+                      const numProcs = processCount || processValues?.length || 0;
+                      if (numProcs === 3) {
+                        handleCurveDisplayChange('theoreticalCourteous');
+                      } else {
+                        console.log("Cannot toggle COURTEOUS: need 3 processes, have", numProcs);
+                        addLog?.(`COURTEOUS requires 3 processes (currently ${numProcs})`, "warning");
+                      }
+                    }}
                     className="mr-2"
                     disabled={isRunning}
                   />
-                  <label htmlFor="showExperimental" className="text-xs">Show Experimental Curve</label>
-                </div>
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="showTheoreticalAmp"
-                    checked={rangeDisplayCurves.theoreticalAmp}
-                    onChange={() => handleCurveDisplayChange('theoreticalAmp')}
-                    className="mr-2"
-                    disabled={isRunning}
-                  />
-                  <label htmlFor="showTheoreticalAmp" className="text-xs">Show AMP Curve</label>
-                </div>
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="showTheoreticalFv"
-                    checked={rangeDisplayCurves.theoreticalFv}
-                    onChange={() => handleCurveDisplayChange('theoreticalFv')}
-                    className="mr-2"
-                    disabled={isRunning}
-                  />
-                  <label htmlFor="showTheoreticalFv" className="text-xs">Show FV Curve</label>
+                  <label htmlFor="showTheoreticalCourteous" className="text-xs">
+                    Show COURTEOUS Curve (3-player theory)
+                  </label>
                 </div>
               </div>
             </div>
@@ -7238,7 +7318,7 @@ function runRangeExperiments() {
                   rounds={rounds}
                   processValues={processValues}
                   meetingPoint={meetingPoint}
-                  selectedAlgorithms={selectedAlgorithms}  // AGREGAR ESTA LÍNEA
+                  selectedAlgorithms={selectedAlgorithms} 
                   deliveryMode={deliveryMode}
                 />
                 </div>
