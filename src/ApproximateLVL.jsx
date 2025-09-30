@@ -7204,9 +7204,40 @@ function runRangeExperiments() {
             <div className="space-y-2">
               <h4 className="text-xs font-semibold">Display Options:</h4>
               <div className="grid grid-cols-1 gap-2">
-                {/* Checkboxes existentes... */}
-                
-                {/* COURTEOUS CHECKBOX - VERSIÓN ROBUSTA */}
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="showExperimental"
+                    checked={rangeDisplayCurves.experimental}
+                    onChange={() => handleCurveDisplayChange('experimental')}
+                    className="mr-2"
+                    disabled={isRunning}
+                  />
+                  <label htmlFor="showExperimental" className="text-xs">Show Experimental Curve</label>
+                </div>
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="showTheoreticalAmp"
+                    checked={rangeDisplayCurves.theoreticalAmp}
+                    onChange={() => handleCurveDisplayChange('theoreticalAmp')}
+                    className="mr-2"
+                    disabled={isRunning}
+                  />
+                  <label htmlFor="showTheoreticalAmp" className="text-xs">Show AMP Curve</label>
+                </div>
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="showTheoreticalFv"
+                    checked={rangeDisplayCurves.theoreticalFv}
+                    onChange={() => handleCurveDisplayChange('theoreticalFv')}
+                    className="mr-2"
+                    disabled={isRunning}
+                  />
+                  <label htmlFor="showTheoreticalFv" className="text-xs">Show FV Curve</label>
+                </div>
+
                 <div className="flex items-center">
                   <input
                     type="checkbox"
