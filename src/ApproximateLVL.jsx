@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -666,26 +666,38 @@ function MessageDeliveryTable({
       
       if (algorithm === "COURTEOUS") {
         if (changed && receivedVals.length === 1) {
-          return `COURTEOUS: Adopted different value from ${processNames[fromIdx]}`;
+
+          const actualSender = receivedVals[0];
+          return `COURTEOUS: Adopted different value from ${processNames[actualSender.from]}`;
         } else if (changed && receivedVals.length === 2) {
           return "COURTEOUS: Majority decision (heard from all)";
         }
       } else if (algorithm === "SELFISH") {
         if (!changed && receivedVals.length === 1 && sentVal !== prevVal) {
-          return `SELFISH: Kept own value (ignoring ${processNames[fromIdx]})`;
+
+          const actualSender = receivedVals[0];
+          return `SELFISH: Kept own value (ignoring ${processNames[actualSender.from]})`;
         } else if (changed && receivedVals.length === 2) {
           return "SELFISH: Majority decision (heard from all)";
         }
       } else if (algorithm === "CYCLIC") {
         const cyclicPrev = toIdx === 0 ? 2 : toIdx - 1;
-        if (changed && fromIdx === cyclicPrev) {
-          return `CYCLIC: Adopted from ${processNames[fromIdx]} (cyclic order)`;
-        } else if (!changed && fromIdx !== cyclicPrev) {
-          return `CYCLIC: Ignored ${processNames[fromIdx]} (not in cyclic order)`;
+
+        const actualSenderIdx = receivedVals.length > 0 ? receivedVals[0].from : fromIdx;
+        
+        if (changed && actualSenderIdx === cyclicPrev) {
+          return `CYCLIC: Adopted from ${processNames[actualSenderIdx]} (cyclic order)`;
+        } else if (!changed && actualSenderIdx !== cyclicPrev) {
+          return `CYCLIC: Ignored ${processNames[actualSenderIdx]} (not in cyclic order)`;
         }
       } else if (algorithm === "BIASED0") {
         if (changed && newVal === 0) {
-          return `BIASED0: Decided 0 (detected 0 from ${processNames[fromIdx]})`;
+
+          const senderWith0 = receivedVals.find(v => v.value === 0);
+          if (senderWith0) {
+            return `BIASED0: Decided 0 (detected 0 from ${processNames[senderWith0.from]})`;
+          }
+          return `BIASED0: Decided 0`;
         } else if (!changed && sentVal === 0) {
           return "BIASED0: Already 0";
         }
@@ -5187,7 +5199,7 @@ function ExperimentDetailViewer({
 
 
 
-  // Normaliza 'messages' anidados (por emisor); si no existen, intenta derivar desde messageDelivery
+
   const getNestedMessages = (round, prevValues) => {
     if (Array.isArray(round?.messages) && Array.isArray(round.messages[0])) {
       return round.messages;
@@ -5196,10 +5208,9 @@ function ExperimentDetailViewer({
       const nested = Array.from({ length: processCount }, () => []);
       for (let sender = 0; sender < processCount; sender++) {
         const row = round.messageDelivery[sender] || [];
-        // Para 2 procesos, row.length=1
         let colIdx = 0;
         for (let receiver = 0; receiver < processCount; receiver++) {
-          if (receiver === sender) continue;
+          if (receiver === sender) continue;  // ✅ YA EXISTE ESTE CHECK
           const delivered = !!row[colIdx++];
           nested[sender].push({
             to: receiver,
@@ -5211,13 +5222,19 @@ function ExperimentDetailViewer({
       return nested;
     }
     if (Array.isArray(round?.messages)) {
-      // plano -> agrupar bajo emisor 0 como fallback
       const nested = Array.from({ length: processCount }, () => []);
-      round.messages.forEach(msg => nested[0].push({
-        to: typeof msg?.to === 'number' ? msg.to : 0,
-        delivered: !!msg?.delivered,
-        value: msg?.value
-      }));
+      round.messages.forEach(msg => {
+        const sender = msg.from !== undefined ? msg.from : 0;
+        const receiver = msg.to !== undefined ? msg.to : 0;
+        // ✅ AGREGAR VALIDACIÓN
+        if (sender !== receiver) {
+          nested[sender].push({
+            to: receiver,
+            delivered: !!msg?.delivered,
+            value: msg?.value
+          });
+        }
+      });
       return nested;
     }
     return Array.from({ length: processCount }, () => []);
@@ -5468,11 +5485,13 @@ function ExperimentDetailViewer({
                               if (Array.isArray(senderMsgs)) {
                                 senderMsgs.forEach(msg => {
                                   if (msg.to === receiverIdx && msg.delivered) {
+                                    const actualSenderIdx =
+                                      typeof msg.from === 'number' ? msg.from : senderIdx;
                                     receivedValues.push(msg.value);
                                     senderInfo.push({
-                                      from: processNames[senderIdx],
+                                      from: processNames[actualSenderIdx],
                                       value: msg.value,
-                                      fromIdx: senderIdx
+                                      fromIdx: actualSenderIdx
                                     });
                                   }
                                 });
@@ -5594,13 +5613,17 @@ function ExperimentDetailViewer({
                               const receivedMessages = [];
                               if (Array.isArray(round?.messages)) {
                                 round.messages.forEach((senderMsgs, senderIdx) => {
-                                  if (senderIdx !== idx && Array.isArray(senderMsgs)) {
+                                  if (Array.isArray(senderMsgs)) {
                                     senderMsgs.forEach(msg => {
                                       if (msg.to === idx && msg.delivered) {
-                                        receivedMessages.push({
-                                          from: processNames[senderIdx],
-                                          value: msg.value
-                                        });
+                                        const actualSenderIdx =
+                                          typeof msg.from === 'number' ? msg.from : senderIdx;
+                                        if (actualSenderIdx !== idx) {
+                                          receivedMessages.push({
+                                            from: processNames[actualSenderIdx],
+                                            value: msg.value
+                                          });
+                                        }
                                       }
                                     });
                                   }
@@ -5793,9 +5816,18 @@ function ExperimentDetailViewer({
                       <h5 className="font-medium mb-2">Message Delivery Matrix:</h5>
                       {(() => {
                         // Flatten con 'from' para la tabla
-                        const formatted = nested.flatMap((msgsFromSender, senderIdx) =>
-                          (msgsFromSender || []).map(msg => ({ ...msg, from: senderIdx }))
-                        );
+                        const formatted = nested.flatMap((msgsFromEntity, entityIdx) => {
+                          if (!Array.isArray(msgsFromEntity)) return [];
+                          return msgsFromEntity.reduce((acc, msg) => {
+                            const actualSenderIdx =
+                              typeof msg.from === 'number' ? msg.from : entityIdx;
+                            if (actualSenderIdx === msg.to) {
+                              return acc;
+                            }
+                            acc.push({ ...msg, from: actualSenderIdx });
+                            return acc;
+                          }, []);
+                        });
                         if (!Array.isArray(formatted) || formatted.length === 0) {
                           return <div className="text-sm text-gray-500">No message data for this round.</div>;
                         }
