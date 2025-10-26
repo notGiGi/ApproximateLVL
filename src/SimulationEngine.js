@@ -61,258 +61,346 @@ const THETA = 0.346;
 // Simulation engine
 export const SimulationEngine = {
 
-simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, knownValuesSets = null, originalValues = null, deliveryMode = 'independent') {
-  if (algorithm === "auto") {
-    const decP = toDecimal(p);
-    algorithm = decP.gt(0.5) ? "AMP" : "FV";
-  }
-  
+
+simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, originalValues = null, knownValuesSets = null, deliveryMode = 'standard') {
   const decP = toDecimal(p);
   const processCount = values.length;
   const newValues = [...values];
   const messages = [];
   const messageDelivery = [];
+  let wasConditioned = false;
   
-  // Para algoritmo MIN: usar valores originales si se proporcionan
-  const valuesToSend = algorithm === "MIN" && originalValues ? originalValues : values;
-  
-  // Inicializar o mantener knownValuesSets
-  let updatedKnownValuesSets;
-  if (algorithm === "MIN" || algorithm === "RECURSIVE AMP") {
-    if (knownValuesSets) {
-      updatedKnownValuesSets = knownValuesSets.map(arr => new Set(arr));
-    } else {
-      updatedKnownValuesSets = Array(processCount).fill(null).map(() => new Set());
-    }
-  } else {
-    updatedKnownValuesSets = null;
+  // Determine actual algorithm
+  if (algorithm === "auto") {
+    algorithm = decP.gt(0.5) ? "AMP" : "FV";
   }
-
-  // NUEVO: Manejo especial para COURTEOUS_CORRELATED
-  if (algorithm === "COURTEOUS_CORRELATED" && processCount === 3) {
-    const processDeliveryStatus = [];
+  
+  // ========================================
+  // PHASE 1: MESSAGE GENERATION & DELIVERY
+  // ========================================
+  
+  let senderDeliveryStatus = null;
+  
+  // PROCESS-DEPENDENT DELIVERY (NEW)
+  if (deliveryMode === 'process-dependent') {
+    senderDeliveryStatus = [];
     
-    // Determinar qué procesos envían exitosamente (correlacionado)
-    for (let i = 0; i < processCount; i++) {
-      const delivered = randomDecimal().lt(decP);
-      processDeliveryStatus.push(delivered);
+    // One roll per sender: all messages from sender i deliver together
+    for (let sender = 0; sender < processCount; sender++) {
+      senderDeliveryStatus[sender] = Math.random() < decP.toNumber();
     }
     
-    // Construir mensajes y aplicar algoritmo
-    for (let i = 0; i < processCount; i++) {
-      const receivedMessages = [];
-      const processMessages = [];
+    // Build messages based on sender delivery status
+    for (let sender = 0; sender < processCount; sender++) {
+      messages[sender] = [];
       
-      for (let j = 0; j < processCount; j++) {
-        if (i !== j) {
-          const delivered = processDeliveryStatus[j]; // Entrega correlacionada
-          const message = {
-            from: j,
-            to: i,
-            value: valuesToSend[j],
+      for (let receiver = 0; receiver < processCount; receiver++) {
+        if (sender !== receiver) {
+          const delivered = senderDeliveryStatus[sender];
+          
+          messages[sender].push({
+            to: receiver,
+            value: values[sender],
             delivered: delivered
-          };
-          processMessages.push(message);
-          
-          if (delivered) {
-            receivedMessages.push(valuesToSend[j]);
-          }
-        }
-      }
-      
-      messages.push(processMessages);
-      messageDelivery.push(receivedMessages.map((_, idx) => idx < receivedMessages.length));
-      
-      // Aplicar lógica COURTEOUS
-      if (receivedMessages.length > 0) {
-        const sortedReceived = [...receivedMessages].sort((a, b) => a - b);
-        const valueCounts = {};
-        sortedReceived.forEach(val => {
-          valueCounts[val] = (valueCounts[val] || 0) + 1;
-        });
-        
-        let mostCommonValue = sortedReceived[0];
-        let maxCount = 1;
-        
-        for (const [val, count] of Object.entries(valueCounts)) {
-          const numVal = parseFloat(val);
-          if (count > maxCount || (count === maxCount && numVal < mostCommonValue)) {
-            mostCommonValue = numVal;
-            maxCount = count;
-          }
-        }
-        
-        // Regla COURTEOUS: mayoría o único valor escuchado
-        if (maxCount >= 2 || receivedMessages.length === 1) {
-          newValues[i] = mostCommonValue;
-        } else {
-          newValues[i] = values[i];
-        }
-      }
-      
-      // Actualizar conjuntos conocidos si aplica
-      if (updatedKnownValuesSets && updatedKnownValuesSets[i]) {
-        updatedKnownValuesSets[i].add(valuesToSend[i]);
-        receivedMessages.forEach(val => updatedKnownValuesSets[i].add(val));
-      }
-    }
-  } else if (algorithm === "COURTEOUS" && processCount === 3) {
-    // COURTEOUS original con entrega independiente
-    for (let i = 0; i < processCount; i++) {
-      const receivedMessages = [];
-      const processMessages = [];
-      
-      for (let j = 0; j < processCount; j++) {
-        if (i !== j) {
-          const delivered = randomDecimal().lt(decP);
-          const message = {
-            from: j,
-            to: i,
-            value: valuesToSend[j],
-            delivered: delivered
-          };
-          processMessages.push(message);
-          
-          if (delivered) {
-            receivedMessages.push(valuesToSend[j]);
-          }
-        }
-      }
-      
-      messages.push(processMessages);
-      messageDelivery.push(receivedMessages.map((_, idx) => idx < receivedMessages.length));
-      
-      // Lógica COURTEOUS original
-      if (receivedMessages.length > 0) {
-        const sortedReceived = [...receivedMessages].sort((a, b) => a - b);
-        const valueCounts = {};
-        sortedReceived.forEach(val => {
-          valueCounts[val] = (valueCounts[val] || 0) + 1;
-        });
-        
-        let mostCommonValue = sortedReceived[0];
-        let maxCount = 1;
-        
-        for (const [val, count] of Object.entries(valueCounts)) {
-          const numVal = parseFloat(val);
-          if (count > maxCount || (count === maxCount && numVal < mostCommonValue)) {
-            mostCommonValue = numVal;
-            maxCount = count;
-          }
-        }
-        
-        if (maxCount >= 2 || receivedMessages.length === 1) {
-          newValues[i] = mostCommonValue;
-        } else {
-          newValues[i] = values[i];
-        }
-      }
-      
-      if (updatedKnownValuesSets && updatedKnownValuesSets[i]) {
-        updatedKnownValuesSets[i].add(valuesToSend[i]);
-        receivedMessages.forEach(val => updatedKnownValuesSets[i].add(val));
-      }
-    }
-  } else {
-    // Código existente para otros algoritmos (AMP, FV, MIN, RECURSIVE AMP, etc.)
-    for (let i = 0; i < processCount; i++) {
-      const senderMessages = [];
-      const deliveryStatus = [];
-      
-      for (let j = 0; j < processCount; j++) {
-        if (i !== j) {
-          const messageValue = valuesToSend[i];
-          const delivered = randomDecimal().lte(decP);
-          
-          senderMessages.push({
-            to: j,
-            value: messageValue,
-            delivered
           });
           
-          deliveryStatus.push(delivered);
+          if (delivered) {
+            messageDelivery.push({
+              from: sender,
+              to: receiver,
+              value: values[sender],
+              delivered: true
+            });
+          }
         }
       }
-      
-      messages.push(senderMessages);
-      messageDelivery.push(deliveryStatus);
     }
-    
-    // Procesar mensajes recibidos
+  }
+  // GUARANTEED DELIVERY (EXISTING)
+  else if (deliveryMode === 'guaranteed' || deliveryMode === 'conditioned') {
+    // First try standard delivery
     for (let i = 0; i < processCount; i++) {
-      const receivedMessages = [];
-      
+      messages[i] = [];
       for (let j = 0; j < processCount; j++) {
         if (i !== j) {
-          const senderMessages = messages[j];
-          const messageToI = senderMessages.find(msg => msg.to === i);
+          const delivered = Math.random() < decP.toNumber();
+          messages[i].push({
+            to: j,
+            value: values[i],
+            delivered: delivered
+          });
           
-          if (messageToI && messageToI.delivered) {
-            receivedMessages.push(messageToI.value);
-            if (updatedKnownValuesSets && updatedKnownValuesSets[i]) {
-              updatedKnownValuesSets[i].add(messageToI.value);
-            }
+          if (delivered) {
+            messageDelivery.push({
+              from: i,
+              to: j,
+              value: values[i],
+              delivered: true
+            });
           }
         }
       }
-      
-      // Siempre conoce su propio valor
-      if (updatedKnownValuesSets && updatedKnownValuesSets[i]) {
-        if (algorithm === "MIN" && originalValues) {
-          updatedKnownValuesSets[i].add(originalValues[i]);
-        } else {
-          updatedKnownValuesSets[i].add(valuesToSend[i]);
-        }
+    }
+    
+    // Check if at least one message was delivered
+    if (messageDelivery.length === 0) {
+      // Force one random message to be delivered (conditioning)
+      wasConditioned = true;
+      const randomSender = Math.floor(Math.random() * processCount);
+      const possibleReceivers = [];
+      for (let j = 0; j < processCount; j++) {
+        if (j !== randomSender) possibleReceivers.push(j);
       }
+      const randomReceiver = possibleReceivers[Math.floor(Math.random() * possibleReceivers.length)];
       
-      // Aplicar algoritmo
-      const receivedDifferentValue = receivedMessages.find(val => val !== values[i]);
-      
-      if (receivedDifferentValue !== undefined) {
-        if (algorithm === "AMP") {
-          newValues[i] = meetingPoint;
-        } else if (algorithm === "FV") {
-          newValues[i] = receivedDifferentValue;
-        } else if (algorithm === "MIN") {
-          // MIN no decide inmediatamente
-        } else if (algorithm === "RECURSIVE AMP") {
-          if (updatedKnownValuesSets[i].size > 1) {
-            const knownVals = Array.from(updatedKnownValuesSets[i]);
-            const alpha = meetingPoint;
-            knownVals.sort((a, b) => a - b);
-            let result = knownVals[0];
-            for (let k = 1; k < knownVals.length; k++) {
-              result = result * (1 - alpha) + knownVals[k] * alpha;
-            }
-            newValues[i] = result;
+      // Update the message to delivered
+      const msg = messages[randomSender].find(m => m.to === randomReceiver);
+      if (msg) {
+        msg.delivered = true;
+        messageDelivery.push({
+          from: randomSender,
+          to: randomReceiver,
+          value: values[randomSender],
+          delivered: true
+        });
+      }
+    }
+  }
+  // STANDARD DELIVERY (DEFAULT)
+  else {
+    for (let i = 0; i < processCount; i++) {
+      messages[i] = [];
+      for (let j = 0; j < processCount; j++) {
+        if (i !== j) {
+          const delivered = Math.random() < decP.toNumber();
+          messages[i].push({
+            to: j,
+            value: values[i],
+            delivered: delivered
+          });
+          
+          if (delivered) {
+            messageDelivery.push({
+              from: i,
+              to: j,
+              value: values[i],
+              delivered: true
+            });
           }
         }
       }
     }
   }
   
-  // Calcular discrepancia máxima
-  let maxDiscrepancy = new Decimal(0);
+  // ========================================
+  // PHASE 2: ALGORITHM DECISION LOGIC
+  // ========================================
+  
+  // Initialize known values sets if needed (for MIN and RECURSIVE AMP)
+    let updatedKnownValuesSets = null;
+    
+    if (algorithm === "MIN" || algorithm === "RECURSIVE AMP") {
+      if (knownValuesSets && Array.isArray(knownValuesSets)) {
+        // Si ya existe, verificar que sean Sets y convertir si no lo son
+        updatedKnownValuesSets = knownValuesSets.map((item, idx) => {
+          if (item instanceof Set) {
+            return new Set(item); // Copiar el Set
+          } else if (Array.isArray(item)) {
+            return new Set(item); // Convertir array a Set
+          } else {
+            const newSet = new Set();
+            newSet.add(values[idx]);
+            return newSet;
+          }
+        });
+      } else {
+        // Crear nuevo array de Sets
+        updatedKnownValuesSets = Array.from({ length: processCount }, () => new Set());
+        for (let i = 0; i < processCount; i++) {
+          updatedKnownValuesSets[i].add(values[i]);
+        }
+      }
+    }
+  
+  // Process each node's decision
   for (let i = 0; i < processCount; i++) {
-    for (let j = i+1; j < processCount; j++) {
-      const discrepancy = abs(toDecimal(newValues[i]).minus(toDecimal(newValues[j])));
-      if (discrepancy.gt(maxDiscrepancy)) {
-        maxDiscrepancy = discrepancy;
+    const receivedMessages = [];
+    
+    // Collect messages received by process i
+    for (let j = 0; j < processCount; j++) {
+      if (i !== j && messages[j]) {
+        const msg = messages[j].find(m => m.to === i);
+        if (msg && msg.delivered) {
+          receivedMessages.push(msg.value);
+        }
       }
+    }
+    
+    const myValue = values[i];
+    const receivedDifferentValue = receivedMessages.find(val => val !== myValue);
+    
+    // Update known values for MIN/RECURSIVE AMP
+    if (updatedKnownValuesSets && updatedKnownValuesSets[i] && updatedKnownValuesSets[i] instanceof Set) {
+      receivedMessages.forEach(val => updatedKnownValuesSets[i].add(val));
+      if (algorithm === "MIN" && originalValues) {
+        updatedKnownValuesSets[i].add(originalValues[i]);
+      }
+    }
+    
+    // ========================================
+    // ALGORITHM-SPECIFIC LOGIC
+    // ========================================
+    
+    // 3-PROCESS BINARY ALGORITHMS
+    if (processCount === 3 && ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm)) {
+      const uniqueProcessesHeard = receivedMessages.length + 1; // +1 for self
+      
+      if (algorithm === "COURTEOUS") {
+        // 1.a - If heard only own value (no messages received)
+        if (receivedMessages.length === 0) {
+          newValues[i] = myValue;
+        }
+        // 1.b - If heard from all 3 processes
+        else if (uniqueProcessesHeard === 3) {
+          const allValues = [myValue, ...receivedMessages];
+          const count0 = allValues.filter(v => v === 0).length;
+          const count1 = allValues.filter(v => v === 1).length;
+          newValues[i] = count0 > count1 ? 0 : 1;
+        }
+        // 1.c - If heard exactly one value different from own
+        else if (receivedMessages.length === 1 && receivedMessages[0] !== myValue) {
+          newValues[i] = receivedMessages[0]; // Decide the opposite value
+        }
+        else {
+          newValues[i] = myValue; // Default: keep own value
+        }
+      }
+      else if (algorithm === "SELFISH") {
+        // 2.a - If heard only own value (no messages received)
+        if (receivedMessages.length === 0) {
+          newValues[i] = myValue;
+        }
+        // 2.b - If heard from all 3 processes
+        else if (uniqueProcessesHeard === 3) {
+          const allValues = [myValue, ...receivedMessages];
+          const count0 = allValues.filter(v => v === 0).length;
+          const count1 = allValues.filter(v => v === 1).length;
+          newValues[i] = count0 > count1 ? 0 : 1;
+        }
+        // 2.c - If heard exactly one value different from own
+        else if (receivedMessages.length === 1 && receivedMessages[0] !== myValue) {
+          newValues[i] = myValue; // Decide own value (selfish)
+        }
+        else {
+          newValues[i] = myValue; // Default: keep own value
+        }
+      }
+      else if (algorithm === "CYCLIC") {
+        // 3.a - If heard only own value (no messages received)
+        if (receivedMessages.length === 0) {
+          newValues[i] = myValue;
+        }
+        // 3.b - If heard from all 3 processes
+        else if (uniqueProcessesHeard === 3) {
+          const allValues = [myValue, ...receivedMessages];
+          const count0 = allValues.filter(v => v === 0).length;
+          const count1 = allValues.filter(v => v === 1).length;
+          newValues[i] = count0 > count1 ? 0 : 1;
+        }
+        // 3.c - If heard exactly from one process, value different from own
+        else if (receivedMessages.length === 1 && receivedMessages[0] !== myValue) {
+          // Cyclic order: A->B, B->C, C->A
+          // Process IDs: 0=A, 1=B, 2=C
+          const receivedFromPrev = (i === 0) ? 2 : (i - 1); // Who would send to me in cyclic order
+          
+          // Check which process sent the message
+          let senderProcess = -1;
+          for (let j = 0; j < processCount; j++) {
+            if (i !== j && messages[j].find(msg => msg.to === i && msg.delivered)) {
+              senderProcess = j;
+              break;
+            }
+          }
+          
+          // Apply cyclic rule based on sender
+          if (senderProcess === receivedFromPrev) {
+            // I'm the decider in this pair, adopt sender's value
+            newValues[i] = receivedMessages[0];
+          } else {
+            // I'm the one who keeps my value in this pair
+            newValues[i] = myValue;
+          }
+        }
+        else {
+          newValues[i] = myValue; // Default: keep own value
+        }
+      }
+      else if (algorithm === "BIASED0") {
+        // If heard 0 from anybody (including self), decide 0
+        const allValues = [myValue, ...receivedMessages];
+        newValues[i] = allValues.includes(0) ? 0 : myValue;
+      }
+    }
+    // GENERAL ALGORITHMS (work for any n)
+    else if (algorithm === "MIN") {
+      if (updatedKnownValuesSets && updatedKnownValuesSets[i].size > 0) {
+        newValues[i] = Math.min(...Array.from(updatedKnownValuesSets[i]));
+      } else {
+        newValues[i] = myValue;
+      }
+    }
+    else if (algorithm === "RECURSIVE AMP") {
+      if (receivedDifferentValue !== undefined) {
+        const a = toDecimal(meetingPoint);
+        newValues[i] = a.mul(toDecimal(myValue))
+          .plus(toDecimal(1).minus(a).mul(toDecimal(receivedDifferentValue)))
+          .toNumber();
+      } else {
+        newValues[i] = myValue;
+      }
+    }
+    else if (algorithm === "AMP") {
+      if (receivedDifferentValue !== undefined) {
+        newValues[i] = meetingPoint;
+      } else {
+        newValues[i] = myValue;
+      }
+    }
+    else if (algorithm === "FV") {
+      if (receivedDifferentValue !== undefined) {
+        newValues[i] = receivedDifferentValue;
+      } else {
+        newValues[i] = myValue;
+      }
+    }
+    else {
+      // Default: keep own value
+      newValues[i] = myValue;
     }
   }
   
-  // Convertir knownValuesSets a arrays
-  const knownValuesSetsArrays = updatedKnownValuesSets ? 
-    updatedKnownValuesSets.map(set => Array.from(set)) : null;
+  // ========================================
+  // PHASE 3: CALCULATE DISCREPANCY
+  // ========================================
+  
+  let maxDiscrepancy = toDecimal(0);
+  for (let i = 0; i < processCount; i++) {
+    for (let j = i + 1; j < processCount; j++) {
+      const disc = abs(toDecimal(newValues[i]).minus(toDecimal(newValues[j])));
+      if (disc.gt(maxDiscrepancy)) {
+        maxDiscrepancy = disc;
+      }
+    }
+  }
   
   return {
-    values: newValues,
-    newValues: newValues,
-    messages: messages,
-    messageDelivery: messageDelivery,
+    newValues,
+    messages,
+    messageDelivery,
     discrepancy: maxDiscrepancy.toNumber(),
-    knownValuesSets: knownValuesSetsArrays
+    wasConditioned,
+    knownValuesSets: updatedKnownValuesSets,
+    senderDeliveryStatus  // NEW: tracking for process-dependent mode
   };
 },
 
@@ -851,13 +939,14 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
   },
 
   // Run experiment with n processes
-  runNProcessExperiment: function(initialValues, p, rounds, algorithm = "auto", meetingPoint = 0.5) {
-    return this.runExperiment(initialValues, p, rounds, algorithm, meetingPoint);
+ 
+  runNProcessExperiment: function(initialValues, p, rounds, algorithm = "auto", meetingPoint = 0.5, deliveryMode = 'standard') {
+    return this.runExperiment(initialValues, p, rounds, algorithm, meetingPoint, deliveryMode);
   },
 
   // Run multiple experiments with n processes
-  runMultipleNProcessExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
-    return this.runMultipleExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint);
+  runMultipleNProcessExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5, deliveryMode = 'standard') {
+    return this.runMultipleExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint, deliveryMode);
   },
 
   // Calculate theoretical variance

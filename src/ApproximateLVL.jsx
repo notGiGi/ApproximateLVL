@@ -5844,6 +5844,38 @@ function ExperimentDetailViewer({
                       })()}
                     </div>
                   )}
+
+                  {/* Sender Delivery Status para Process-Dependent */}
+                  {deliveryMode === 'process-dependent' && 
+                   round?.senderDeliveryStatus && 
+                   index > 0 && (
+                    <div className="mt-4 p-3 bg-purple-50 rounded border border-purple-200">
+                      <h5 className="font-medium mb-2 text-sm text-purple-900">
+                        📤 Sender Delivery Status (Process-Dependent Model):
+                      </h5>
+                      <div className="flex flex-wrap gap-2">
+                        {processNames.map((name, idx) => (
+                          <div 
+                            key={idx} 
+                            className={`px-3 py-2 rounded text-xs font-medium ${
+                              round.senderDeliveryStatus[idx] 
+                                ? 'bg-green-100 text-green-800 border border-green-300' 
+                                : 'bg-red-100 text-red-800 border border-red-300'
+                            }`}
+                          >
+                            <div className="font-bold">{name}</div>
+                            <div className="text-xs">
+                              {round.senderDeliveryStatus[idx] ? '✓ All messages delivered' : '✗ No messages delivered'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-purple-600 mt-2">
+                        In process-dependent delivery, all outgoing messages from each sender share the same fate
+                      </p>
+                    </div>
+                  )}
+
                 </div>
               )}
             </div>
@@ -6220,7 +6252,8 @@ function runRangeExperiments() {
             p,
             actualRounds,
             actualAlgo,
-            uiMeetingPoint
+            uiMeetingPoint,
+            deliveryMode  
           );
         }
 
@@ -6979,6 +7012,25 @@ function runRangeExperiments() {
                       </p>
                     </div>
                   </label>
+
+                  <label className="flex items-start cursor-pointer hover:bg-white p-2 rounded transition">
+                    <input
+                      type="radio"
+                      name="deliveryMode"
+                      value="process-dependent"
+                      checked={deliveryMode === 'process-dependent'}
+                      onChange={(e) => setDeliveryMode(e.target.value)}
+                      className="mt-1 mr-3"
+                      disabled={isRunning}
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-sm">Process-Dependent Delivery</div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        All messages from each process deliver together with probability p, or none deliver with probability q.
+                      </p>
+                    </div>
+                  </label>
+
                 </div>
 
                 {deliveryMode === 'guaranteed' && (
@@ -6991,6 +7043,21 @@ function runRangeExperiments() {
                         <p className="font-semibold mb-1">Convergence Guarantee:</p>
                         <p>Maximum discrepancy per round: <span className="font-mono font-bold">1/3</span></p>
                         <p>After {rounds} round{rounds > 1 ? 's' : ''}: <span className="font-mono font-bold">≤ {Math.pow(1/3, rounds).toFixed(6)}</span></p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {deliveryMode === 'process-dependent' && (
+                  <div className="mt-3 p-2 bg-purple-50 border border-purple-200 rounded">
+                    <div className="flex items-start">
+                      <svg className="w-4 h-4 text-purple-600 mt-0.5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                      </svg>
+                      <div className="text-xs text-purple-700">
+                        <p className="font-semibold mb-1">Correlated Delivery:</p>
+                        <p>Messages from process i are correlated - they all deliver or all fail together.</p>
+                        <p className="mt-1">With {processValues.length} processes, there are {processValues.length} independent delivery events per round (one per sender).</p>
                       </div>
                     </div>
                   </div>
@@ -7673,6 +7740,25 @@ function runRangeExperiments() {
                         return (
                           <div className="mt-6">
                             <h3 className="text-xl font-semibold mb-4">Detailed Experiment Analysis</h3>
+
+                            {deliveryMode !== 'standard' && (
+                              <div className={`mb-4 p-3 rounded border ${
+                                deliveryMode === 'guaranteed' ? 'bg-green-50 border-green-200' : 'bg-purple-50 border-purple-200'
+                              }`}>
+                                <div className={`text-sm font-semibold ${
+                                  deliveryMode === 'guaranteed' ? 'text-green-900' : 'text-purple-900'
+                                }`}>
+                                  📡 Active Delivery Mode: {deliveryMode === 'guaranteed' ? 'Guaranteed Progress' : 'Process-Dependent'}
+                                </div>
+                                <div className={`text-xs mt-1 ${
+                                  deliveryMode === 'guaranteed' ? 'text-green-700' : 'text-purple-700'
+                                }`}>
+                                  {deliveryMode === 'guaranteed' 
+                                    ? 'At least one message guaranteed per round' 
+                                    : 'All messages from each sender deliver together'}
+                                </div>
+                              </div>
+                            )}
 
                             {/* Selector de probabilidad, algoritmo y repetición */}
                             <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
