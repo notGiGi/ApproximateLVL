@@ -5480,6 +5480,9 @@ function ExperimentDetailViewer({
                           {processNames.map((receiverName, receiverIdx) => {
                             const receivedValues = [];
                             const senderInfo = [];
+                            const knownValuesList = Array.isArray(round?.knownValuesSets)
+                              ? round.knownValuesSets[receiverIdx]
+                              : null;
                             
                             round.messages.forEach((senderMsgs, senderIdx) => {
                               if (Array.isArray(senderMsgs)) {
@@ -5542,6 +5545,12 @@ function ExperimentDetailViewer({
                                   </div>
                                 ) : (
                                   <div className="text-xs text-gray-400 mt-1">No messages received</div>
+                                )}
+                                
+                                {algorithm === "MIN" && Array.isArray(knownValuesList) && knownValuesList.length > 0 && (
+                                  <div className="text-xs text-blue-600 mt-2">
+                                    Known so far: {knownValuesList.map(val => formatKnownValue(val)).join(', ')}
+                                  </div>
                                 )}
                                 
                                 {/* Mostrar decisión según el algoritmo */}

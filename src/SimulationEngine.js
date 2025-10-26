@@ -62,7 +62,7 @@ const THETA = 0.346;
 export const SimulationEngine = {
 
 
-simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, originalValues = null, knownValuesSets = null, deliveryMode = 'standard') {
+simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, knownValuesSets = null, originalValues = null, deliveryMode = 'standard') {
   const decP = toDecimal(p);
   const processCount = values.length;
   const newValues = [...values];
@@ -399,7 +399,9 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, origi
     messageDelivery,
     discrepancy: maxDiscrepancy.toNumber(),
     wasConditioned,
-    knownValuesSets: updatedKnownValuesSets,
+    knownValuesSets: updatedKnownValuesSets
+      ? updatedKnownValuesSets.map(set => Array.from(set))
+      : null,
     senderDeliveryStatus  // NEW: tracking for process-dependent mode
   };
 },
@@ -460,6 +462,9 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, origi
   
   // Execute rounds
   for (let r = 1; r <= rounds; r++) {
+    const previousValuesSnapshot = [...values];
+    const previousDiscrepancy = history[history.length - 1]?.discrepancy ?? initialDiscrepancy.toNumber();
+
     const result = SimulationEngine.simulateRound(
       values, 
       p, 
@@ -471,6 +476,13 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, origi
     );
     
     values = result.newValues;
+
+    if (algorithm === "MIN" && r < rounds) {
+      // MIN mantiene los valores originales hasta la última ronda
+      values = [...previousValuesSnapshot];
+      result.newValues = [...previousValuesSnapshot];
+      result.discrepancy = previousDiscrepancy;
+    }
     
     // Mantener knownValuesSets para MIN y RECURSIVE AMP
     if (algorithm === "MIN" || algorithm === "RECURSIVE AMP") {
@@ -495,6 +507,7 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, origi
         }
       }
       result.discrepancy = maxDiscrepancy.toNumber();
+      result.newValues = [...values];
     }
     
     // Record results for this round
