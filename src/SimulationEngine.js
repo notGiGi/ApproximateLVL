@@ -62,9 +62,13 @@ const THETA = 0.346;
 export const SimulationEngine = {
 
 
-simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, knownValuesSets = null, originalValues = null, deliveryMode = 'standard') {
+simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, knownValuesSets = null, originalValues = null, deliveryMode = 'standard', options = {}) {
   const decP = toDecimal(p);
   const processCount = values.length;
+  const leaderIndexRaw = Number.isInteger(options.leaderIndex) ? options.leaderIndex : 0;
+  const leaderIndex = processCount > 0
+    ? Math.max(0, Math.min(processCount - 1, leaderIndexRaw))
+    : 0;
   const newValues = [...values];
   const messages = [];
   const messageDelivery = [];
@@ -225,13 +229,19 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
   // Process each node's decision
   for (let i = 0; i < processCount; i++) {
     const receivedMessages = [];
+    let leaderMessageReceived = false;
+    let leaderMessageValue = processCount > 0 ? values[leaderIndex] : undefined;
     
     // Collect messages received by process i
     for (let j = 0; j < processCount; j++) {
       if (i !== j && messages[j]) {
         const msg = messages[j].find(m => m.to === i);
-        if (msg && msg.delivered) {
-          receivedMessages.push(msg.value);
+          if (msg && msg.delivered) {
+            receivedMessages.push(msg.value);
+            if (algorithm === "LEADER" && j === leaderIndex) {
+              leaderMessageReceived = true;
+              leaderMessageValue = msg.value;
+            }
         }
       }
     }
@@ -342,6 +352,17 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
       }
     }
     // GENERAL ALGORITHMS (work for any n)
+    else if (algorithm === "LEADER") {
+      if (i === leaderIndex) {
+        newValues[i] = myValue;
+      } else if (leaderMessageReceived) {
+        newValues[i] = leaderMessageValue;
+      } else if (originalValues && originalValues[i] !== undefined) {
+        newValues[i] = originalValues[i];
+      } else {
+        newValues[i] = myValue;
+      }
+    }
     else if (algorithm === "MIN") {
       if (updatedKnownValuesSets && updatedKnownValuesSets[i].size > 0) {
         newValues[i] = Math.min(...Array.from(updatedKnownValuesSets[i]));
@@ -406,10 +427,14 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
   };
 },
 
-  runExperiment: function(initialValues, p, rounds = 1, algorithm = "auto", meetingPoint = 0.5, deliveryMode = 'independent') {
+runExperiment: function(initialValues, p, rounds = 1, algorithm = "auto", meetingPoint = 0.5, deliveryMode = 'independent', options = {}) {
   let values = [...initialValues];
   const processCount = values.length;
   const processNames = [];
+  const leaderIndexRaw = Number.isInteger(options.leaderIndex) ? options.leaderIndex : 0;
+  const leaderIndex = processCount > 0
+    ? Math.max(0, Math.min(processCount - 1, leaderIndexRaw))
+    : 0;
   
   // Para algoritmo MIN: mantener conjunto de valores conocidos y valores originales
   let knownValuesSets = null;
@@ -449,6 +474,7 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
   // Simulation history
   const history = [{
     round: 0,
+    leaderIndex,
     values: [...values],
     processValues: values.reduce((obj, val, idx) => {
       obj[processNames[idx].toLowerCase()] = val;
@@ -456,6 +482,7 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
     }, {}),
     discrepancy: initialDiscrepancy.toNumber(),
     messages: [],
+    wasConditioned: false,
     knownValuesSets: algorithm === "MIN" ? 
       knownValuesSets.map(set => Array.from(set)) : null
   }];
@@ -472,7 +499,8 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
       meetingPoint,
       knownValuesSets,
       originalValues,
-      deliveryMode // NUEVO PARÁMETRO
+      deliveryMode, // NUEVO PARÁMETRO
+      { leaderIndex }
     );
     
     values = result.newValues;
@@ -513,6 +541,7 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
     // Record results for this round
     history.push({
       round: r,
+      leaderIndex,
       values: [...values],
       processValues: values.reduce((obj, val, idx) => {
         obj[processNames[idx].toLowerCase()] = val;
@@ -521,6 +550,7 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
       discrepancy: result.discrepancy,
       messages: result.messages,
       messageDelivery: result.messageDelivery,
+      wasConditioned: !!result.wasConditioned,
       knownValuesSets: result.knownValuesSets
     });
   }
@@ -528,12 +558,12 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
   return history;
   },
 
-  runMultipleConditionedExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
+runMultipleConditionedExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5, options = {}) {
     const allDiscrepancies = [];
     const allConditioningRates = [];
     
     for (let i = 0; i < repetitions; i++) {
-      const history = this.runConditionedExperiment(initialValues, p, rounds, algorithm, meetingPoint);
+      const history = this.runConditionedExperiment(initialValues, p, rounds, algorithm, meetingPoint, options);
       const finalDiscrepancy = history[history.length - 1].discrepancy;
       allDiscrepancies.push(finalDiscrepancy);
       allConditioningRates.push(history.conditioningRate || 0);
@@ -585,11 +615,16 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
 
 
   // Run multiple experiments for statistical analysis
-  runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5, deliveryMode = 'independent') {
-    const allDiscrepancies = [];
-    const allRuns = [];
-    const processCount = initialValues.length;
-    const decP = toDecimal(p);
+runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5, deliveryMode = 'independent', options = {}) {
+  const allDiscrepancies = [];
+  const allRuns = [];
+  const processCount = initialValues.length;
+  const decP = toDecimal(p);
+  const leaderIndexRaw = Number.isInteger(options.leaderIndex) ? options.leaderIndex : 0;
+  const leaderIndex = processCount > 0
+    ? Math.max(0, Math.min(processCount - 1, leaderIndexRaw))
+    : 0;
+  const experimentOptions = { ...options, leaderIndex };
     
     // Determine actual algorithm if auto
     const actualAlgorithm = algorithm === "auto" ? 
@@ -605,7 +640,8 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
         rounds,
         algorithm,
         actualMeetingPoint,
-        deliveryMode // NUEVO PARÁMETRO
+        deliveryMode, // NUEVO PARÁMETRO
+        experimentOptions
       );
       
       const finalDiscrepancy = history[history.length - 1].discrepancy;
@@ -703,7 +739,8 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
       allRuns,
       n: processCount,
       m: m,
-      deliveryMode // INCLUIR EN EL RETURN
+      deliveryMode, // INCLUIR EN EL RETURN
+      leaderIndex
     };
   },
 
@@ -769,7 +806,7 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
   calculateExpectedDiscrepancyMultiRound: function(p, rounds, algorithm = "auto") {
     const decP = toDecimal(p);
     
-    if (algorithm === "MIN" || algorithm === "RECURSIVE AMP") {
+    if (algorithm === "MIN" || algorithm === "RECURSIVE AMP" || algorithm === "LEADER") {
       return null;
     }
     
@@ -953,18 +990,22 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
 
   // Run experiment with n processes
  
-  runNProcessExperiment: function(initialValues, p, rounds, algorithm = "auto", meetingPoint = 0.5, deliveryMode = 'standard') {
-    return this.runExperiment(initialValues, p, rounds, algorithm, meetingPoint, deliveryMode);
-  },
+runNProcessExperiment: function(initialValues, p, rounds, algorithm = "auto", meetingPoint = 0.5, deliveryMode = 'standard', options = {}) {
+  return this.runExperiment(initialValues, p, rounds, algorithm, meetingPoint, deliveryMode, options);
+},
 
-  // Run multiple experiments with n processes
-  runMultipleNProcessExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5, deliveryMode = 'standard') {
-    return this.runMultipleExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint, deliveryMode);
-  },
+// Run multiple experiments with n processes
+runMultipleNProcessExperiments: function(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5, deliveryMode = 'standard', options = {}) {
+  return this.runMultipleExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint, deliveryMode, options);
+},
 
   // Calculate theoretical variance
   calculateTheoreticalVariance: function(p, n, m, algorithm, rounds = 1) {
     const q = 1 - p;
+    
+    if (algorithm !== "AMP" && algorithm !== "FV") {
+      return null;
+    }
     
     if (n === 2) {
       if (algorithm === "AMP") {
@@ -991,72 +1032,26 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
     }
   },
   // Función para ejecutar experimento con entrega garantizada
-runConditionedExperiment: function(initialValues, p, rounds = 1, algorithm = "auto", meetingPoint = 0.5) {
-    let values = [...initialValues];
-    const processCount = values.length;
-    const history = [];
-    let conditionedRounds = 0;
+runConditionedExperiment: function(initialValues, p, rounds = 1, algorithm = "auto", meetingPoint = 0.5, options = {}) {
+    const history = this.runExperiment(
+      initialValues,
+      p,
+      rounds,
+      algorithm,
+      meetingPoint,
+      'guaranteed',
+      options
+    );
     
-    // Determinar nombres de procesos
-    const processNames = [];
-    for (let i = 0; i < processCount; i++) {
-      if (i < 3) {
-        processNames.push(["Alice", "Bob", "Charlie"][i]);
-      } else {
-        processNames.push(`Process${i+1}`);
+    const conditionedRounds = history.reduce((count, entry) => {
+      if (entry && entry.round > 0 && entry.wasConditioned) {
+        return count + 1;
       }
-    }
+      return count;
+    }, 0);
     
-    // Calcular discrepancia inicial
-    let maxDiscrepancy = new Decimal(0);
-    for (let i = 0; i < processCount; i++) {
-      for (let j = i+1; j < processCount; j++) {
-        const disc = abs(toDecimal(values[i]).minus(toDecimal(values[j])));
-        if (disc.gt(maxDiscrepancy)) {
-          maxDiscrepancy = disc;
-        }
-      }
-    }
-    
-    // Agregar estado inicial
-    history.push({
-      round: 0,
-      values: [...values],
-      processValues: values.reduce((obj, val, idx) => {
-        obj[processNames[idx].toLowerCase()] = val;
-        return obj;
-      }, {}),
-      discrepancy: maxDiscrepancy.toNumber(),
-      messages: [],
-      wasConditioned: false
-    });
-    
-    // Ejecutar rondas
-    for (let r = 1; r <= rounds; r++) {
-      const result = this.simulateRoundConditioned(values, p, algorithm, meetingPoint);
-      
-      values = result.newValues;
-      if (result.wasConditioned) {
-        conditionedRounds++;
-      }
-      
-      history.push({
-        round: r,
-        values: [...values],
-        processValues: values.reduce((obj, val, idx) => {
-          obj[processNames[idx].toLowerCase()] = val;
-          return obj;
-        }, {}),
-        discrepancy: result.discrepancy,
-        messages: result.messages,
-        messageDelivery: result.messageDelivery,
-        wasConditioned: result.wasConditioned
-      });
-    }
-    
-    // Agregar estadísticas
     history.conditionedRounds = conditionedRounds;
-    history.conditioningRate = conditionedRounds / rounds;
+    history.conditioningRate = rounds > 0 ? conditionedRounds / rounds : 0;
     
     return history;
   },
@@ -1161,6 +1156,7 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
   calculateTheoreticalCV: function(p, n, m, algorithm, meetingPoint, rounds = 1) {
     const expectedD = this.calculateExpectedDiscrepancyNProcesses(p, n, m, algorithm, meetingPoint);
     const variance = this.calculateTheoreticalVariance(p, n, m, algorithm, rounds);
+    if (expectedD == null || variance == null) return Infinity;
     const stdDev = Math.sqrt(variance);
     
     if (expectedD === 0) return Infinity;
@@ -1197,103 +1193,37 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
   },
 
 
-  simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint = 0.5) {
-    const decP = toDecimal(p);
-    const processCount = values.length;
-    const newValues = [...values];
-    const messages = [];
-    const messageDelivery = [];
+  simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint = 0.5, options = {}) {
+    const originalValues = Array.isArray(options.originalValues)
+      ? options.originalValues
+      : [...values];
     
-    if (algorithm === "auto") {
-      algorithm = decP.gt(0.5) ? "AMP" : "FV";
-    }
-    
-    // PASO 1: Generar entregas de mensajes NORMALMENTE con probabilidad p
-    let totalDelivered = 0;
-    
-    for (let i = 0; i < processCount; i++) {
-      messages[i] = [];
-      messageDelivery[i] = [];
-      
-      for (let j = 0; j < processCount; j++) {
-        if (i !== j) {
-          const delivered = randomDecimal().lte(decP);
-          messageDelivery[i].push(delivered);
-          if (delivered) {
-            messages[i].push(values[j]);
-            totalDelivered++;
-          }
-        }
-      }
-    }
-    
-    // PASO 2: CONDICIÓN - Si NO se entregó ningún mensaje, entregar exactamente UNO
-    let wasConditioned = false;
-    if (totalDelivered === 0) {
-      wasConditioned = true;
-      
-      // Elegir aleatoriamente qué mensaje entregar
-      if (processCount === 2) {
-        // Para 2 procesos: 50/50 de probabilidad para cada dirección
-        if (Math.random() < 0.5) {
-          // Alice -> Bob
-          messages[1] = [values[0]];
-          messageDelivery[1][0] = true;
-        } else {
-          // Bob -> Alice
-          messages[0] = [values[1]];
-          messageDelivery[0][0] = true;
-        }
-      } else {
-        // Para n procesos: elegir emisor y receptor uniformemente
-        const sender = Math.floor(Math.random() * processCount);
-        let receiver = Math.floor(Math.random() * processCount);
-        while (receiver === sender) {
-          receiver = Math.floor(Math.random() * processCount);
-        }
-        messages[receiver].push(values[sender]);
-        const index = sender < receiver ? sender : sender - 1;
-        messageDelivery[receiver][index] = true;
-      }
-    }
-    
-    // PASO 3: Aplicar el algoritmo EXACTAMENTE como está definido
-    for (let i = 0; i < processCount; i++) {
-      const receivedMessages = messages[i];
-      
-      if (algorithm === "AMP" && receivedMessages.length > 0) {
-        const differentValue = receivedMessages.find(val => val !== values[i]);
-        if (differentValue !== undefined) {
-          newValues[i] = meetingPoint;
-        }
-      } else if (algorithm === "FV" && receivedMessages.length > 0) {
-        const differentValues = receivedMessages.filter(val => val !== values[i]);
-        if (differentValues.length > 0) {
-          newValues[i] = differentValues[0];
-        }
-      }
-    }
-    
-    // PASO 4: Calcular discrepancia SIN NINGÚN LÍMITE ARTIFICIAL
-    let maxDiscrepancy = new Decimal(0);
-    for (let i = 0; i < processCount; i++) {
-      for (let j = i+1; j < processCount; j++) {
-        const disc = abs(toDecimal(newValues[i]).minus(toDecimal(newValues[j])));
-        if (disc.gt(maxDiscrepancy)) {
-          maxDiscrepancy = disc;
-        }
-      }
-    }
-    
+    const knownValuesSets = Array.isArray(options.knownValuesSets)
+      ? options.knownValuesSets.map(entry => {
+          if (entry instanceof Set) return new Set(entry);
+          if (Array.isArray(entry)) return new Set(entry);
+          return new Set([entry]);
+        })
+      : null;
 
-    
+    const result = this.simulateRound(
+      values,
+      p,
+      algorithm,
+      meetingPoint,
+      knownValuesSets,
+      originalValues,
+      'guaranteed',
+      options
+    );
+
+    const deliveredCount = Array.isArray(result?.messageDelivery)
+      ? result.messageDelivery.filter(entry => entry && entry.delivered).length
+      : 0;
+
     return {
-      newValues,
-      messages,
-      messageDelivery,
-      discrepancy: maxDiscrepancy.toNumber(), 
-      wasConditioned,
-      totalDelivered: wasConditioned ? 1 : totalDelivered
+      ...result,
+      totalDelivered: deliveredCount
     };
   },
 
@@ -1857,18 +1787,18 @@ isBarycentricMatrix(values) {
 },
 
 
-runExperimentAutoSpace(initialValues, p, rounds = 1, algorithm = "auto", meetingPoint = 0.5) {
+runExperimentAutoSpace(initialValues, p, rounds = 1, algorithm = "auto", meetingPoint = 0.5, options = {}) {
   if (this.isBarycentricMatrix(initialValues)) {
-    return this.barycentric.runBarycentricExperiment(initialValues, p, rounds, algorithm, meetingPoint);
+    return this.barycentric.runBarycentricExperiment(initialValues, p, rounds, algorithm, meetingPoint, undefined, options);
   }
-  return this.runExperiment(initialValues, p, rounds, algorithm, meetingPoint);
+  return this.runExperiment(initialValues, p, rounds, algorithm, meetingPoint, undefined, options);
 },
 
-runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5) {
+runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = 0.5, options = {}) {
   if (this.isBarycentricMatrix(initialValues)) {
-    return this.barycentric.runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint);
+    return this.barycentric.runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint, undefined, options);
   }
-  return this.runMultipleExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint);
+  return this.runMultipleExperiments(initialValues, p, rounds, repetitions, algorithm, meetingPoint, undefined, options);
 },
 
 
@@ -2089,7 +2019,7 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
     /**
      * Simula una ronda multi-D (con soporte de distanceMetric).
      */
-    simulateMultiDimensionalRound(values, p, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
+    simulateMultiDimensionalRound(values, p, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean', options = {}) {
       const n = values.length;
       if (n === 0) {
         return { 
@@ -2105,6 +2035,11 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
       }
 
       const dim = values[0].length;
+      const leaderIndexRaw = Number.isInteger(options.leaderIndex) ? options.leaderIndex : 0;
+      const leaderIndex = n > 0
+        ? Math.max(0, Math.min(n - 1, leaderIndexRaw))
+        : 0;
+      const initialValues = this.multiInitialValues || values;
       let algo = algorithm;
       if (algo === "auto") algo = p > 0.5 ? "AMP" : "FV";
 
@@ -2146,12 +2081,19 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
       // Procesamiento y actualización
       for (let receiver = 0; receiver < n; receiver++) {
         const receivedMessages = [];
+        let leaderMessage = null;
         for (let sender = 0; sender < n; sender++) {
           if (sender === receiver) continue;
           const msg = messages[sender].find(m => m.to === receiver);
-          if (msg && msg.delivered) receivedMessages.push(msg.value);
+          if (msg && msg.delivered) {
+            receivedMessages.push(msg.value);
+            if (algo === "LEADER" && sender === leaderIndex) {
+              leaderMessage = msg.value;
+            }
+          }
         }
-        if (receivedMessages.length === 0) continue;
+        const hasMessages = receivedMessages.length > 0;
+        if (!hasMessages && algo !== "LEADER") continue;
 
         switch (algo) {
           case "AMP": {
@@ -2186,6 +2128,17 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
             newValues[receiver] = this.multiRecursiveAMP(values[receiver], receivedMessages, meetingPoint, distanceMetric);
             break;
           }
+          case "LEADER": {
+            if (receiver === leaderIndex) {
+              newValues[receiver] = this.cloneVector(values[receiver]);
+            } else if (leaderMessage) {
+              newValues[receiver] = this.cloneVector(leaderMessage);
+            } else {
+              const fallback = initialValues[receiver] || values[receiver];
+              newValues[receiver] = this.cloneVector(fallback);
+            }
+            break;
+          }
           default:
             console.warn(`Algoritmo no reconocido: ${algo}`);
             break;
@@ -2210,15 +2163,21 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
         algorithm: algo,
         dimensions: dim,
         meetingPoint,
-        knownValuesSets: knownValuesSetsForReturn  
+        knownValuesSets: knownValuesSetsForReturn,
+        leaderIndex
       };
     },
 
 
     // ===== EXPERIMENTOS MULTI-D =====
-    runMultiDimensionalExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
+    runMultiDimensionalExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean', options = {}) {
       const history = [];
       let currentValues = this.cloneMatrix(initialValues);
+      const leaderIndexRaw = Number.isInteger(options.leaderIndex) ? options.leaderIndex : 0;
+      const leaderIndex = currentValues.length > 0
+        ? Math.max(0, Math.min(currentValues.length - 1, leaderIndexRaw))
+        : 0;
+      this.multiInitialValues = this.cloneMatrix(initialValues);
       
       // ⚠️ NUEVO: Inicializar estado para MIN (como en unidimensional)
       let multiKnownValuesSets = null;
@@ -2237,6 +2196,7 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
 
       history.push({
         round: 0,
+        leaderIndex,
         values: this.cloneMatrix(currentValues),
         discrepancy: this.calculateDiscrepancy(currentValues, distanceMetric),
         algorithm: resolvedAlgorithm,
@@ -2248,7 +2208,8 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
       // Ejecutar rondas
       for (let round = 1; round <= rounds; round++) {
         const result = this.simulateMultiDimensionalRound(
-          currentValues, p, algorithm, meetingPoint, distanceMetric
+          currentValues, p, algorithm, meetingPoint, distanceMetric,
+          { leaderIndex }
         );
         
         currentValues = result.newValues;
@@ -2269,6 +2230,7 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
 
         history.push({
           round,
+          leaderIndex,
           values: this.cloneMatrix(currentValues),
           discrepancy: this.calculateDiscrepancy(currentValues, distanceMetric),
           algorithm: resolvedAlgorithm,
@@ -2280,10 +2242,12 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
         });
       }
 
+      this.multiInitialValues = null;
+
       return history;
     },
 
-    runMultipleMultiDimensionalExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
+    runMultipleMultiDimensionalExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean', options = {}) {
       const experiments = [];
       const roundStats = Array(rounds + 1).fill(0).map(() => []);
 
@@ -2294,7 +2258,8 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
           rounds,
           algorithm,
           meetingPoint,
-          distanceMetric
+          distanceMetric,
+          options
         );
         experiments.push(history);
         history.forEach((state, roundIdx) => {
@@ -2434,21 +2399,21 @@ barycentric: {
   },
 
 
-  simulateBarycentricRound(values, p, algorithm, meetingPoint, distanceMetric = 'euclidean') {
+  simulateBarycentricRound(values, p, algorithm, meetingPoint, distanceMetric = 'euclidean', options = {}) {
     return SimulationEngine.multidimensional.simulateMultiDimensionalRound(
-      values, p, algorithm, meetingPoint, distanceMetric
+      values, p, algorithm, meetingPoint, distanceMetric, options
     );
   },
 
-  runBarycentricExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
+  runBarycentricExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean', options = {}) {
     return SimulationEngine.multidimensional.runMultiDimensionalExperiment(
-      initialValues, p, rounds, algorithm, meetingPoint, distanceMetric
+      initialValues, p, rounds, algorithm, meetingPoint, distanceMetric, options
     );
   },
 
-  runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
+  runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean', options = {}) {
     return SimulationEngine.multidimensional.runMultipleMultiDimensionalExperiments(
-      initialValues, p, rounds, repetitions, algorithm, meetingPoint, distanceMetric
+      initialValues, p, rounds, repetitions, algorithm, meetingPoint, distanceMetric, options
     );
   },
 
@@ -2460,14 +2425,14 @@ barycentric: {
 },
 
 // Alias para compatibilidad (también con distanceMetric)
-runBarycentricExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
+runBarycentricExperiment(initialValues, p, rounds, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean', options = {}) {
   return this.multidimensional.runMultiDimensionalExperiment(
-    initialValues, p, rounds, algorithm, meetingPoint, distanceMetric
+    initialValues, p, rounds, algorithm, meetingPoint, distanceMetric, options
   );
 },
-runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean') {
+runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorithm = "auto", meetingPoint = null, distanceMetric = 'euclidean', options = {}) {
   return this.multidimensional.runMultipleMultiDimensionalExperiments(
-    initialValues, p, rounds, repetitions, algorithm, meetingPoint, distanceMetric
+    initialValues, p, rounds, repetitions, algorithm, meetingPoint, distanceMetric, options
   );
 },
 
@@ -2670,3 +2635,4 @@ runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorit
   }
 
 };
+

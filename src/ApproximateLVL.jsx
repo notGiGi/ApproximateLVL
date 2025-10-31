@@ -37,7 +37,7 @@ function clamp01(x) {
  * Editor de Meeting Point:
  * - binary: un número (0..1)
  * - barycentric + AMP: vector de longitud = dimensions
- * - barycentric + RECURSIVE AMP: escalar α en [0,1]
+ * - barycentric + RECURSIVE AMP: escalar a en [0,1]
  */
 function MeetingPointEditor({
   dimensionMode,
@@ -76,7 +76,7 @@ function MeetingPointEditor({
 
   // === MODO MULTI-DIMENSIONAL ===
   if (resolvedAlgo === 'RECURSIVE AMP') {
-    // Escalar α
+    // Escalar a
     const alpha = (typeof customMeetingPoint === 'number')
       ? customMeetingPoint
       : (Array.isArray(customMeetingPoint) && customMeetingPoint.length > 0
@@ -84,7 +84,7 @@ function MeetingPointEditor({
 
     return (
       <div className="space-y-1">
-        <label className="text-xs font-medium text-purple-900">Recursive AMP – α (0..1):</label>
+        <label className="text-xs font-medium text-purple-900">Recursive AMP – a (0..1):</label>
         <input
           type="number"
           min="0"
@@ -152,7 +152,7 @@ function resolveMeetingPoint(actualAlgo, customMP, dimensions) {
     return Math.max(0, Math.min(1, alpha));
   }
 
-  // AMP (y similares) → vector de longitud = dimensions
+  // AMP (y similares) -> vector de longitud = dimensions
   if (Array.isArray(customMP) && customMP.length === dimensions) {
     return customMP.map(v => {
       const x = Number(v);
@@ -249,11 +249,11 @@ const runSimulation = async () => {
 
     // Meeting point:
     //  - AMP: vector en [0,1]^d (si se pasa número, se replica por dimensión)
-    //  - RECURSIVE AMP: escalar α en [0,1]
+    //  - RECURSIVE AMP: escalar a en [0,1]
     //  - FV/otros: no lo usan, pero pasamos vector [0.5,...] por consistencia
     let meetingPoint;
     if (actualAlgo === 'RECURSIVE AMP') {
-      // RECURSIVE AMP usa escalar α
+      // RECURSIVE AMP usa escalar a
       if (typeof customMeetingPoint === 'number' && Number.isFinite(customMeetingPoint)) {
         meetingPoint = Math.max(0, Math.min(1, customMeetingPoint));
       } else if (Array.isArray(customMeetingPoint) && customMeetingPoint.length > 0) {
@@ -293,9 +293,9 @@ const runSimulation = async () => {
             : uiAlgo;
 
           // 2) resuelve el meeting point para multi-D
-          //    - AMP           → vector de longitud = dimensions
-          //    - RECURSIVE AMP → escalar α en [0,1]
-          //    - otros         → usa vector [0.5,...] si no aplica
+          //    - AMP           -> vector de longitud = dimensions
+          //    - RECURSIVE AMP -> escalar a en [0,1]
+          //    - otros         -> usa vector [0.5,...] si no aplica
           const mpResolved = resolveMeetingPoint(
             actualAlgo,
             (typeof customMeetingPoint !== 'undefined' && customMeetingPoint !== null)
@@ -361,7 +361,8 @@ const runSimulation = async () => {
         repetitions,
         algorithm,      // se puede pasar 'auto'
         meetingPoint,
-        distanceMetric 
+        distanceMetric,
+        { leaderIndex }
       );
 
       setStatistics(results.statistics);
@@ -636,12 +637,14 @@ function MessageDeliveryTable({
   previousValues = [],
   finalValues = [],
   algorithm = null,
-  knownValuesSets = null
+  knownValuesSets = null,
+  leaderIndex = 0
 }) {
   const filtered = selectedProcess != null
     ? messages.filter(m => m.from === selectedProcess || m.to === selectedProcess)
     : messages;
 
+  const leaderName = processNames[leaderIndex] ?? (processNames[0] || "Leader");
   const messagesByReceiver = {};
   messages.forEach(msg => {
     if (!messagesByReceiver[msg.to]) {
@@ -717,6 +720,19 @@ function MessageDeliveryTable({
         }
       }
       return changed ? "MIN: updated to minimum" : "MIN: value accumulated";
+    } else if (algorithm === "LEADER") {
+      if (toIdx === leaderIndex) {
+        return "LEADER: Leader maintains own value";
+      }
+      const receivedVals = messagesByReceiver[toIdx] || [];
+      const leaderMsg = receivedVals.find(m => m.from === leaderIndex);
+      if (leaderMsg) {
+        if (changed && newVal === leaderMsg.value) {
+          return `LEADER: Adopted value from ${leaderName}`;
+        }
+        return `LEADER: Heard ${leaderName}`;
+      }
+      return `LEADER: No message from ${leaderName} - kept own input`;
     } else if (algorithm === "RECURSIVE AMP") {
       if (changed) {
         const receivedVals = messagesByReceiver[toIdx] || [];
@@ -724,7 +740,7 @@ function MessageDeliveryTable({
           const allVals = [prevVal, ...receivedVals.map(r => r.value)];
           const minVal = Math.min(...allVals);
           const maxVal = Math.max(...allVals);
-          return `RECURSIVE AMP: Applied α to range [${minVal.toFixed(3)}, ${maxVal.toFixed(3)}]`;
+          return `RECURSIVE AMP: Applied a to range [${minVal.toFixed(3)}, ${maxVal.toFixed(3)}]`;
         }
       }
       return isDelivered ? "RECURSIVE AMP: value received" : "";
@@ -736,7 +752,7 @@ function MessageDeliveryTable({
       const differentValue = receivedMessages.find(m => m.value !== prevVal);
       
       if (algorithm === "AMP" && differentValue) {
-        return `AMP: Moved to meeting point (received ${differentValue.value.toFixed(3)} ≠ ${prevVal.toFixed(3)})`;
+        return `AMP: Moved to meeting point (received ${differentValue.value.toFixed(3)} -> ${prevVal.toFixed(3)})`;
       } else if (algorithm === "FV" && differentValue) {
         return `FV: Adopted received value ${differentValue.value.toFixed(3)}`;
       }
@@ -752,6 +768,7 @@ function MessageDeliveryTable({
       case "RECURSIVE AMP": return "text-indigo-700";
       case "AMP": return "text-blue-700";
       case "FV": return "text-purple-700";
+      case "LEADER": return "text-blue-700";
       case "COURTEOUS": return "text-indigo-700";
       case "SELFISH": return "text-orange-700";
       case "CYCLIC": return "text-teal-700";
@@ -1148,7 +1165,7 @@ function NProcessesControl({
               >
                 <option value="euclidean">Euclidean</option>
                 <option value="l1">L1 (Manhattan)</option>
-                <option value="linf">L∞ (Max)</option>
+                <option value="linf">L8 (Max)</option>
               </select>
             </div>
           </div>
@@ -1222,7 +1239,7 @@ function NProcessesControl({
                     ? 'text-green-600 font-medium' 
                     : 'text-red-600'
                 }`}>
-                  Σ{(barycentricValues[pIdx]?.reduce((a, b) => a + b, 0) || 0).toFixed(2)}
+                  S{(barycentricValues[pIdx]?.reduce((a, b) => a + b, 0) || 0).toFixed(2)}
                 </span>
               </div>
             ))}
@@ -1265,7 +1282,7 @@ function NProcessesControl({
           )}
 
           <div className="mt-2 text-xs text-purple-600 bg-purple-50 p-2 rounded">
-            ℹ️ Multi-dimensional mode is experimental and extends beyond the original paper.
+            ⚠️ Multi-dimensional mode is experimental and extends beyond the original paper.
           </div>
         </div>
       )}
@@ -1525,7 +1542,7 @@ function ExperimentComparison({ experiments }) {
                   stroke="#666" 
                   strokeDasharray="3 3" 
                   label={{ 
-                    value: "Convergence threshold (10⁻⁶)", 
+                    value: "Convergence threshold (10?6)", 
                     position: "right",
                     style: { fontSize: 12, fill: '#666' }
                   }}
@@ -2608,7 +2625,7 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
     
     for (let k = kMin; k <= kMax; k++) {
       const prob = binomialCoeff(n, k) * Math.pow(p, k) * Math.pow(1 - p, n - k);
-      const xBar = k / n; // X̄ = X/n
+      const xBar = k / n; // X¯ = X/n
       
       binomialPMF.push({
         x: xBar,
@@ -2660,7 +2677,7 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
             <h4 className="font-medium text-sm mb-2">Theoretical Statistics</h4>
             <ul className="text-xs space-y-1">
               <li><span className="font-medium">E[D]:</span> {p.toFixed(6)}</li>
-              <li><span className="font-medium">σ:</span> {sigma.toFixed(6)}</li>
+              <li><span className="font-medium">s:</span> {sigma.toFixed(6)}</li>
               <li><span className="font-medium">95% CI:</span> [{ci95Lower.toFixed(6)}, {ci95Upper.toFixed(6)}]</li>
               <li><span className="font-medium">n (simulations):</span> {n}</li>
             </ul>
@@ -2687,7 +2704,7 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
                 type="number"
                 domain={[Math.min(min, ci95Lower - 0.05), Math.max(max, ci95Upper + 0.05)]}
                 tickFormatter={(value) => value.toFixed(3)}
-                label={{ value: 'Discrepancy (X̄ = X/n)', position: 'insideBottom', offset: -10 }}
+                label={{ value: 'Discrepancy (X¯ = X/n)', position: 'insideBottom', offset: -10 }}
               />
               <YAxis 
                 domain={[0, yMax]}
@@ -2761,7 +2778,7 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
                       return (
                         <div className="bg-white p-2 border rounded shadow-md">
                           <p className="font-semibold">Binomial PMF</p>
-                          <p>k = {data.k}, X̄ = {data.x.toFixed(6)}</p>
+                          <p>k = {data.k}, X¯ = {data.x.toFixed(6)}</p>
                           <p>P(X = k) = {(data.probability / n).toFixed(8)}</p>
                         </div>
                       );
@@ -2789,12 +2806,12 @@ function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, 
         <div className="mt-4 p-3 bg-gray-50 rounded text-xs">
           <p className="font-semibold mb-2">Model Details:</p>
           <p>• X ~ Binomial(n={n}, p={p.toFixed(6)})</p>
-          <p>• X̄ = X/n has mean p and standard deviation σ = √(p(1-p)/n) = {sigma.toFixed(6)}</p>
-          <p>• 95% CI: [p - 1.96σ, p + 1.96σ] = [{ci95Lower.toFixed(6)}, {ci95Upper.toFixed(6)}]</p>
-          <p>• The blue line shows P(X̄ = k/n) for k = {kMin} to {kMax}</p>
+          <p>• X¯ = X/n has mean p and standard deviation s = v(p(1-p)/n) = {sigma.toFixed(6)}</p>
+          <p>• 95% CI: [p - 1.96s, p + 1.96s] = [{ci95Lower.toFixed(6)}, {ci95Upper.toFixed(6)}]</p>
+          <p>• The blue line shows P(X¯ = k/n) for k = {kMin} to {kMax}</p>
           {Math.abs(observedMean - p) > 2 * sigma && (
             <p className="text-orange-600 font-semibold mt-2">
-              ⚠️ Observed mean is {((Math.abs(observedMean - p) / sigma).toFixed(2))}σ away from theoretical mean
+              📈 Observed mean is {((Math.abs(observedMean - p) / sigma).toFixed(2))}s away from theoretical mean
             </p>
           )}
         </div>
@@ -2808,6 +2825,7 @@ const ALGORITHM_COLOR_MAP = {
   "AMP": "#10b981",
   "FV": "#ef4444",
   "MIN": "#f59e0b",
+  "LEADER": "#2563eb",
   "COURTEOUS": "#FF6B35",
   "auto": "#6b7280"
 };
@@ -3188,7 +3206,7 @@ function AnimationControls({ currentRound, totalRounds, onPlay, onPause, onReset
   return (
     <div className="flex items-center space-x-4 bg-white rounded-lg shadow p-4">
       <button onClick={onReset} className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
-        ⏮️
+        ⟲
       </button>
       {isPlaying ? (
         <button onClick={onPause} className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700">
@@ -3294,7 +3312,7 @@ function RangeResultsTable({
 
                 if (result.theoretical < epsilon && result.discrepancy < epsilon) {
                   errorType = "both-zero";
-                  displayError = "≈0%";
+                  displayError = "˜0%";
                 } else if (result.theoretical < smallValueThreshold) {
                   errorType = "absolute";
                   displayError = `±${error.toExponential(2)}`;
@@ -4110,7 +4128,9 @@ function TheoreticalVsExperimentalTable({ p, maxRounds = 3, repetitions = 100 })
             p,
             maxRounds,
             algorithm,
-            0.5  // Meeting point
+            0.5,  // Meeting point
+            undefined,
+            { leaderIndex }
           );
           experimentalRuns.push(history);
         }
@@ -4432,7 +4452,9 @@ function ErrorAnalysisByProbability({ maxRounds = 3, repetitions = 50 }) {
               p,
               maxRounds,
               algorithm,
-              0.5  // Meeting point
+              0.5,  // Meeting point
+              undefined,
+              { leaderIndex }
             );
             
             // Record results for each round
@@ -4673,6 +4695,7 @@ function CompleteDistributedComputingSimulator() {
   const [algorithm, setAlgorithm] = useState("auto");
   const [fvMethod, setFvMethod] = useState("average");
   const [meetingPoint, setMeetingPoint] = useState(0.5);
+  const [leaderProcess, setLeaderProcess] = useState(1);
   const [rounds, setRounds] = useState(1);
   const [showDeliveryInfo, setShowDeliveryInfo] = useState(false);
   const [repetitions, setRepetitions] = useState(50);
@@ -4685,6 +4708,12 @@ function CompleteDistributedComputingSimulator() {
   const [barycentricValues, setBarycentricValues] = useState([]);
   const [distanceMetric, setDistanceMetric] = useState('euclidean');
   const [customMeetingPoint, setCustomMeetingPoint] = useState(null);
+  const leaderIndex = useMemo(() => {
+    if (processValues.length === 0) return 0;
+    return Math.max(0, Math.min(processValues.length - 1, Math.round(leaderProcess) - 1));
+  }, [leaderProcess, processValues.length]);
+
+
   // Range experiments states
   const [rangeExperiments, setRangeExperiments] = useState({
     minP: 0.0,
@@ -4713,24 +4742,43 @@ function CompleteDistributedComputingSimulator() {
   const [configCode, setConfigCode] = useState("");
   const [selectedAlgorithms, setSelectedAlgorithms] = useState(["auto"]);
   const [selectedAlgorithmForDetails, setSelectedAlgorithmForDetails] = useState("auto");
+
+  useEffect(() => {
+    setLeaderProcess(prev => {
+      const max = Math.max(1, processValues.length);
+      const clamped = Math.max(1, Math.min(max, Math.round(prev)));
+      return clamped === prev ? prev : clamped;
+    });
+  }, [processValues.length]);
+
+  useEffect(() => {
+    if (dimensionMode !== 'binary') {
+      setSelectedAlgorithms(prev => {
+        const filtered = prev.filter(algo => algo !== 'LEADER');
+        return filtered.length > 0 ? filtered : ['auto'];
+      });
+      if (forcedAlgorithm === 'LEADER') {
+        setForcedAlgorithm('auto');
+      }
+      if (selectedAlgorithmForDetails === 'LEADER') {
+        setSelectedAlgorithmForDetails('auto');
+      }
+    }
+  }, [dimensionMode, forcedAlgorithm, selectedAlgorithmForDetails]);
+
   const processCount = processValues.length;
   // SOLO AGREGAR ESTO - Detectar si es algoritmo de 3 procesos
   const is3ProcessAlgorithm = ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm);
   const [showTheoreticalCourteous, setShowTheoreticalCourteous] = useState(false);
   const [showExperimentalCourteous, setShowExperimentalCourteous] = useState(false);
   // SOLO AGREGAR ESTO - Información adicional para algoritmos de 3 procesos
-  const getAlgorithmInfo = () => {
-    if (is3ProcessAlgorithm) {
-      switch(algorithm) {
-        case "COURTEOUS": return "Adopts different value from single sender";
-        case "SELFISH": return "Keeps own value when hearing from one";
-        case "CYCLIC": return "Follows cyclic order A→B→C→A";
-        case "BIASED0": return "Always chooses 0 if present";
-        default: return "";
-      }
-    }
-    return "";
-  };
+
+  const selectableAlgorithms = useMemo(() => (
+    dimensionMode === 'binary'
+      ? ["auto", "AMP", "FV", "RECURSIVE AMP", "MIN", "LEADER"]
+      : ["auto", "AMP", "FV", "RECURSIVE AMP", "MIN"]
+  ), [dimensionMode]);
+
   
   // ============================================
   // EFECTOS DE INICIALIZACIÓN
@@ -4992,6 +5040,7 @@ const handleLoadConfig = () => {
   setMeetingPoint(config.meetingPoint || 0.5);
   setRounds(config.rounds || 1);
   setRepetitions(config.repetitions || 1);
+  setLeaderProcess(config.leaderProcess || 1);
   
   
   addLog("Configuration loaded successfully", "success");
@@ -5010,6 +5059,7 @@ const handleGenerateConfig = () => {
     meetingPoint:   meetingPoint,
     rounds:         rounds,
     repetitions:    repetitions,
+    leaderProcess:  leaderProcess,
   };
   const code = encodeConfigCode(cfg);
   navigator.clipboard.writeText(code)
@@ -5024,7 +5074,7 @@ const handleGenerateConfig = () => {
 };
 
 
-// convierte Base64 normal → Base64URL
+// convierte Base64 normal ? Base64URL
 function base64ToBase64Url(str) {
   return str
     .replace(/\+/g, '-')
@@ -5040,10 +5090,11 @@ function encodeConfigCode(cfg) {
     p: probability,
     minP: rangeExperiments.minP,
     maxP: rangeExperiments.maxP,
-    algorithm: forcedAlgorithm,
-    meetingPoint: meetingPoint,
-    rounds: rounds,
-    repetitions: repetitions
+    algorithm:      forcedAlgorithm,
+    meetingPoint:   meetingPoint,
+    rounds:         rounds,
+    repetitions:    repetitions,
+    leaderProcess:  leaderProcess
   };
   const json = JSON.stringify(fullConfig);
   const b64 = btoa(json);
@@ -5082,7 +5133,7 @@ function showDetailsForProbability(p, algorithm = null) {
   // Determinar el algoritmo real
   const actualAlgo = algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm;
   
-  // ⚠️ FIX: Construir la clave SIN toFixed
+  // ?? FIX: Construir la clave SIN toFixed
   const key = `${p}_${actualAlgo}`;
   
   // Verificar si existen datos
@@ -5101,14 +5152,17 @@ function showDetailsForProbability(p, algorithm = null) {
           p,
           actualRounds,
           actualAlgo,
-          actualMeetingPoint
+          actualMeetingPoint,
+          { leaderIndex }
         )
       : SimulationEngine.runNProcessExperiment(
           initialProcessValues,
           p,
           actualRounds,
           actualAlgo,
-          actualMeetingPoint
+          actualMeetingPoint,
+          deliveryMode,
+          { leaderIndex }
         );
     
     setExperimentRuns(prev => ({
@@ -5138,8 +5192,9 @@ function runSingleExperimentForDetails(p) {
     p,
     rounds,
     actualAlgorithm,
-    meetingPoint
-
+    meetingPoint,
+    deliveryMode,
+    { leaderIndex }
   );
   
   setLastRunData(history);
@@ -5166,10 +5221,10 @@ function ExperimentDetailViewer({
 
   const formatKnownValue = (value) => {
     if (Array.isArray(value)) {
-      // Valor multidimensional: [1.2, 0.8, 0.3] → "(1.20, 0.80, 0.30)"
+      // Valor multidimensional: [1.2, 0.8, 0.3] ? "(1.20, 0.80, 0.30)"
       return `(${value.map(v => (typeof v === 'number' ? v.toFixed(2) : String(v))).join(', ')})`;
     } else {
-      // Valor unidimensional: 0.75 → "0.75"
+      // Valor unidimensional: 0.75 ? "0.75"
       return typeof value === 'number' ? value.toFixed(4) : String(value);
     }
   };
@@ -5192,10 +5247,16 @@ function ExperimentDetailViewer({
     );
   }
   
-  const processCount = Array.isArray(experimentHistory[0]?.values) ? experimentHistory[0].values.length : 0;
-  const processNames = Array.from({ length: processCount }, (_, i) => 
-    i < 3 ? ["Alice", "Bob", "Charlie"][i] : `P${i+1}`
+  const processCount = Array.isArray(experimentHistory[0]?.values)
+    ? experimentHistory[0].values.length
+    : 0;
+  const processNames = Array.from({ length: processCount }, (_, i) =>
+    i < 3 ? ["Alice", "Bob", "Charlie"][i] : `P${i + 1}`
   );
+  const leaderIndex = processCount > 0
+    ? Math.max(0, Math.min(processCount - 1, experimentHistory[0]?.leaderIndex ?? 0))
+    : 0;
+  const leaderName = processNames[leaderIndex] ?? (processNames[0] || `P${leaderIndex + 1}`);
 
 
 
@@ -5210,7 +5271,7 @@ function ExperimentDetailViewer({
         const row = round.messageDelivery[sender] || [];
         let colIdx = 0;
         for (let receiver = 0; receiver < processCount; receiver++) {
-          if (receiver === sender) continue;  // ✅ YA EXISTE ESTE CHECK
+          if (receiver === sender) continue;  // ? YA EXISTE ESTE CHECK
           const delivered = !!row[colIdx++];
           nested[sender].push({
             to: receiver,
@@ -5226,7 +5287,7 @@ function ExperimentDetailViewer({
       round.messages.forEach(msg => {
         const sender = msg.from !== undefined ? msg.from : 0;
         const receiver = msg.to !== undefined ? msg.to : 0;
-        // ✅ AGREGAR VALIDACIÓN
+        // ? AGREGAR VALIDACIÓN
         if (sender !== receiver) {
           nested[sender].push({
             to: receiver,
@@ -5435,13 +5496,13 @@ function ExperimentDetailViewer({
                           ? experimentHistory[index-1].values[i]
                           : null;
                         
-                        // ✅ NUEVO: Comparación mejorada para valores multidimensionales
+                        // ? NUEVO: Comparación mejorada para valores multidimensionales
                         const hasChanged = prevValue !== null && prevValue !== undefined && 
                           (Array.isArray(val) && Array.isArray(prevValue)
                             ? JSON.stringify(val) !== JSON.stringify(prevValue)
                             : prevValue !== val);
                         
-                        // ✅ NUEVO: Formateo mejorado para valores multidimensionales
+                        // ? NUEVO: Formateo mejorado para valores multidimensionales
                         const formatValue = (value) => {
                           if (Array.isArray(value)) {
                             return `(${value.map(v => (typeof v === 'number' ? v.toFixed(2) : String(v))).join(', ')})`;
@@ -5552,40 +5613,54 @@ function ExperimentDetailViewer({
                                     Known so far: {knownValuesList.map(val => formatKnownValue(val)).join(', ')}
                                   </div>
                                 )}
+
+                                {algorithm === "LEADER" && (() => {
+                                  const leaderInfo = senderInfo.find(info => info.fromIdx === leaderIndex);
+                                  const currentValue = round?.values?.[receiverIdx];
+                                  return (
+                                  <div className="text-xs text-blue-600 mt-2">
+                                    {leaderInfo
+                                      ? currentValue === leaderInfo.value
+                                        ? `Followed ${leaderName}: ${formatKnownValue(leaderInfo.value)}`
+                                        : `Heard ${leaderName} but kept ${formatKnownValue(currentValue)}`
+                                      : `No message from ${leaderName} – kept own input`}
+                                  </div>
+                                  );
+                                })()}
                                 
                                 {/* Mostrar decisión según el algoritmo */}
                                 {hasReceivedDifferent && (
                                   <div className="mt-2 pt-1 border-t border-gray-200">
                                     <div className="text-xs">
                                       {algorithm === "AMP" && (
-                                        <span className="text-blue-600">→ Moved to meeting point: {fmt3(meetingPoint)}</span>
+                                        <span className="text-blue-600">? Moved to meeting point: {fmt3(meetingPoint)}</span>
                                       )}
                                       {algorithm === "FV" && (
                                         <span className="text-purple-600">
-                                          → Adopted: {fmt3(receivedValues.find(v => v !== round?.values?.[receiverIdx]))}
+                                          ? Adopted: {fmt3(receivedValues.find(v => v !== round?.values?.[receiverIdx]))}
                                         </span>
                                       )}
                                       {algorithm === "MIN" && (
-                                        <span className="text-yellow-600">→ Added to known set</span>
+                                        <span className="text-yellow-600">? Added to known set</span>
                                       )}
                                       {algorithm === "RECURSIVE AMP" && (
-                                        <span className="text-indigo-600">→ Applied recursive meeting point</span>
+                                        <span className="text-indigo-600">? Applied recursive meeting point</span>
                                       )}
                                       {algorithm === "COURTEOUS" && (
                                         <span className="text-indigo-600">
-                                          → Courteous: {receivedValues.length === 1 ? "Adopted different value" : "Majority decision"}
+                                          ? Courteous: {receivedValues.length === 1 ? "Adopted different value" : "Majority decision"}
                                         </span>
                                       )}
                                       {algorithm === "SELFISH" && (
                                         <span className="text-orange-600">
-                                          → Selfish: {receivedValues.length === 1 ? "Kept own value" : "Majority decision"}
+                                          ? Selfish: {receivedValues.length === 1 ? "Kept own value" : "Majority decision"}
                                         </span>
                                       )}
                                       {algorithm === "CYCLIC" && (
-                                        <span className="text-teal-600">→ Cyclic rule applied</span>
+                                        <span className="text-teal-600">? Cyclic rule applied</span>
                                       )}
                                       {algorithm === "BIASED0" && (
-                                        <span className="text-pink-600">→ Biased to 0</span>
+                                        <span className="text-pink-600">? Biased to 0</span>
                                       )}
                                     </div>
                                   </div>
@@ -5648,28 +5723,28 @@ function ExperimentDetailViewer({
                               
                               if (algorithm === "COURTEOUS") {
                                 if (heardCount === 0) {
-                                  decisionReason = "No messages → Keep own value";
+                                  decisionReason = "No messages ? Keep own value";
                                 } else if (heardCount === 2) {
                                   const allVals = [currentValue, ...receivedMessages.map(m => m.value)];
                                   const count0 = allVals.filter(v => v === 0).length;
-                                  decisionReason = `All heard → Majority (${count0 > 1 ? '0' : '1'})`;
+                                  decisionReason = `All heard ? Majority (${count0 > 1 ? '0' : '1'})`;
                                   decisionColor = "text-indigo-600";
                                 } else if (heardCount === 1 && heardDifferent) {
-                                  decisionReason = `Heard different → Adopt ${receivedMessages[0].value}`;
+                                  decisionReason = `Heard different ? Adopt ${receivedMessages[0].value}`;
                                   decisionColor = "text-green-600";
                                 } else {
                                   decisionReason = "Keep own value";
                                 }
                               } else if (algorithm === "SELFISH") {
                                 if (heardCount === 0) {
-                                  decisionReason = "No messages → Keep own value";
+                                  decisionReason = "No messages ? Keep own value";
                                 } else if (heardCount === 2) {
                                   const allVals = [currentValue, ...receivedMessages.map(m => m.value)];
                                   const count0 = allVals.filter(v => v === 0).length;
-                                  decisionReason = `All heard → Majority (${count0 > 1 ? '0' : '1'})`;
+                                  decisionReason = `All heard ? Majority (${count0 > 1 ? '0' : '1'})`;
                                   decisionColor = "text-orange-600";
                                 } else if (heardCount === 1 && heardDifferent) {
-                                  decisionReason = "Heard different → Keep own (selfish)";
+                                  decisionReason = "Heard different ? Keep own (selfish)";
                                   decisionColor = "text-red-600";
                                 } else {
                                   decisionReason = "Keep own value";
@@ -5682,14 +5757,14 @@ function ExperimentDetailViewer({
                                 );
                                 
                                 if (heardCount === 0) {
-                                  decisionReason = "No messages → Keep own value";
+                                  decisionReason = "No messages ? Keep own value";
                                 } else if (heardCount === 2) {
                                   const allVals = [currentValue, ...receivedMessages.map(m => m.value)];
                                   const count0 = allVals.filter(v => v === 0).length;
-                                  decisionReason = `All heard → Majority (${count0 > 1 ? '0' : '1'})`;
+                                  decisionReason = `All heard ? Majority (${count0 > 1 ? '0' : '1'})`;
                                   decisionColor = "text-teal-600";
                                 } else if (heardFromPrev && heardDifferent) {
-                                  decisionReason = `Cyclic: heard from ${processNames[cyclicPrev]} → Adopt`;
+                                  decisionReason = `Cyclic: heard from ${processNames[cyclicPrev]} ? Adopt`;
                                   decisionColor = "text-cyan-600";
                                 } else {
                                   decisionReason = "Keep own value (cyclic rule)";
@@ -5697,10 +5772,10 @@ function ExperimentDetailViewer({
                               } else if (algorithm === "BIASED0") {
                                 const allVals = [currentValue, ...receivedMessages.map(m => m.value)];
                                 if (allVals.includes(0)) {
-                                  decisionReason = "Heard or has 0 → Decide 0";
+                                  decisionReason = "Heard or has 0 ? Decide 0";
                                   decisionColor = "text-pink-600";
                                 } else {
-                                  decisionReason = "No 0 detected → Keep 1";
+                                  decisionReason = "No 0 detected ? Keep 1";
                                 }
                               }
                               
@@ -5716,7 +5791,7 @@ function ExperimentDetailViewer({
                                   <div className="flex-1">
                                     <div className="text-sm">
                                       <span className="font-mono">{prevValue?.toFixed(1)}</span>
-                                      <span className="mx-2">→</span>
+                                      <span className="mx-2">?</span>
                                       <span className="font-mono font-bold">{currentValue?.toFixed(1)}</span>
                                     </div>
                                     <div className={`text-xs mt-1 ${decisionColor}`}>
@@ -5804,7 +5879,7 @@ function ExperimentDetailViewer({
                                     <div className="text-xs text-gray-600">
                                       {algorithm === "MIN" ? 
                                         <span className="text-yellow-700 font-semibold">
-                                          → Will decide: {formatKnownValue(Math.min(...knownSet.filter(v => typeof v === 'number')))}
+                                          ? Will decide: {formatKnownValue(Math.min(...knownSet.filter(v => typeof v === 'number')))}
                                         </span> :
                                         `Range: [${formatKnownValue(Math.min(...knownSet.filter(v => typeof v === 'number')))}, ${formatKnownValue(Math.max(...knownSet.filter(v => typeof v === 'number')))}]`
                                       }
@@ -5848,6 +5923,7 @@ function ExperimentDetailViewer({
                             previousValues={prevValues || []}
                             finalValues={Array.isArray(round?.values) ? round.values : []}
                             algorithm={algorithm}
+                            leaderIndex={leaderIndex}
                           />
                         );
                       })()}
@@ -5860,7 +5936,7 @@ function ExperimentDetailViewer({
                    index > 0 && (
                     <div className="mt-4 p-3 bg-purple-50 rounded border border-purple-200">
                       <h5 className="font-medium mb-2 text-sm text-purple-900">
-                        📤 Sender Delivery Status (Process-Dependent Model):
+                        📡 Sender Delivery Status (Process-Dependent Model):
                       </h5>
                       <div className="flex flex-wrap gap-2">
                         {processNames.map((name, idx) => (
@@ -6050,7 +6126,7 @@ function runRangeExperiments() {
     }
   }
   if (currentDeliveryMode === 'guaranteed' && allProbabilities.length === 0) {
-    addLog("ERROR: El rango de p no contiene valores > 0. Para conditioned usa 0 < p ≤ 1.", "error");
+    addLog("ERROR: El rango de p no contiene valores > 0. Para conditioned usa 0 < p = 1.", "error");
     setIsRunning(false);
     return;
   }
@@ -6171,7 +6247,7 @@ function runRangeExperiments() {
         const key = `${p}_${actualAlgo}`;
 
         // Meeting point para modo baricéntrico: único cálculo por (p, algo)
-        // - RECURSIVE AMP: escalar α (default 0.5)
+        // - RECURSIVE AMP: escalar a (default 0.5)
         // - AMP/otros: vector; si se pasó número, replicar por dimensión; default [0.5,...]
         const barycentricMeetingPoint = (() => {
           if (actualAlgo === 'RECURSIVE AMP') {
@@ -6212,10 +6288,11 @@ function runRangeExperiments() {
             actualRounds,
             actualAlgo,
             mpEff,
-            distanceMetric
+            distanceMetric,
+            { leaderIndex }
           );
         } else if (currentDeliveryMode === 'guaranteed') {
-          // Simulación condicionada binaria (≥1 mensaje)
+          // Simulación condicionada binaria (=1 mensaje)
           const mpUsed = (nProc === 2 && actualAlgo === "AMP") ? 0.5 : uiMeetingPoint;
 
           const v0 = [...initialProcessValues];
@@ -6262,7 +6339,8 @@ function runRangeExperiments() {
             actualRounds,
             actualAlgo,
             uiMeetingPoint,
-            deliveryMode  
+            deliveryMode,
+            { leaderIndex }  
           );
         }
 
@@ -6303,7 +6381,7 @@ function runRangeExperiments() {
   const startMessage = dimensionMode === 'barycentric'
     ? `Starting ${dimensions}D barycentric simulation with ${processCount} processes`
     : currentDeliveryMode === 'guaranteed'
-      ? 'Starting simulation with Guaranteed/Conditioned (≥1 message) mode'
+      ? 'Starting simulation with Guaranteed/Conditioned (=1 message) mode'
       : 'Starting simulation with Standard Delivery mode';
 
   addLog(startMessage, "info");
@@ -6372,7 +6450,8 @@ function runRangeExperiments() {
             rounds,
             "FV",
             meetingPoint,
-            method
+            method,
+            { leaderIndex }
           );
           
           const finalDiscrepancy = history[history.length - 1].discrepancy;
@@ -6517,7 +6596,8 @@ function runRangeExperiments() {
           fvMethod: processValues.length > 2 ? fvMethod : null,
           meetingPoint: meetingPoint,
           rounds: rounds,
-          repetitions: repetitions
+          repetitions: repetitions,
+          leaderProcess: leaderProcess
         },
         results: experimentalResults.map(result => ({
           p: result.p,
@@ -6740,7 +6820,7 @@ function runRangeExperiments() {
         {/* ======== SIDEBAR / SIMULATION PARAMETERS (COMPLETO) ======== */}
         <div className="lg:w-1/4 flex-shrink-0">
           <div className="bg-white rounded-lg shadow p-6 mb-6 space-y-6">
-            <h2 className="text-lg font-semibold">🎛️ Simulation Parameters</h2>
+            <h2 className="text-lg font-semibold">⚙️ Simulation Parameters</h2>
 
             {/* Toggle Binary / Multi-Dimensional */}
             <div className="flex items-center justify-between">
@@ -6866,7 +6946,7 @@ function runRangeExperiments() {
                   >
                     <option value="euclidean">Euclidean</option>
                     <option value="l1">L1 (Manhattan)</option>
-                    <option value="linf">L∞ (Max)</option>
+                    <option value="linf">L8 (Max)</option>
                   </select>
                 </div>
 
@@ -6924,7 +7004,7 @@ function runRangeExperiments() {
                           ? 'text-green-600'
                           : 'text-red-600'
                       }`}>
-                        Σ{(barycentricValues[pIdx]?.reduce((a, b) => a + b, 0) || 0).toFixed(2)}
+                        S{(barycentricValues[pIdx]?.reduce((a, b) => a + b, 0) || 0).toFixed(2)}
                       </span>
                     </div>
                   ))}
@@ -7051,7 +7131,7 @@ function runRangeExperiments() {
                       <div className="text-xs text-blue-700">
                         <p className="font-semibold mb-1">Convergence Guarantee:</p>
                         <p>Maximum discrepancy per round: <span className="font-mono font-bold">1/3</span></p>
-                        <p>After {rounds} round{rounds > 1 ? 's' : ''}: <span className="font-mono font-bold">≤ {Math.pow(1/3, rounds).toFixed(6)}</span></p>
+                        <p>After {rounds} round{rounds > 1 ? 's' : ''}: <span className="font-mono font-bold">= {Math.pow(1/3, rounds).toFixed(6)}</span></p>
                       </div>
                     </div>
                   </div>
@@ -7167,7 +7247,7 @@ function runRangeExperiments() {
               <div>
                 <label className="block text-xs mb-1">Select Algorithm(s):</label>
                 <div className="bg-white p-2 rounded border border-gray-200 max-h-32 overflow-y-auto">
-                  {["auto", "AMP", "FV", "RECURSIVE AMP", "MIN"].map(algo => (
+                  {selectableAlgorithms.map(algo => (
                     <label key={algo} className="flex items-center py-1 hover:bg-gray-50 cursor-pointer">
                       <input
                         type="checkbox"
@@ -7187,6 +7267,7 @@ function runRangeExperiments() {
                         algo === "AMP"          ? "bg-green-100 text-green-700"  :
                         algo === "FV"           ? "bg-red-100 text-red-700"      :
                         algo === "MIN"          ? "bg-yellow-100 text-yellow-700" :
+                        algo === "LEADER"       ? "bg-blue-100 text-blue-700"    :
                                                   "bg-gray-100 text-gray-700"
                       }`}>
                         {algo}
@@ -7239,7 +7320,7 @@ function runRangeExperiments() {
                       <p><b>Selfish:</b> Keeps own value if heard from 1 process</p>
                     )}
                     {selectedAlgorithms.includes("CYCLIC") && (
-                      <p><b>Cyclic:</b> Follows A→B, B→C, C→A order</p>
+                      <p><b>Cyclic:</b> Follows A?B, B?C, C?A order</p>
                     )}
                     {selectedAlgorithms.includes("BIASED0") && (
                       <p><b>Biased-0:</b> Always decides 0 if any process has 0</p>
@@ -7258,6 +7339,7 @@ function runRangeExperiments() {
               {(() => {
                 const showAmp     = selectedAlgorithms.some(a => a === 'AMP' || a === 'auto');
                 const showRecAmp  = selectedAlgorithms.some(a => a === 'RECURSIVE AMP');
+                const showLeader  = dimensionMode === 'binary' && (selectedAlgorithms.includes('LEADER') || forcedAlgorithm === 'LEADER');
 
                 return (
                   <>
@@ -7299,7 +7381,7 @@ function runRangeExperiments() {
                                 />
                               ))}
                             </div>
-                            <p className="mt-1 text-[11px] text-purple-700">Each entry ∈ [0,1]. Used by AMP in multi-D.</p>
+                            <p className="mt-1 text-[11px] text-purple-700">Each entry ? [0,1]. Used by AMP in multi-D.</p>
                           </div>
                         ) : (
                           <input
@@ -7333,7 +7415,7 @@ function runRangeExperiments() {
                     {/* Recursive AMP alpha (si está seleccionado) */}
                     {showRecAmp && (
                       <div className="mt-2 p-2 bg-purple-50 rounded border border-purple-200">
-                        <label className="text-sm block mb-1">Recursive AMP α (scalar)</label>
+                        <label className="text-sm block mb-1">Recursive AMP a (scalar)</label>
                         <input
                           type="number"
                           min="0"
@@ -7352,7 +7434,35 @@ function runRangeExperiments() {
                           disabled={isRunning}
                         />
                         <p className="text-xs text-purple-700 mt-1">
-                          New value = <strong>α</strong> × range. (range = max − min of known values)
+                          New value = <strong>a</strong> × range. (range = max - min of known values)
+                        </p>
+                      </div>
+                    )}
+                    {showLeader && (
+                      <div className="mt-2">
+                        <label className="text-sm block mb-1">
+                          Leader Process (1 - {processValues.length})
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={processValues.length || 1}
+                          step={1}
+                          value={leaderProcess}
+                          onChange={(e) => {
+                            const raw = parseInt(e.target.value, 10);
+                            if (Number.isNaN(raw)) {
+                              setLeaderProcess(1);
+                            } else {
+                              const max = processValues.length || 1;
+                              setLeaderProcess(Math.max(1, Math.min(max, raw)));
+                            }
+                          }}
+                          disabled={isRunning}
+                          className="w-full px-2 py-1 text-sm border border-blue-300 rounded"
+                        />
+                        <p className="text-[11px] text-blue-700 mt-1">
+                          1 = Alice, 2 = Bob, 3 = Charlie, etc.
                         </p>
                       </div>
                     )}
@@ -7595,13 +7705,13 @@ function runRangeExperiments() {
                   onClick={() => setActiveTab('theory')}
                   className={`px-4 py-2 font-medium text-sm ${activeTab === 'theory' ? 'border-b-2 border-green-500 text-green-600' : 'text-gray-500 hover:text-gray-700'}`}
                 >
-                  🔍 Theoretical Comparison
+                  📐 Theoretical Comparison
                 </button>
                 <button 
                   onClick={() => setActiveTab('statistics')}
                   className={`px-4 py-2 font-medium text-sm ${activeTab === 'statistics' ? 'border-b-2 border-green-500 text-green-600' : 'text-gray-500 hover:text-gray-700'}`}
                 >
-                  📈 Statistical Analysis
+                  📊 Statistical Analysis
                 </button>
                 <button 
                   onClick={() => setActiveTab('saved')}
@@ -7672,8 +7782,8 @@ function runRangeExperiments() {
                             <p className="text-sm font-semibold">Multi-round behavior (from Theorem 3.2):</p>
                             <p className="text-sm">After k rounds, discrepancy decreases exponentially: 
                               <ul className="list-disc pl-5 mt-1">
-                                <li>AMP: ≤ (1-p)<sup>k</sup> when p ≥ 1/2</li>
-                                <li>FV: ≤ (p²+q²)<sup>k</sup> when p &lt; 1/2</li>
+                                <li>AMP: = (1-p)<sup>k</sup> when p = 1/2</li>
+                                <li>FV: = (p²+q²)<sup>k</sup> when p &lt; 1/2</li>
                               </ul>
                             </p>
                           </div>
@@ -7699,7 +7809,7 @@ function runRangeExperiments() {
                     </div>
                   )}
 
-                  <div className="mt-6 text-center">
+                      <div className="mt-6 text-center">
                         <button
                           onClick={prepareRangeExperiment}
                           className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 transition-colors"
@@ -7713,7 +7823,7 @@ function runRangeExperiments() {
                         const resolveAlgo = (algoDisplay, pNum) =>
                           algoDisplay === "auto" ? (pNum > 0.5 ? "AMP" : "FV") : algoDisplay;
 
-                        // ⚠️ FIX CRÍTICO: Usar formato consistente de clave SIN toFixed
+                        // ?? FIX CRÍTICO: Usar formato consistente de clave SIN toFixed
                         const keyFor = (pNum, algoDisplay) => {
                           const actualAlgo = resolveAlgo(algoDisplay, pNum);
                           return `${pNum}_${actualAlgo}`;  // Formato consistente con runRangeExperiments
@@ -7970,7 +8080,7 @@ function runRangeExperiments() {
                     
                     {dimensions > 2 && (
                       <div className="mt-4 p-3 bg-yellow-50 rounded text-xs text-yellow-800">
-                        ⚠️ Note: Theoretical predictions are only available for 2D (binary) case. 
+                        ℹ️ Note: Theoretical predictions are only available for 2D (binary) case. 
                         Results for {dimensions}D are experimental.
                       </div>
                     )}
@@ -8584,6 +8694,7 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
                 <option value="FV">FV</option>
                 <option value="RECURSIVE AMP">Recursive AMP</option>
                 <option value="MIN">MIN</option>
+                <option value="LEADER">Leader</option>
                 <option value="auto">Auto</option>
               </select>
             </div>
@@ -8677,10 +8788,11 @@ function ExperimentCard({ experiment, isSelected, onToggle, onDelete, onExport }
             <span className={`px-2 py-0.5 text-xs rounded ${
               experiment.parameters?.algorithm === 'AMP' ? 'bg-green-100 text-green-700' :
               experiment.parameters?.algorithm === 'FV' ? 'bg-red-100 text-red-700' :
-              experiment.parameters?.algorithm === 'RECURSIVE AMP' ? 'bg-purple-100 text-purple-700' :
-              experiment.parameters?.algorithm === 'MIN' ? 'bg-yellow-100 text-yellow-700' :
-              'bg-gray-100 text-gray-700'
-            }`}>
+            experiment.parameters?.algorithm === 'RECURSIVE AMP' ? 'bg-purple-100 text-purple-700' :
+            experiment.parameters?.algorithm === 'MIN' ? 'bg-yellow-100 text-yellow-700' :
+            experiment.parameters?.algorithm === 'LEADER' ? 'bg-blue-100 text-blue-700' :
+            'bg-gray-100 text-gray-700'
+          }`}>
               {experiment.parameters?.algorithm || 'Unknown'}
             </span>
             {experiment.type === 'range' && (
@@ -8809,6 +8921,8 @@ function ComparisonOverview({ experiments }) {
                       exp.parameters?.algorithm === 'RECURSIVE AMP' ? 'bg-purple-100 text-purple-700' :
                       exp.parameters?.algorithm === 'AMP' ? 'bg-green-100 text-green-700' :
                       exp.parameters?.algorithm === 'FV' ? 'bg-red-100 text-red-700' :
+                      exp.parameters?.algorithm === 'MIN' ? 'bg-yellow-100 text-yellow-700' :
+                      exp.parameters?.algorithm === 'LEADER' ? 'bg-blue-100 text-blue-700' :
                       'bg-gray-100'
                     }`}>
                       {exp.parameters?.algorithm}
@@ -9383,7 +9497,7 @@ function PerformanceMetrics({ experiments }) {
             {/* Algorithm comparison */}
             <div className="p-2 bg-gray-50 rounded">
               <p className="text-xs text-gray-700 mb-1">By Algorithm:</p>
-              {['AMP', 'FV', 'RECURSIVE AMP', 'MIN'].map(algo => {
+              {['AMP', 'FV', 'RECURSIVE AMP', 'MIN', 'LEADER'].map(algo => {
                 const algoMetrics = metrics.filter(m => m.algorithm === algo);
                 if (algoMetrics.length === 0) return null;
                 
@@ -9395,7 +9509,8 @@ function PerformanceMetrics({ experiments }) {
                       algo === 'RECURSIVE AMP' ? 'bg-purple-100 text-purple-700' :
                       algo === 'AMP' ? 'bg-green-100 text-green-700' :
                       algo === 'FV' ? 'bg-red-100 text-red-700' :
-                      'bg-yellow-100 text-yellow-700'
+                      algo === 'MIN' ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-blue-100 text-blue-700'
                     }`}>
                       {algo}
                     </span>
@@ -9737,3 +9852,7 @@ function ProbabilityCurveComparison({ experiments }) {
 }
 
 export default CompleteDistributedComputingSimulator;
+
+
+
+
