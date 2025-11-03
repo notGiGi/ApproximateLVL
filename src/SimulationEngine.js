@@ -1968,11 +1968,11 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
         return this.cloneVector(currentValue);
       }
 
-      // ✅ Como 1D: const knownValues = [values[i], ...receivedMessages]
+      //  Como 1D: const knownValues = [values[i], ...receivedMessages]
       const knownValues = [this.cloneVector(currentValue)];
       receivedValues.forEach(val => knownValues.push(this.cloneVector(val)));
 
-      // ✅ Extraer α (meetingPoint como escalar)
+      //  Extraer α (meetingPoint como escalar)
       let alpha = Array.isArray(meetingPoint) ? Number(meetingPoint[0]) : meetingPoint;
       if (!Number.isFinite(alpha)) alpha = 0.5;
       alpha = Math.max(0, Math.min(1, alpha));
@@ -1981,7 +1981,7 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
       const minVec = Array(dim).fill(Infinity);
       const maxVec = Array(dim).fill(-Infinity);
 
-      // ✅ Calcular min/max por coordenada
+      //  Calcular min/max por coordenada
       knownValues.forEach(vec => {
         for (let d = 0; d < dim; d++) {
           const coord = vec[d] || 0;
@@ -1990,7 +1990,7 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
         }
       });
 
-      // ✅ Verificar rango como en 1D: const range = maxValue - minValue
+      //  Verificar rango como en 1D: const range = maxValue - minValue
       const rangeVec = Array(dim);
       let hasRange = false;
       for (let d = 0; d < dim; d++) {
@@ -2001,11 +2001,11 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
       }
 
       if (!hasRange) {
-        // ✅ Como 1D: if (range === 0) newValues[i] = values[i]
+        //  Como 1D: if (range === 0) newValues[i] = values[i]
         return this.cloneVector(currentValue);
       }
 
-      // ✅ FÓRMULA EXACTA del código 1D: newValues[i] = kmin + a * kr
+      //  FÓRMULA EXACTA del código 1D: newValues[i] = kmin + a * kr
       // Multi-D: newValue[d] = min[d] + α * range[d]
       const newValue = Array(dim);
       for (let d = 0; d < dim; d++) {

@@ -885,7 +885,7 @@ function interpolateColor(color1, color2, factor) {
 
 // Componente para manejar n procesos
 // --- NProcessesControl.jsx ---
-// Reemplazo COMPLETO y CORREGIDO del componente `NProcessesControl`:
+
 
 function NProcessesControl({ 
   processValues, 
