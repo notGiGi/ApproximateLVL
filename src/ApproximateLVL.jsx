@@ -663,19 +663,31 @@ function MessageDeliveryTable({
     
     const changed = prevVal !== undefined && newVal !== undefined && prevVal !== newVal;
     
-    // Algoritmos de 3 procesos
-    if (["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm)) {
+    // Algoritmos especiales
+    if (algorithm === "COURTEOUS") {
+      const receivedVals = messagesByReceiver[toIdx] || [];
+      const heard = [prevVal, ...receivedVals.map(v => v.value)];
+      const zeros = heard.filter(v => v === 0).length;
+      const ones = heard.filter(v => v === 1).length;
+
+      if (zeros !== ones) {
+        const majorityVal = zeros > ones ? 0 : 1;
+        return changed
+          ? `COURTEOUS: Adopted majority (${majorityVal})`
+          : `COURTEOUS: Majority already ${majorityVal}`;
+      }
+
+      // No majority: courtesy flip
+      const courtesyTarget = prevVal === 0 || prevVal === 1 ? 1 - prevVal : (prevVal >= 0.5 ? 0 : 1);
+      return changed
+        ? `COURTEOUS: No majority, flipped to ${courtesyTarget}`
+        : "COURTEOUS: No majority, kept value";
+    }
+
+    if (["SELFISH", "CYCLIC", "BIASED0"].includes(algorithm)) {
       const receivedVals = messagesByReceiver[toIdx] || [];
       
-      if (algorithm === "COURTEOUS") {
-        if (changed && receivedVals.length === 1) {
-
-          const actualSender = receivedVals[0];
-          return `COURTEOUS: Adopted different value from ${processNames[actualSender.from]}`;
-        } else if (changed && receivedVals.length === 2) {
-          return "COURTEOUS: Majority decision (heard from all)";
-        }
-      } else if (algorithm === "SELFISH") {
+      if (algorithm === "SELFISH") {
         if (!changed && receivedVals.length === 1 && sentVal !== prevVal) {
 
           const actualSender = receivedVals[0];
@@ -917,14 +929,14 @@ function NProcessesControl({
       const defaultValue = valueMode === 'binary' ? n % 2 : 0.5;
       setProcessValues([...processValues, defaultValue]);
 
-      // Reset algorithms if we're moving away from 3 processes
+      // Reset algoritmos de 3 procesos (los que siguen siendo solo 3p)
       if (n === 3) {
         const has3PAlgos = selectedAlgorithms.some(a => 
-          ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a)
+          ["SELFISH", "CYCLIC", "BIASED0"].includes(a)
         );
         if (has3PAlgos) {
           setSelectedAlgorithms(prev => 
-            prev.filter(a => !["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a))
+            prev.filter(a => !["SELFISH", "CYCLIC", "BIASED0"].includes(a))
           );
           addLog("3-process algorithms removed (now have 4 processes)", "warning");
         }
@@ -947,11 +959,11 @@ function NProcessesControl({
       // Reset algorithms if we're moving away from 3 processes
       if (n === 4) {
         const has3PAlgos = selectedAlgorithms.some(a => 
-          ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a)
+          ["SELFISH", "CYCLIC", "BIASED0"].includes(a)
         );
         if (has3PAlgos) {
           setSelectedAlgorithms(prev => 
-            prev.filter(a => !["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a))
+            prev.filter(a => !["SELFISH", "CYCLIC", "BIASED0"].includes(a))
           );
           addLog("3-process algorithms removed (now have 2 processes)", "warning");
         }
@@ -1079,11 +1091,11 @@ function NProcessesControl({
                 // Reset 3-process algorithms if switching to continuous
                 if (newMode === 'continuous' && processValues.length === 3) {
                   const has3PAlgos = selectedAlgorithms.some(a => 
-                    ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a)
+                    ["SELFISH", "CYCLIC", "BIASED0"].includes(a)
                   );
                   if (has3PAlgos) {
                     setSelectedAlgorithms(prev => 
-                      prev.filter(a => !["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a))
+                      prev.filter(a => !["SELFISH", "CYCLIC", "BIASED0"].includes(a))
                     );
                     addLog("3-process binary algorithms removed (switched to continuous mode)", "warning");
                   }
@@ -4768,14 +4780,14 @@ function CompleteDistributedComputingSimulator() {
 
   const processCount = processValues.length;
   // SOLO AGREGAR ESTO - Detectar si es algoritmo de 3 procesos
-  const is3ProcessAlgorithm = ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm);
+  const is3ProcessAlgorithm = ["SELFISH", "CYCLIC", "BIASED0"].includes(algorithm);
   const [showTheoreticalCourteous, setShowTheoreticalCourteous] = useState(false);
   const [showExperimentalCourteous, setShowExperimentalCourteous] = useState(false);
   // SOLO AGREGAR ESTO - Información adicional para algoritmos de 3 procesos
 
   const selectableAlgorithms = useMemo(() => (
     dimensionMode === 'binary'
-      ? ["auto", "AMP", "FV", "RECURSIVE AMP", "MIN", "LEADER"]
+      ? ["auto", "AMP", "FV", "RECURSIVE AMP", "MIN", "LEADER", "COURTEOUS"]
       : ["auto", "AMP", "FV", "RECURSIVE AMP", "MIN"]
   ), [dimensionMode]);
 
@@ -5646,11 +5658,18 @@ function ExperimentDetailViewer({
                                       {algorithm === "RECURSIVE AMP" && (
                                         <span className="text-indigo-600">? Applied recursive meeting point</span>
                                       )}
-                                      {algorithm === "COURTEOUS" && (
-                                        <span className="text-indigo-600">
-                                          ? Courteous: {receivedValues.length === 1 ? "Adopted different value" : "Majority decision"}
-                                        </span>
-                                      )}
+                                      {algorithm === "COURTEOUS" && (() => {
+                                        const baseVal = round?.values?.[receiverIdx];
+                                        const heard = [baseVal, ...receivedValues];
+                                        const zeros = heard.filter(v => v === 0).length;
+                                        const ones = heard.filter(v => v === 1).length;
+                                        const desc = zeros === ones
+                                          ? "No majority -> courteous flip"
+                                          : `Majority (${zeros > ones ? 0 : 1})`;
+                                        return (
+                                          <span className="text-indigo-600">? Courteous: {desc}</span>
+                                        );
+                                      })()}
                                       {algorithm === "SELFISH" && (
                                         <span className="text-orange-600">
                                           ? Selfish: {receivedValues.length === 1 ? "Kept own value" : "Majority decision"}
@@ -5680,13 +5699,13 @@ function ExperimentDetailViewer({
                       <h5 className="font-medium mb-2 text-sm">
                         {algorithm === "MIN" ? "Known Values Sets (MIN Algorithm)" : 
                         algorithm === "RECURSIVE AMP" ? "Known Values Sets (RECURSIVE AMP)" :
-                        ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm) ? 
+                        ["SELFISH", "CYCLIC", "BIASED0"].includes(algorithm) ? 
                         `Decision Logic (${algorithm})` :
                         "Known Values Sets"}:
                       </h5>
                       
                       {/* Para algoritmos de 3 procesos, mostrar lógica especial */}
-                      {["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm) ? (
+                      {["SELFISH", "CYCLIC", "BIASED0"].includes(algorithm) ? (
                         <div className="bg-blue-50 p-4 rounded">
                           <div className="space-y-2">
                             {processNames.map((name, idx) => {
@@ -5956,7 +5975,7 @@ function ExperimentDetailViewer({
                         ))}
                       </div>
                       <p className="text-xs text-purple-600 mt-2">
-                        In process-dependent delivery, all outgoing messages from each sender share the same fate
+                        In Broadcast, all outgoing messages from each sender share the same fate
                       </p>
                     </div>
                   )}
@@ -7113,7 +7132,7 @@ function runRangeExperiments() {
                       disabled={isRunning}
                     />
                     <div className="flex-1">
-                      <div className="font-medium text-sm">Process-Dependent Delivery</div>
+                      <div className="font-medium text-sm">Broadcast</div>
                       <p className="text-xs text-gray-500 mt-1">
                         All messages from each process deliver together with probability p, or none deliver with probability q.
                       </p>
@@ -7275,13 +7294,12 @@ function runRangeExperiments() {
                     </label>
                   ))}
                   
-                  {/* Nuevos algoritmos para 3 procesos binarios */}
-                  {/* Nuevos algoritmos para 3 procesos binarios */}
+                  {/* Algoritmos exclusivos para 3 procesos binarios */}
                   {processValues.length === 3 && processValues.every(v => v === 0 || v === 1) && (
                     <>
                       <div className="border-t my-2"></div>
                       <div className="text-xs font-semibold text-gray-600 mb-1">3-Process Binary Algorithms:</div>
-                      {["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].map(algo => (
+                      {["SELFISH", "CYCLIC", "BIASED0"].map(algo => (
                         <label key={algo} className="flex items-center py-1 hover:bg-gray-50 cursor-pointer">
                           <input
                             type="checkbox"
@@ -7297,7 +7315,6 @@ function runRangeExperiments() {
                             className="mr-2"
                           />
                           <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                            algo === "COURTEOUS" ? "bg-indigo-200 text-indigo-800 border border-indigo-300" :
                             algo === "SELFISH"   ? "bg-orange-200 text-orange-800 border border-orange-300" :
                             algo === "CYCLIC"    ? "bg-teal-200 text-teal-800 border border-teal-300"     :
                                                   "bg-rose-200 text-rose-800 border border-rose-300"
@@ -7314,7 +7331,7 @@ function runRangeExperiments() {
                 {selectedAlgorithms.some(a => ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a)) && (
                   <div className="mt-2 p-2 bg-blue-50 rounded text-xs space-y-1">
                     {selectedAlgorithms.includes("COURTEOUS") && (
-                      <p><b>Courteous:</b> Adopts different value if heard from 1 process</p>
+                      <p><b>Courteous:</b> Majority of heard values (including self); ties flip to opposite.</p>
                     )}
                     {selectedAlgorithms.includes("SELFISH") && (
                       <p><b>Selfish:</b> Keeps own value if heard from 1 process</p>
@@ -7635,8 +7652,8 @@ function runRangeExperiments() {
                       if (numProcs === 3) {
                         handleCurveDisplayChange('theoreticalCourteous');
                       } else {
-                        console.log("Cannot toggle COURTEOUS: need 3 processes, have", numProcs);
-                        addLog?.(`COURTEOUS requires 3 processes (currently ${numProcs})`, "warning");
+                        console.log("Courteous theoretical curve available only for 3 processes, have", numProcs);
+                        addLog?.(`Courteous theoretical curve available only for 3 processes (currently ${numProcs})`, "warning");
                       }
                     }}
                     className="mr-2"
@@ -8695,6 +8712,7 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
                 <option value="RECURSIVE AMP">Recursive AMP</option>
                 <option value="MIN">MIN</option>
                 <option value="LEADER">Leader</option>
+                <option value="COURTEOUS">Courteous</option>
                 <option value="auto">Auto</option>
               </select>
             </div>

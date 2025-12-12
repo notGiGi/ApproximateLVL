@@ -261,31 +261,32 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
     // ALGORITHM-SPECIFIC LOGIC
     // ========================================
     
-    // 3-PROCESS BINARY ALGORITHMS
-    if (processCount === 3 && ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm)) {
-      const uniqueProcessesHeard = receivedMessages.length + 1; // +1 for self
-      
-      if (algorithm === "COURTEOUS") {
-        // 1.a - If heard only own value (no messages received)
-        if (receivedMessages.length === 0) {
-          newValues[i] = myValue;
-        }
-        // 1.b - If heard from all 3 processes
-        else if (uniqueProcessesHeard === 3) {
-          const allValues = [myValue, ...receivedMessages];
-          const count0 = allValues.filter(v => v === 0).length;
-          const count1 = allValues.filter(v => v === 1).length;
-          newValues[i] = count0 > count1 ? 0 : 1;
-        }
-        // 1.c - If heard exactly one value different from own
-        else if (receivedMessages.length === 1 && receivedMessages[0] !== myValue) {
-          newValues[i] = receivedMessages[0]; // Decide the opposite value
-        }
-        else {
-          newValues[i] = myValue; // Default: keep own value
+    // COURTEOUS ahora funciona para cualquier n>=2
+    if (algorithm === "COURTEOUS") {
+      const allValues = [myValue, ...receivedMessages];
+      const count1 = allValues.filter(v => v === 1).length;
+      const count0 = allValues.filter(v => v === 0).length;
+
+      if (count0 > count1) {
+        newValues[i] = 0;
+      } else if (count1 > count0) {
+        newValues[i] = 1;
+      } else {
+        // Sin mayoría: ser cortés y moverse al valor contrario
+        if (myValue === 0 || myValue === 1) {
+          newValues[i] = 1 - myValue;
+        } else {
+          // Para valores no binarios, usa umbral 0.5 como binarización ligera
+          const bin = myValue >= 0.5 ? 1 : 0;
+          newValues[i] = bin === 1 ? 0 : 1;
         }
       }
-      else if (algorithm === "SELFISH") {
+    }
+    // 3-PROCESS BINARY ALGORITHMS (restan en n=3)
+    else if (processCount === 3 && ["SELFISH", "CYCLIC", "BIASED0"].includes(algorithm)) {
+      const uniqueProcessesHeard = receivedMessages.length + 1; // +1 for self
+      
+      if (algorithm === "SELFISH") {
         // 2.a - If heard only own value (no messages received)
         if (receivedMessages.length === 0) {
           newValues[i] = myValue;
@@ -689,7 +690,7 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
       // MODIFICADO: Manejar COURTEOUS y COURTEOUS_CORRELATED
       if (actualAlgorithm === "COURTEOUS" || actualAlgorithm === "COURTEOUS_CORRELATED") {
         theoretical = this.calculate3ProcessBinaryDiscrepancy(p, actualAlgorithm, initialValues, deliveryMode);
-        if (rounds > 1) {
+        if (rounds > 1 && theoretical !== null) {
           theoretical = Math.pow(theoretical, rounds);
         }
       } else {
@@ -788,12 +789,8 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
       } else if (algorithm === "RECURSIVE AMP") {
         // Para recursive AMP, usar la misma fórmula que AMP estándar
         return pow(q, rounds).toNumber();
-      } else if (algorithm === "COURTEOUS") {
-        // Ecuación teórica para COURTEOUS (solo válida para 3 procesos)
-        const pNum = decP.toNumber();
-        const singleRoundDiscrepancy = 1 - 2*pNum + 4*Math.pow(pNum, 2) - 4*Math.pow(pNum, 3) + Math.pow(pNum, 4);
-        return Math.pow(singleRoundDiscrepancy, rounds);
-      } else if (algorithm === "COURTEOUS COUPLED") {
+      } else if (algorithm === "COURTEOUS" || algorithm === "COURTEOUS COUPLED") {
+        // Sin fórmula general para COURTEOUS fuera del caso analítico de 3 procesos
         return null;
       } else {
         // Para otros algoritmos, devolver valor por defecto
@@ -816,13 +813,7 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
     
     const q = toDecimal(1).minus(decP);
     
-    if (algorithm === "COURTEOUS") {
-      const pNum = decP.toNumber();
-      const singleRoundFactor = 1 - 2*pNum + 4*Math.pow(pNum, 2) - 4*Math.pow(pNum, 3) + Math.pow(pNum, 4);
-      return Math.pow(singleRoundFactor, rounds);
-    }
-
-    if (algorithm === "COURTEOUS COUPLED") {
+    if (algorithm === "COURTEOUS" || algorithm === "COURTEOUS COUPLED") {
       return null;
     }
 
@@ -1276,6 +1267,8 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
       } else if (algorithm === "FV") {
         const pSquaredPlusQSquared = pow(decP, 2).plus(pow(q, 2));
         return pow(pSquaredPlusQSquared, rounds).toNumber();
+      } else if (algorithm === "COURTEOUS" || algorithm === "COURTEOUS COUPLED") {
+        return null;
       } else {
         return 1;
       }
@@ -2585,31 +2578,22 @@ runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorit
       messages.push(processMessages);
       messageDelivery.push(receivedMessages.map((_, idx) => idx < receivedMessages.length));
       
-      // Apply COURTEOUS logic for 3 processes
-      if (processCount === 3 && actualAlgo === "COURTEOUS") {
-        if (receivedMessages.length > 0) {
-          const sortedReceived = [...receivedMessages].sort((a, b) => a - b);
-          const valueCounts = {};
-          sortedReceived.forEach(val => {
-            valueCounts[val] = (valueCounts[val] || 0) + 1;
-          });
-          
-          let mostCommonValue = sortedReceived[0];
-          let maxCount = 1;
-          
-          for (const [val, count] of Object.entries(valueCounts)) {
-            const numVal = parseFloat(val);
-            if (count > maxCount || (count === maxCount && numVal < mostCommonValue)) {
-              mostCommonValue = numVal;
-              maxCount = count;
-            }
-          }
-          
-          // COURTEOUS rule: majority or single value heard
-          if (maxCount >= 2 || receivedMessages.length === 1) {
-            newValues[i] = mostCommonValue;
+      // Apply COURTEOUS logic for any n
+      if (actualAlgo === "COURTEOUS") {
+        const allValues = [values[i], ...receivedMessages];
+        const count1 = allValues.filter(v => v === 1).length;
+        const count0 = allValues.filter(v => v === 0).length;
+
+        if (count0 > count1) {
+          newValues[i] = 0;
+        } else if (count1 > count0) {
+          newValues[i] = 1;
+        } else {
+          if (values[i] === 0 || values[i] === 1) {
+            newValues[i] = 1 - values[i];
           } else {
-            newValues[i] = values[i];
+            const bin = values[i] >= 0.5 ? 1 : 0;
+            newValues[i] = bin === 1 ? 0 : 1;
           }
         }
       }
