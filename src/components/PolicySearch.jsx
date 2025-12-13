@@ -542,13 +542,6 @@ export default function PolicySearch({
           <div className="space-y-3 bg-white rounded-lg shadow p-4">
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold">Processes (n = {processCount})</span>
-              <button
-                className="text-xs text-blue-600 underline"
-                onClick={() => setInitialValues(baseProcessValues)}
-                disabled={isRunning}
-              >
-                Sync from main
-              </button>
             </div>
             <div className="flex items-center gap-2">
               <button
