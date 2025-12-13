@@ -2,6 +2,7 @@
 import MessageDeliveryTable from './components/MessageDeliveryTable.jsx';
 import ExperimentVisualization from './components/ExperimentVisualization.jsx';
 import ResultsTable from './components/ResultsTable.jsx';
+import PolicySearch from './components/PolicySearch.jsx';
 import { getProcessColor, ALICE_COLOR, BOB_COLOR, CHARLIE_COLOR } from './utils/colors.js';
 import {
   LineChart,
@@ -6338,7 +6339,7 @@ function runRangeExperiments() {
         {/* Sidebar */}
               
         {/* ======== SIDEBAR / SIMULATION PARAMETERS (COMPLETO) ======== */}
-        <div className="lg:w-1/4 flex-shrink-0">
+        <div className={`lg:w-1/4 flex-shrink-0 ${activeTab === 'policy-search' ? 'hidden' : ''}`}>
           <div className="bg-white rounded-lg shadow p-6 mb-6 space-y-6">
             <h2 className="text-lg font-semibold">⚙️ Simulation Parameters</h2>
 
@@ -7214,6 +7215,12 @@ function runRangeExperiments() {
                   📊 Statistical Analysis
                 </button>
                 <button 
+                  onClick={() => setActiveTab('policy-search')}
+                  className={`px-4 py-2 font-medium text-sm ${activeTab === 'policy-search' ? 'border-b-2 border-green-500 text-green-600' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  🧭 Protocol Search
+                </button>
+                <button 
                   onClick={() => setActiveTab('saved')}
                   className={`px-4 py-2 font-medium text-sm ${activeTab === 'saved' ? 'border-b-2 border-green-500 text-green-600' : 'text-gray-500 hover:text-gray-700'}`}
                 >
@@ -7224,6 +7231,20 @@ function runRangeExperiments() {
             {activeTab === 'multiple-dimensions' && (
               <MultipleDimensionsTab />
             )}
+
+            <div className={activeTab === 'policy-search' ? 'block' : 'hidden'}>
+              <PolicySearch
+                baseProcessValues={processValues}
+                defaultMeetingPoint={meetingPoint}
+                selectedDeliveryModes={selectedDeliveryModes}
+                setSelectedDeliveryModes={setSelectedDeliveryModes}
+                deliveryMode={deliveryMode}
+                setDeliveryMode={setDeliveryMode}
+                leaderIndex={leaderIndex}
+                dimensionMode={dimensionMode}
+                isActive={activeTab === 'policy-search'}
+              />
+            </div>
 
             {/* Theoretical Comparison tab */}
             {activeTab === 'theory' && (
