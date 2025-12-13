@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   LineChart,
   Line,
@@ -202,6 +202,8 @@ export default function PolicySearch({
   const [policyCap, setPolicyCap] = useState(180);
   const [chartHeightMode, setChartHeightMode] = useState('tall'); // tall | compact
   const [visiblePolicyIds, setVisiblePolicyIds] = useState([]);
+  const visibleInitRef = useRef(false);
+  const cancelRef = useRef(false);
   const [policyResults, setPolicyResults] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -261,11 +263,16 @@ export default function PolicySearch({
   }, [sortedPolicies, tableLimit]);
 
   useEffect(() => {
-    setVisiblePolicyIds((prev) => {
-      if (chartPolicies.length === 0) return [];
-      if (prev.length === 0) return chartPolicies.map((p) => p.id);
-      return prev;
-    });
+    if (chartPolicies.length === 0) {
+      setVisiblePolicyIds([]);
+      return;
+    }
+    if (!visibleInitRef.current) {
+      visibleInitRef.current = true;
+      setVisiblePolicyIds(chartPolicies.map((p) => p.id));
+      return;
+    }
+    setVisiblePolicyIds((prev) => prev.filter((id) => chartPolicies.some((p) => p.id === id)));
   }, [chartPolicies]);
 
   const bestPerP = useMemo(() => {
@@ -457,13 +464,16 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
     const results = [];
     let completed = 0;
 
+    cancelRef.current = false;
     setIsRunning(true);
     setProgress(0);
     setStatus(`Evaluating ${policies.length} policies on ${pValues.length} p points...`);
 
     for (const policy of policies) {
+      if (cancelRef.current) break;
       const perP = [];
       for (const p of pValues) {
+        if (cancelRef.current) break;
         const metrics = runSinglePolicyAtP(
           policy.sequence,
           initialValues,
@@ -488,26 +498,33 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
         }
       }
 
-      const averageSuccess = perP.reduce((s, x) => s + x.successRate, 0) / perP.length;
-      const averageDiscrepancy = perP.reduce((s, x) => s + x.avgDiscrepancy, 0) / perP.length;
-      const averageConsensusRound = perP.reduce(
-        (s, x) => s + (x.avgConsensusRound || roundHorizon),
-        0
-      ) / perP.length;
+      if (perP.length > 0) {
+        const averageSuccess = perP.reduce((s, x) => s + x.successRate, 0) / perP.length;
+        const averageDiscrepancy = perP.reduce((s, x) => s + x.avgDiscrepancy, 0) / perP.length;
+        const averageConsensusRound = perP.reduce(
+          (s, x) => s + (x.avgConsensusRound || roundHorizon),
+          0
+        ) / perP.length;
 
-      results.push({
-        ...policy,
-        perP,
-        averageSuccess,
-        averageDiscrepancy,
-        averageConsensusRound
-      });
+        results.push({
+          ...policy,
+          perP,
+          averageSuccess,
+          averageDiscrepancy,
+          averageConsensusRound
+        });
+      }
     }
 
     setPolicyResults(results);
-    setProgress(100);
+    const finalProgress = totalSteps > 0 ? Math.round((completed / totalSteps) * 100) : 100;
+    setProgress(Math.min(100, finalProgress));
     setIsRunning(false);
-    setStatus(`Done. Tested ${policies.length} policies (cap ${policyCap}), top-${Math.min(chartTopK, results.length)} shown below.`);
+    setStatus(
+      cancelRef.current
+        ? `Cancelled after ${completed}/${totalSteps} steps`
+        : `Done. Tested ${results.length} protocols (cap ${policyCap}).`
+    );
   };
 
   return (
@@ -805,7 +822,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
                   className="w-full p-2 text-sm border border-gray-300 rounded"
                   disabled={isRunning}
                 />
-                <p className="text-[11px] text-gray-500 mt-1">Controls how many policies feed the chart.</p>
+                <p className="text-[11px] text-gray-500 mt-1">Controls how many protocols feed the chart.</p>
               </div>
               <div>
                 <label className="text-xs font-semibold block mb-1">Table limit</label>
@@ -856,11 +873,19 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
                   </p>
                 </div>
                 <button
-                  onClick={runPolicySearch}
-                  disabled={isRunning}
-                  className={`px-4 py-2 text-sm font-semibold rounded-lg text-white shadow ${isRunning ? 'bg-gray-400' : 'bg-gradient-to-r from-green-600 to-emerald-500 hover:shadow-md'}`}
+                  onClick={() => {
+                    if (isRunning) {
+                      cancelRef.current = true;
+                      setStatus('Cancelling...');
+                    } else {
+                      runPolicySearch();
+                    }
+                  }}
+                  className={`px-4 py-2 text-sm font-semibold rounded-lg text-white shadow ${
+                    isRunning ? 'bg-red-500 hover:bg-red-600' : 'bg-gradient-to-r from-green-600 to-emerald-500 hover:shadow-md'
+                  }`}
                 >
-                  {isRunning ? 'Running...' : 'Run Policy Search'}
+                  {isRunning ? 'Cancel' : 'Run'}
                 </button>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
@@ -876,7 +901,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
               <div>
                 <h4 className="text-base font-semibold">Probability of correct consensus vs p</h4>
-                <p className="text-xs text-gray-500">Select policies from the table to display their curves.</p>
+                <p className="text-xs text-gray-500">Select protocols from the table to display their curves.</p>
               </div>
               <div className="text-right space-y-1">
                 <span className="inline-flex items-center px-2 py-1 text-[11px] bg-blue-50 text-blue-800 rounded border border-blue-200">
@@ -1020,7 +1045,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
 
           <div className="bg-white border rounded p-4 shadow-sm">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-semibold">Policies table (sorted by avg success)</h4>
+              <h4 className="text-sm font-semibold">Protocols table (sorted by avg success)</h4>
               <span className="text-xs text-gray-500">Showing {tablePolicies.length} of {sortedPolicies.length}</span>
             </div>
             {tablePolicies.length === 0 ? (
