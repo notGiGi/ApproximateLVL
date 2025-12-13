@@ -1,4 +1,8 @@
 ﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import MessageDeliveryTable from './components/MessageDeliveryTable.jsx';
+import ExperimentVisualization from './components/ExperimentVisualization.jsx';
+import ResultsTable from './components/ResultsTable.jsx';
+import { getProcessColor, ALICE_COLOR, BOB_COLOR, CHARLIE_COLOR } from './utils/colors.js';
 import {
   LineChart,
   Line,
@@ -508,9 +512,6 @@ const runSimulation = async () => {
 // Colors
 
 
-const ALICE_COLOR = "#3498db";
-const BOB_COLOR = "#e67e22";
-const CHARLIE_COLOR = "#2ecc71";
 const ACCENT_COLOR = "#4CAF50";
 const PRIMARY_COLOR = "#2c3e50";
 const ERROR_COLOR = "#e74c3c";
@@ -623,250 +624,6 @@ const getValueRange = () => {
   const max = Math.max(...processValues);
   return { min, max };
 };
-
-const getProcessColor = (index) => {
-  const colors = ["#3498db", "#e67e22", "#2ecc71", "#9b59b6", "#e74c3c", 
-                  "#f39c12", "#1abc9c", "#34495e", "#d35400", "#27ae60"];
-  return colors[index % colors.length];
-};
-
-function MessageDeliveryTable({
-  messages,
-  processNames,
-  selectedProcess,
-  previousValues = [],
-  finalValues = [],
-  algorithm = null,
-  knownValuesSets = null,
-  leaderIndex = 0
-}) {
-  const filtered = selectedProcess != null
-    ? messages.filter(m => m.from === selectedProcess || m.to === selectedProcess)
-    : messages;
-
-  const leaderName = processNames[leaderIndex] ?? (processNames[0] || "Leader");
-  const messagesByReceiver = {};
-  messages.forEach(msg => {
-    if (!messagesByReceiver[msg.to]) {
-      messagesByReceiver[msg.to] = [];
-    }
-    if (msg.delivered) {
-      messagesByReceiver[msg.to].push({
-        from: msg.from,
-        value: msg.value
-      });
-    }
-  });
-
-  const getChangeReason = (toIdx, prevVal, newVal, isDelivered, sentVal, fromIdx) => {
-    if (!isDelivered) return "";
-    
-    const changed = prevVal !== undefined && newVal !== undefined && prevVal !== newVal;
-    
-    // Algoritmos especiales
-    if (algorithm === "COURTEOUS") {
-      const receivedVals = messagesByReceiver[toIdx] || [];
-      const heard = [prevVal, ...receivedVals.map(v => v.value)];
-      const zeros = heard.filter(v => v === 0).length;
-      const ones = heard.filter(v => v === 1).length;
-
-      if (zeros !== ones) {
-        const majorityVal = zeros > ones ? 0 : 1;
-        return changed
-          ? `COURTEOUS: Adopted majority (${majorityVal})`
-          : `COURTEOUS: Majority already ${majorityVal}`;
-      }
-
-      // No majority: courtesy flip
-      const courtesyTarget = prevVal === 0 || prevVal === 1 ? 1 - prevVal : (prevVal >= 0.5 ? 0 : 1);
-      return changed
-        ? `COURTEOUS: No majority, flipped to ${courtesyTarget}`
-        : "COURTEOUS: No majority, kept value";
-    }
-
-    if (["SELFISH", "CYCLIC", "BIASED0"].includes(algorithm)) {
-      const receivedVals = messagesByReceiver[toIdx] || [];
-      
-      if (algorithm === "SELFISH") {
-        if (!changed && receivedVals.length === 1 && sentVal !== prevVal) {
-
-          const actualSender = receivedVals[0];
-          return `SELFISH: Kept own value (ignoring ${processNames[actualSender.from]})`;
-        } else if (changed && receivedVals.length === 2) {
-          return "SELFISH: Majority decision (heard from all)";
-        }
-      } else if (algorithm === "CYCLIC") {
-        const cyclicPrev = toIdx === 0 ? 2 : toIdx - 1;
-
-        const actualSenderIdx = receivedVals.length > 0 ? receivedVals[0].from : fromIdx;
-        
-        if (changed && actualSenderIdx === cyclicPrev) {
-          return `CYCLIC: Adopted from ${processNames[actualSenderIdx]} (cyclic order)`;
-        } else if (!changed && actualSenderIdx !== cyclicPrev) {
-          return `CYCLIC: Ignored ${processNames[actualSenderIdx]} (not in cyclic order)`;
-        }
-      } else if (algorithm === "BIASED0") {
-        if (changed && newVal === 0) {
-
-          const senderWith0 = receivedVals.find(v => v.value === 0);
-          if (senderWith0) {
-            return `BIASED0: Decided 0 (detected 0 from ${processNames[senderWith0.from]})`;
-          }
-          return `BIASED0: Decided 0`;
-        } else if (!changed && sentVal === 0) {
-          return "BIASED0: Already 0";
-        }
-      }
-      
-      return isDelivered ? `${algorithm}: Message received` : "";
-    }
-    
-    // Algoritmos MIN y RECURSIVE AMP
-    if (algorithm === "MIN") {
-      if (knownValuesSets && knownValuesSets[toIdx]) {
-        const minKnown = Math.min(...knownValuesSets[toIdx]);
-        if (changed && newVal === minKnown) {
-          return `MIN: Selected minimum (${minKnown.toFixed(3)}) from known set`;
-        } else if (isDelivered) {
-          return `MIN: Added ${sentVal.toFixed(3)} to known set`;
-        }
-      }
-      return changed ? "MIN: updated to minimum" : "MIN: value accumulated";
-    } else if (algorithm === "LEADER") {
-      if (toIdx === leaderIndex) {
-        return "LEADER: Leader maintains own value";
-      }
-      const receivedVals = messagesByReceiver[toIdx] || [];
-      const leaderMsg = receivedVals.find(m => m.from === leaderIndex);
-      if (leaderMsg) {
-        if (changed && newVal === leaderMsg.value) {
-          return `LEADER: Adopted value from ${leaderName}`;
-        }
-        return `LEADER: Heard ${leaderName}`;
-      }
-      return `LEADER: No message from ${leaderName} - kept own input`;
-    } else if (algorithm === "RECURSIVE AMP") {
-      if (changed) {
-        const receivedVals = messagesByReceiver[toIdx] || [];
-        if (receivedVals.length > 0) {
-          const allVals = [prevVal, ...receivedVals.map(r => r.value)];
-          const minVal = Math.min(...allVals);
-          const maxVal = Math.max(...allVals);
-          return `RECURSIVE AMP: Applied a to range [${minVal.toFixed(3)}, ${maxVal.toFixed(3)}]`;
-        }
-      }
-      return isDelivered ? "RECURSIVE AMP: value received" : "";
-    } 
-    
-    // Algoritmos básicos AMP y FV
-    if (changed) {
-      const receivedMessages = messagesByReceiver[toIdx] || [];
-      const differentValue = receivedMessages.find(m => m.value !== prevVal);
-      
-      if (algorithm === "AMP" && differentValue) {
-        return `AMP: Moved to meeting point (received ${differentValue.value.toFixed(3)} -> ${prevVal.toFixed(3)})`;
-      } else if (algorithm === "FV" && differentValue) {
-        return `FV: Adopted received value ${differentValue.value.toFixed(3)}`;
-      }
-    }
-    
-    return "";
-  };
-
-  // Función para determinar color según algoritmo
-  const getAlgorithmColor = () => {
-    switch(algorithm) {
-      case "MIN": return "text-yellow-700";
-      case "RECURSIVE AMP": return "text-indigo-700";
-      case "AMP": return "text-blue-700";
-      case "FV": return "text-purple-700";
-      case "LEADER": return "text-blue-700";
-      case "COURTEOUS": return "text-indigo-700";
-      case "SELFISH": return "text-orange-700";
-      case "CYCLIC": return "text-teal-700";
-      case "BIASED0": return "text-pink-700";
-      default: return "text-gray-700";
-    }
-  };
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full text-sm">
-        <thead>
-          <tr className="bg-gray-100">
-            <th className="px-2 py-1 text-left">From</th>
-            <th className="px-2 py-1 text-left">To</th>
-            <th className="px-2 py-1 text-left">Sent Value</th>
-            <th className="px-2 py-1 text-center">Delivered</th>
-            <th className="px-2 py-1 text-left">To's Prev Value</th>
-            <th className="px-2 py-1 text-left">To's New Value</th>
-            <th className="px-2 py-1 text-left">Effect</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((msg, i) => {
-            const fromIdx = msg.from;
-            const toIdx = msg.to;
-            const sentVal = msg.value;
-            const isDelivered = msg.delivered;
-
-            const prevValueOfReceiver = previousValues[toIdx];
-            const newValueOfReceiver = finalValues[toIdx];
-            const changed = prevValueOfReceiver !== undefined && 
-                          newValueOfReceiver !== undefined && 
-                          prevValueOfReceiver !== newValueOfReceiver;
-
-            const changeReason = getChangeReason(
-              toIdx, prevValueOfReceiver, newValueOfReceiver, 
-              isDelivered, sentVal, fromIdx
-            );
-
-            return (
-              <tr key={i} className={isDelivered ? 'bg-green-50' : 'bg-red-50'}>
-                <td className="px-2 py-1 flex items-center space-x-1">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getProcessColor(fromIdx) }} />
-                  <span>{processNames[fromIdx]}</span>
-                </td>
-                <td className="px-2 py-1">
-                  <div className="flex items-center space-x-1">
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getProcessColor(toIdx) }} />
-                    <span>{processNames[toIdx]}</span>
-                  </div>
-                </td>
-                <td className="px-2 py-1 font-mono">{sentVal?.toFixed(4)}</td>
-                <td className="px-2 py-1 text-center">
-                  {isDelivered ? (
-                    <span className="text-green-600">✓</span>
-                  ) : (
-                    <span className="text-red-600">✗</span>
-                  )}
-                </td>
-                <td className="px-2 py-1 font-mono">{prevValueOfReceiver?.toFixed(4) || '—'}</td>
-                <td className="px-2 py-1 font-mono">
-                  <span className={changed ? 'font-bold text-blue-600' : ''}>
-                    {newValueOfReceiver?.toFixed(4) || '—'}
-                  </span>
-                </td>
-                <td className="px-2 py-1 text-xs">
-                  {changeReason && (
-                    <span className={getAlgorithmColor()}>
-                      {changeReason}
-                    </span>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-
-
-
-
 
 function interpolateColor(color1, color2, factor) {
   // Convert hexadecimal colors to RGB components
@@ -2313,269 +2070,6 @@ function ProgressBar({ value, label }) {
 }
 
 // Visualization of experiment data
-function ExperimentVisualization({ experimentData, currentRound = 0, processCount = 2 }) {
-  if (!experimentData || !Array.isArray(experimentData) || experimentData.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg">
-        <p className="text-gray-400">No experiment data available</p>
-      </div>
-    );
-  }
-
-  const roundData = experimentData.slice(0, Math.min(currentRound + 1, experimentData.length));
-
-  // Mejora de colores para admitir más procesos con distinción clara
-  const generateProcessColors = (count) => {
-    // Paleta extendida con colores más distintos entre sí
-    const baseColors = [
-      ALICE_COLOR, BOB_COLOR, CHARLIE_COLOR, 
-      "#9c27b0", // morado
-      "#e91e63", // rosa
-      "#f44336", // rojo
-      "#ff9800", // naranja
-      "#ffc107", // amarillo
-      "#8bc34a", // verde claro
-      "#009688", // turquesa
-      "#03a9f4", // azul claro  
-      "#673ab7", // violeta
-      "#795548", // marrón
-      "#607d8b", // azul grisáceo
-      "#ff5722"  // naranja rojizo
-    ];
-    
-
-    if (count > baseColors.length) {
-      const extraColors = [];
-      for (let i = 0; i < count - baseColors.length; i++) {
-        // Generamos colores HSL espaciados uniformemente
-        const h = (i * 137.5) % 360; // Ángulo dorado para mejor distribución
-        const s = 75 + Math.random() * 15; // Saturación alta
-        const l = 45 + Math.random() * 10; // Luminosidad media
-        extraColors.push(`hsl(${h}, ${s}%, ${l}%)`);
-      }
-      return [...baseColors, ...extraColors];
-    }
-    
-    return baseColors.slice(0, count);
-  };
-  
-  const processColors = generateProcessColors(processCount);
-  
-  // Optimización del chartData para muchos procesos
-  const chartData = roundData.map(d => {
-    const round = d && typeof d.round === 'number' ? d.round : 0;
-    const discrepancy = d && typeof d.discrepancy === 'number' ? d.discrepancy : 0;
-    
-    // Formato adaptado para n procesos
-    const data = { round, discrepancy };
-    
-    if (d && d.values) {
-      d.values.forEach((val, idx) => {
-        // Para cada proceso, crear una entrada en los datos
-        data[`p${idx}`] = val;
-      });
-    }
-    
-    return data;
-  });
-
-  // Función para generar nombre de proceso según índice
-  const getProcessName = (index) => {
-    if (index < 3) {
-      return ["Alice", "Bob", "Charlie"][index];
-    } else if (index < 26) {
-      // Usar letras del alfabeto para procesos 4-26
-      return `P-${String.fromCharCode(65 + index)}`;
-    } else {
-      // Para más de 26, usar números
-      return `P-${index + 1}`;
-    }
-  };
-
-  // Determinar si se debe compactar la leyenda
-  const useTwoColumnLegend = processCount > 5;
-
-  return (
-    <div className="bg-white rounded-lg shadow p-4 h-80">
-      <div className="flex justify-between items-center mb-2">
-        <h3 className="text-lg font-semibold">Experiment Visualization</h3>
-        
-        {processCount > 8 && (
-          <div className="text-xs text-gray-500 bg-yellow-50 px-2 py-1 rounded">
-            Showing {processCount} processes
-          </div>
-        )}
-      </div>
-      
-      <ResponsiveContainer width="100%" height={useTwoColumnLegend ? "75%" : "80%"}>
-        <LineChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-          <XAxis dataKey="round" />
-          <YAxis domain={[0, 1]} />
-          <Tooltip 
-            formatter={(value) => value !== undefined && !isNaN(value) ? value.toFixed(4) : 'N/A'}
-            labelFormatter={(value) => `Round: ${value}`}
-            isAnimationActive={false} // Mejorar rendimiento
-          />
-          <Legend 
-            layout={useTwoColumnLegend ? "horizontal" : "horizontal"}
-            verticalAlign="bottom"
-            align="center"
-            wrapperStyle={{ 
-              paddingTop: "10px",
-              fontSize: processCount > 8 ? "9px" : "11px",
-              display: "grid", 
-              gridTemplateColumns: useTwoColumnLegend ? "repeat(4, 1fr)" : "repeat(3, 1fr)"
-            }}
-          />
-          
-          {/* Renderizar línea para cada proceso */}
-          {Array.from({ length: Math.min(processCount, 20) }).map((_, index) => {
-            const name = getProcessName(index);
-            const strokeWidth = index < 3 ? 2.5 : 1.5;
-            const strokeDasharray = index > 10 ? "3 3" : null; // Línea punteada para procesos adicionales
-              
-            return (
-              <Line 
-                key={index}
-                type="monotone" 
-                dataKey={`p${index}`} 
-                name={name} 
-                stroke={processColors[index % processColors.length]} 
-                strokeWidth={strokeWidth}
-                dot={{ r: index < 3 ? 3 : 2, strokeWidth: 1, fill: "white" }}
-                activeDot={{ r: 4 }}
-              />
-            );
-          })}
-          
-          {/* Limitar a 20 procesos en la visualización */}
-          {processCount > 20 && (
-            <Line
-              type="monotone"
-              dataKey="discrepancy"
-              name={`+${processCount - 20} more`}
-              stroke="#999"
-              strokeWidth={0}
-              dot={{ r: 0 }}
-              activeDot={{ r: 0 }}
-            />
-          )}
-          
-          <Line 
-            type="monotone" 
-            dataKey="discrepancy" 
-            name="Discrepancy" 
-            stroke="#9b59b6" 
-            strokeWidth={2.5}
-            dot={{ r: 3 }} 
-          />
-        </LineChart>
-      </ResponsiveContainer>
-      
-      {processCount > 10 && (
-        <div className="mt-1 text-xs text-gray-500 text-center">
-          Note: For better visibility, some processes may be shown with dashed lines or compact representation.
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Results table
-function ResultsTable({ experimentData, processCount = 2, forcedAlgorithm, fvMethod, rounds = 1 }) {
-  // Si hay demasiados procesos, mostrar versión compacta
-  const isCompactView = processCount > 6;
-
-  if (!experimentData || !Array.isArray(experimentData) || experimentData.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64 bg-gray-50 rounded-lg">
-        <p className="text-gray-400">No experiment data available</p>
-      </div>
-    );
-  }
-
-  // Mostrar solo algunos procesos clave si hay muchos
-  const getDisplayedProcesses = () => {
-    if (!isCompactView) {
-      return Array.from({ length: processCount }).map((_, i) => i);
-    }
-    
-    // Para muchos procesos, mostrar: primero, segundo, alguno del medio, penúltimo y último
-    if (processCount <= 10) {
-      return [0, 1, Math.floor(processCount/2), processCount-2, processCount-1];
-    } else {
-      return [0, 1, 2, Math.floor(processCount/3), Math.floor(2*processCount/3), processCount-2, processCount-1];
-    }
-  };
-  
-  const displayedProcesses = getDisplayedProcesses();
-
-  // Crear encabezados para procesos
-  const processHeaders = displayedProcesses.map(idx => {
-    const name = idx < 3 ? ["Alice", "Bob", "Charlie"][idx] : `P${idx+1}`;
-    const color = idx < 3 ? 
-      [ALICE_COLOR, BOB_COLOR, CHARLIE_COLOR][idx] : 
-      "#666"; // Color por defecto para procesos adicionales
-    
-    return { index: idx, name, color };
-  });
-
-  return (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Round</th>
-              {processHeaders.map((header) => (
-                <th 
-                  key={header.index}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                  style={{ color: header.color }}
-                >
-                  {header.name}
-                </th>
-              ))}
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Discrepancy</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {experimentData.map((data, index) => (
-              <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{data.round}</td>
-                
-                {/* Renderizar celdas para procesos seleccionados */}
-                {processHeaders.map((header) => (
-                  <td 
-                    key={header.index}
-                    className="px-6 py-4 whitespace-nowrap text-sm" 
-                    style={{ color: header.color }}
-                  >
-                    {data.values && data.values[header.index] !== undefined ? 
-                      data.values[header.index].toFixed(4) : 'N/A'}
-                  </td>
-                ))}
-                
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {data.discrepancy !== undefined ? data.discrepancy.toFixed(4) : 'N/A'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      
-      {isCompactView && (
-        <div className="px-4 py-2 bg-yellow-50 text-sm">
-          <p>Showing {displayedProcesses.length} of {processCount} processes. {processCount-displayedProcesses.length} processes are hidden for readability.</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-
 /// Histogram plot con distribución binomial correcta para un valor específico de p
 function HistogramPlot({ discrepancies, theoretical, experimental, repetitions, selectedP }) {
     if (!discrepancies || !Array.isArray(discrepancies) || discrepancies.length === 0) {
@@ -5031,15 +4525,15 @@ function CompleteDistributedComputingSimulator() {
 const [copyMessage, setCopyMessage] = useState("");
 
 
-function base64ToBase64Url(str) {
-  return str.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-function base64UrlToBase64(str) {
-  str = str.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = str.length % 4;
-  if (pad) str += "=".repeat(4 - pad);
-  return str;
-}
+// --- Config code helpers (centralized) ---
+const base64ToBase64Url = (str) =>
+  str.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const base64UrlToBase64 = (str) => {
+  let s = str.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = s.length % 4;
+  if (pad) s += "=".repeat(4 - pad);
+  return s;
+};
 function encodeConfigCode(cfg) {
   const json = JSON.stringify(cfg);
   return base64ToBase64Url(btoa(json));
@@ -5048,15 +4542,11 @@ function decodeConfigCode(code) {
   try {
     const json = atob(base64UrlToBase64(code));
     return JSON.parse(json);
-  } catch {
+  } catch (err) {
+    console.error("Error decoding config:", err);
     return null;
   }
 }
-
-
-
- // Helper functions
-
 
 const handleLoadConfig = () => {
   const config = decodeConfigCode(configCode);
@@ -5064,23 +4554,26 @@ const handleLoadConfig = () => {
     addLog("Invalid configuration code", "error");
     return;
   }
-  
+
   setProcessValues(config.initialValues || [0, 1]);
-  setProbability(config.p || 0.5);
+  setProbability(config.p ?? 0.5);
   setRangeExperiments({
-    minP: config.minP || 0,
-    maxP: config.maxP || 1,
-    steps: 100,
-    customSteps: false,
-    customStepValue: 100
+    minP: config.minP ?? 0,
+    maxP: config.maxP ?? 1,
+    steps: config.steps ?? 100,
+    customSteps: config.customSteps ?? false,
+    customStepValue: config.customStepValue ?? 100
   });
   setForcedAlgorithm(config.algorithm || "auto");
-  setMeetingPoint(config.meetingPoint || 0.5);
-  setRounds(config.rounds || 1);
-  setRepetitions(config.repetitions || 1);
-  setLeaderProcess(config.leaderProcess || 1);
-  
-  
+  setMeetingPoint(config.meetingPoint ?? 0.5);
+  setRounds(config.rounds ?? 1);
+  setRepetitions(config.repetitions ?? 1);
+  setLeaderProcess(config.leaderProcess ?? 1);
+  setDeliveryMode(config.deliveryMode || 'standard');
+  setSelectedDeliveryModes(config.selectedDeliveryModes || [config.deliveryMode || 'standard']);
+  setFvMethod(config.fvMethod || "average");
+  if (config.conditionedK) setConditionedK(config.conditionedK);
+
   addLog("Configuration loaded successfully", "success");
   setCopyMessage("Configuration loaded!");
   setTimeout(() => setCopyMessage(""), 2000);
@@ -5093,11 +4586,18 @@ const handleGenerateConfig = () => {
     p:              probability,
     minP:           rangeExperiments.minP,
     maxP:           rangeExperiments.maxP,
+    steps:          rangeExperiments.steps,
+    customSteps:    rangeExperiments.customSteps,
+    customStepValue:rangeExperiments.customStepValue,
     algorithm:      forcedAlgorithm,
+    fvMethod:       fvMethod,
     meetingPoint:   meetingPoint,
     rounds:         rounds,
     repetitions:    repetitions,
     leaderProcess:  leaderProcess,
+    deliveryMode:   deliveryMode,
+    selectedDeliveryModes,
+    conditionedK:   conditionedK
   };
   const code = encodeConfigCode(cfg);
   navigator.clipboard.writeText(code)
@@ -5110,53 +4610,6 @@ const handleGenerateConfig = () => {
       setTimeout(() => setCopyMessage(""), 2000);
     });
 };
-
-
-// convierte Base64 normal ? Base64URL
-function base64ToBase64Url(str) {
-  return str
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-}
-
-function encodeConfigCode(cfg) {
-  // SIN parámetros del algoritmo recursivo
-  const fullConfig = {
-    processCount: processValues.length,
-    initialValues: processValues,
-    p: probability,
-    minP: rangeExperiments.minP,
-    maxP: rangeExperiments.maxP,
-    algorithm:      forcedAlgorithm,
-    meetingPoint:   meetingPoint,
-    rounds:         rounds,
-    repetitions:    repetitions,
-    leaderProcess:  leaderProcess
-  };
-  const json = JSON.stringify(fullConfig);
-  const b64 = btoa(json);
-  return base64ToBase64Url(b64);
-}
-
-function base64UrlToBase64(str) {
-  // re-inserta padding y cambia URL-safe a Base64 normal
-  str = str.replace(/-/g, '+').replace(/_/g, '/');
-  const pad = str.length % 4;
-  if (pad) str += '='.repeat(4 - pad);
-  return str;
-}
-
-function decodeConfigCode(code) {
-  try {
-    const b64   = base64UrlToBase64(code);
-    const json  = atob(b64);
-    return JSON.parse(json);
-  } catch (err) {
-    console.error("Error decoding config:", err);
-    return null;
-  }
-}
 
 
 function showDetailsForProbability(p, algorithm = null) {
