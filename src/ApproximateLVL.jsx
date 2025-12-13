@@ -2856,7 +2856,8 @@ function TheoryPlot({
   processValues = [],
   meetingPoint = 0.5,
   selectedAlgorithms = [],
-  deliveryMode = 'standard'
+  deliveryMode = 'standard',
+  selectedDeliveryModes = []
 }) {
   const steps = 100;
   const selectedRound = rounds;
@@ -2953,30 +2954,49 @@ function TheoryPlot({
   const experimentalSeries = useMemo(() => {
     if (!showExp) return [];
 
-    return selectedAlgorithms
-      .map(algo => {
+    const modeList = (selectedDeliveryModes && selectedDeliveryModes.length > 0)
+      ? selectedDeliveryModes
+      : [deliveryMode];
+
+    const MODE_STYLE = {
+      standard: { dash: '', color: null, dot: 3 },
+      guaranteed: { dash: '6 4', color: '#0f766e', dot: 4 },
+      'process-dependent': { dash: '3 3', color: '#7c3aed', dot: 4 }
+    };
+
+    const series = [];
+    selectedAlgorithms.forEach(algo => {
+      modeList.forEach(mode => {
         const filtered = validExperimentalData.filter(item => {
-          if (algo === "auto") {
-            return item.displayAlgorithm === "auto" ||
-              (item.algorithm === (item.p > 0.5 ? "AMP" : "FV") && item.displayAlgorithm === "auto");
-          }
-          return item.algorithm === algo || item.displayAlgorithm === algo;
+          const algoMatch = (algo === "auto")
+            ? (item.displayAlgorithm === "auto" ||
+               (item.algorithm === (item.p > 0.5 ? "AMP" : "FV") && item.displayAlgorithm === "auto"))
+            : (item.algorithm === algo || item.displayAlgorithm === algo);
+          return algoMatch && (item.deliveryMode === mode);
         });
 
-        if (filtered.length === 0) return null;
+        if (filtered.length === 0) return;
 
         const flagged = filtered.map(item => (
           item.__isOriginal ? item : { ...item, __isOriginal: true }
         ));
 
-        return {
+        const style = MODE_STYLE[mode] || { dash: '', color: null, dot: 3 };
+
+        series.push({
           algo,
+          mode,
+          name: `${algo} (${mode})`,
           data: flagged,
-          stroke: ALGORITHM_COLOR_MAP[algo] || "#6b7280"
-        };
-      })
-      .filter(Boolean);
-  }, [showExp, selectedAlgorithms, validExperimentalData]);
+          stroke: style.color || ALGORITHM_COLOR_MAP[algo] || "#6b7280",
+          dash: style.dash || '',
+          dotSize: style.dot || 3
+        });
+      });
+    });
+
+    return series;
+  }, [showExp, selectedAlgorithms, validExperimentalData, selectedDeliveryModes, deliveryMode]);
 
   const allowedProbabilities = useMemo(() => {
     const set = new Set();
@@ -3104,13 +3124,14 @@ function TheoryPlot({
 
           {showExp && experimentalSeries.map(series => (
             <Line
-              key={series.algo}
+              key={`${series.algo}-${series.mode}`}
               data={series.data}
               dataKey="discrepancy"
-              name={`${series.algo} (Experimental)`}
+              name={`${series.algo} (${series.mode})`}
               stroke={series.stroke}
               strokeWidth={2}
-              dot={{ r: 3 }}
+              strokeDasharray={series.dash || undefined}
+              dot={{ r: series.dotSize || 3, strokeWidth: 1, fill: series.stroke }}
               connectNulls
             />
           ))}
@@ -3295,6 +3316,7 @@ function RangeResultsTable({
             <tr className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
               <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Probability (p)</th>
               <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Algorithm</th>
+              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Delivery</th>
               <th className="px-6 py-4 text-left font-semibold uppercase tracking-wider">Experimental{rounds > 1 ? ` (${rounds} rounds)` : ""}</th>
               <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Samples</th>
               {processCount === 2 && (
@@ -3351,6 +3373,9 @@ function RangeResultsTable({
                     >
                       {result.algorithm}
                     </span>
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">
+                    {result.deliveryMode || 'standard'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="font-mono text-sm">
@@ -4712,6 +4737,7 @@ function CompleteDistributedComputingSimulator() {
   const [showDeliveryInfo, setShowDeliveryInfo] = useState(false);
   const [repetitions, setRepetitions] = useState(50);
   const [deliveryMode, setDeliveryMode] = useState('standard');
+  const [selectedDeliveryModes, setSelectedDeliveryModes] = useState(['standard']);
   const [experimentRuns, setExperimentRuns] = useState({});
   const [selectedRepetition, setSelectedRepetition] = useState(0);
   const [useConditionedMode, setUseConditionedMode] = useState(false);
@@ -5144,16 +5170,19 @@ function showDetailsForProbability(p, algorithm = null) {
   
   // Determinar el algoritmo real
   const actualAlgo = algorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : algorithm;
+  const modeForDetails = (selectedDeliveryModes && selectedDeliveryModes.length > 0)
+    ? selectedDeliveryModes[0]
+    : (deliveryMode || 'standard');
   
-  // ?? FIX: Construir la clave SIN toFixed
-  const key = `${p}_${actualAlgo}`;
+  const key = `${p}_${actualAlgo}_${modeForDetails}`;
   
   // Verificar si existen datos
   if (experimentRuns[key] && experimentRuns[key].length > 0) {
     setSelectedProbabilityForDetails(p);
     setSelectedAlgorithmForDetails(algorithm);
+    setDeliveryMode(modeForDetails);
     setSelectedRepetition(0);
-    addLog(`Showing ${experimentRuns[key].length} repetitions for p=${p.toFixed(3)}, algorithm=${actualAlgo}`, "info");
+    addLog(`Showing ${experimentRuns[key].length} repetitions for p=${p.toFixed(3)}, algorithm=${actualAlgo}, mode=${modeForDetails}`, "info");
   } else {
     // Si no hay datos, generar una ejecución
     const initialValues = getInitialValues();
@@ -5173,20 +5202,23 @@ function showDetailsForProbability(p, algorithm = null) {
           actualRounds,
           actualAlgo,
           actualMeetingPoint,
-          deliveryMode,
+          modeForDetails,
           { leaderIndex }
         );
-    
+
+    const keyWithMode = `${p}_${actualAlgo}_${modeForDetails}`;
+
     setExperimentRuns(prev => ({
       ...prev,
-      [key]: [history]
+      [keyWithMode]: [history]
     }));
     
     setSelectedProbabilityForDetails(p);
     setSelectedAlgorithmForDetails(algorithm);
+    setDeliveryMode(modeForDetails);
     setSelectedRepetition(0);
     
-    addLog(`Generated view for p=${p.toFixed(3)}, algorithm=${actualAlgo}`, "info");
+    addLog(`Generated view for p=${p.toFixed(3)}, algorithm=${actualAlgo}, mode=${modeForDetails}`, "info");
   }
 }
 
@@ -6144,7 +6176,7 @@ function runRangeExperiments() {
       allProbabilities.splice(i, 1);
     }
   }
-  if (currentDeliveryMode === 'guaranteed' && allProbabilities.length === 0) {
+  if ((selectedDeliveryModes || []).includes('guaranteed') && allProbabilities.length === 0) {
     addLog("ERROR: El rango de p no contiene valores > 0. Para conditioned usa 0 < p = 1.", "error");
     setIsRunning(false);
     return;
@@ -6157,47 +6189,52 @@ function runRangeExperiments() {
   const results = [];
   const allRunsData = {};
 
+  const modesToRun = (selectedDeliveryModes && selectedDeliveryModes.length > 0)
+    ? selectedDeliveryModes
+    : [currentDeliveryMode];
+
   for (const p of allProbabilities) {
-    for (const algoDisplay of algorithmsToRun) {
-      const actualAlgo = algoDisplay === "auto" ? (p > 0.5 ? "AMP" : "FV") : algoDisplay;
-      const key = `${p}_${actualAlgo}`;
+    for (const mode of modesToRun) {
+      for (const algoDisplay of algorithmsToRun) {
+        const actualAlgo = algoDisplay === "auto" ? (p > 0.5 ? "AMP" : "FV") : algoDisplay;
+        const key = `${p}_${actualAlgo}_${mode}`;
 
-      // Teoría
-      let theoretical;
-      if (dimensionMode === 'binary') {
-        if (actualAlgo === "COURTEOUS" && nProc === 3) {
-          // Usar la ecuación teórica específica de COURTEOUS para 3 procesos
-          theoretical = SimulationEngine.calculate3ProcessBinaryDiscrepancy(p, "COURTEOUS", initialProcessValues);
-          if (actualRounds > 1) {
-            theoretical = Math.pow(theoretical, actualRounds);
+        // Teoría
+        let theoretical;
+        if (dimensionMode === 'binary') {
+          if (actualAlgo === "COURTEOUS" && nProc === 3) {
+            theoretical = SimulationEngine.calculate3ProcessBinaryDiscrepancy(p, "COURTEOUS", initialProcessValues, mode);
+            if (actualRounds > 1) {
+              theoretical = Math.pow(theoretical, actualRounds);
+            }
+          } else if (mode === 'guaranteed' && nProc === 2) {
+            theoretical = SimulationEngine.calculateTheoreticalConditionedDiscrepancy(p, actualAlgo, actualRounds);
+          } else {
+            theoretical = SimulationEngine.calculateExpectedDiscrepancy(p, actualAlgo, actualRounds, mode);
           }
-        } else if (currentDeliveryMode === 'guaranteed' && nProc === 2) {
-          theoretical = SimulationEngine.calculateTheoreticalConditionedDiscrepancy(p, actualAlgo, actualRounds);
         } else {
-          theoretical = SimulationEngine.calculateExpectedDiscrepancy(p, actualAlgo, actualRounds);
+          theoretical = dimensions === 2
+            ? SimulationEngine.calculateExpectedDiscrepancy(p, actualAlgo, actualRounds, mode)
+            : null;
         }
-      } else {
-        theoretical = dimensions === 2
-          ? SimulationEngine.calculateExpectedDiscrepancy(p, actualAlgo, actualRounds)
-          : null;
+
+        results.push({
+          p,
+          algorithm: actualAlgo,
+          displayAlgorithm: algoDisplay,
+          discrepancies: [],
+          samples: 0,
+          discrepancy: 0,
+          deliveryMode: mode,
+          theoretical,
+          mode: dimensionMode,
+          dimensions: dimensionMode === 'barycentric' ? dimensions : 2,
+          processCount: nProc,
+          distanceMetric: dimensionMode === 'barycentric' ? distanceMetric : 'euclidean'
+        });
+
+        allRunsData[key] = [];
       }
-
-      results.push({
-        p,
-        algorithm: actualAlgo,
-        displayAlgorithm: algoDisplay,
-        discrepancies: [],
-        samples: 0,
-        discrepancy: 0,
-        deliveryMode: currentDeliveryMode,
-        theoretical,
-        mode: dimensionMode,
-        dimensions: dimensionMode === 'barycentric' ? dimensions : 2,
-        processCount: nProc,
-        distanceMetric: dimensionMode === 'barycentric' ? distanceMetric : 'euclidean'
-      });
-
-      allRunsData[key] = [];
     }
   }
 
@@ -6229,10 +6266,14 @@ function runRangeExperiments() {
           allRunsData[k][0].length > 0
         );
         if (firstValidKey) {
-          const [pStr, algoReal] = firstValidKey.split('_');
+          const parts = firstValidKey.split('_');
+          const pStr = parts[0];
+          const algoReal = parts[1];
+          const modeReal = parts[2] || deliveryMode;
           const pNum = Number(pStr);
           if (!Number.isNaN(pNum)) setSelectedProbabilityForDetails(pNum);
           setSelectedAlgorithmForDetails(algoReal);
+          setDeliveryMode(modeReal); // mostrar en UI el primero encontrado
           setSelectedRepetition(0);
         } else {
           setSelectedProbabilityForDetails(null);
@@ -6247,9 +6288,11 @@ function runRangeExperiments() {
 
       const modeInfo = dimensionMode === 'barycentric'
         ? ` (${dimensions}D Barycentric)`
-        : currentDeliveryMode === 'guaranteed'
+        : modesToRun.includes('guaranteed')
           ? " (Guaranteed/Conditioned)"
-          : '';
+          : modesToRun.includes('process-dependent')
+            ? " (Broadcast)"
+            : '';
       addLog(`Simulation completed: ${results.length} data points${modeInfo}`, "success");
       return;
     }
@@ -6261,9 +6304,10 @@ function runRangeExperiments() {
     for (const p of allProbabilities) {
       if (cancelRef.current) break;
 
-      for (const algoDisplay of algorithmsToRun) {
-        const actualAlgo = algoDisplay === "auto" ? (p > 0.5 ? "AMP" : "FV") : algoDisplay;
-        const key = `${p}_${actualAlgo}`;
+      for (const mode of modesToRun) {
+        for (const algoDisplay of algorithmsToRun) {
+          const actualAlgo = algoDisplay === "auto" ? (p > 0.5 ? "AMP" : "FV") : algoDisplay;
+          const key = `${p}_${actualAlgo}_${mode}`;
 
         // Meeting point para modo baricéntrico: único cálculo por (p, algo)
         // - RECURSIVE AMP: escalar a (default 0.5)
@@ -6292,100 +6336,101 @@ function runRangeExperiments() {
           return Array(dimensions).fill(0.5);
         })();
 
-        let history;
+          let history;
 
-        if (dimensionMode === 'barycentric') {
-          const mpEff = resolveMeetingPoint(
-            actualAlgo,
-            (typeof customMeetingPoint !== 'undefined' && customMeetingPoint !== null) ? customMeetingPoint : meetingPoint,
-            dimensions
-          );
-
-          history = SimulationEngine.barycentric.runBarycentricExperiment(
-            initialProcessValues,
-            p,
-            actualRounds,
-            actualAlgo,
-            mpEff,
-            distanceMetric,
-            { leaderIndex }
-          );
-        } else if (currentDeliveryMode === 'guaranteed') {
-          // Simulación condicionada binaria (=1 mensaje)
-          const mpUsed = (nProc === 2 && actualAlgo === "AMP") ? 0.5 : uiMeetingPoint;
-
-          const v0 = [...initialProcessValues];
-          const localHistory = [];
-          let values = v0;
-
-          // Estado inicial
-          const initDisc = values.reduce((mx, vi, i) => {
-            for (let j = i + 1; j < values.length; j++) {
-              const d = Math.abs(vi - values[j]);
-              if (d > mx) mx = d;
-            }
-            return mx;
-          }, 0);
-          localHistory.push({
-            round: 0,
-            values: [...values],
-            discrepancy: initDisc,
-            messages: [],
-            messageDelivery: []
-          });
-
-          for (let r = 1; r <= actualRounds; r++) {
-            const rr = SimulationEngine.simulateRoundWithConditioning(
-              values, p, actualAlgo, mpUsed, conditionedK
+          if (dimensionMode === 'barycentric') {
+            const mpEff = resolveMeetingPoint(
+              actualAlgo,
+              (typeof customMeetingPoint !== 'undefined' && customMeetingPoint !== null) ? customMeetingPoint : meetingPoint,
+              dimensions
             );
-            values = rr.newValues;
 
+            history = SimulationEngine.barycentric.runBarycentricExperiment(
+              initialProcessValues,
+              p,
+              actualRounds,
+              actualAlgo,
+              mpEff,
+              distanceMetric,
+              { leaderIndex }
+            );
+          } else if (mode === 'guaranteed') {
+            // Simulación condicionada binaria (=1 mensaje)
+            const mpUsed = (nProc === 2 && actualAlgo === "AMP") ? 0.5 : uiMeetingPoint;
+
+            const v0 = [...initialProcessValues];
+            const localHistory = [];
+            let values = v0;
+
+            // Estado inicial
+            const initDisc = values.reduce((mx, vi, i) => {
+              for (let j = i + 1; j < values.length; j++) {
+                const d = Math.abs(vi - values[j]);
+                if (d > mx) mx = d;
+              }
+              return mx;
+            }, 0);
             localHistory.push({
-              round: r,
+              round: 0,
               values: [...values],
-              discrepancy: rr.discrepancy,
-              messages: Array.isArray(rr.messages) ? rr.messages : [],
-              messageDelivery: Array.isArray(rr.messageDelivery) ? rr.messageDelivery : []
+              discrepancy: initDisc,
+              messages: [],
+              messageDelivery: []
             });
-          }
 
-          history = localHistory;
-        } else {
-          // Modo estándar binario
-          history = SimulationEngine.runNProcessExperiment(
-            initialProcessValues,
-            p,
-            actualRounds,
-            actualAlgo,
-            uiMeetingPoint,
-            deliveryMode,
-            { leaderIndex }  
-          );
-        }
+            for (let r = 1; r <= actualRounds; r++) {
+              const rr = SimulationEngine.simulateRoundWithConditioning(
+                values, p, actualAlgo, mpUsed, conditionedK
+              );
+              values = rr.newValues;
 
-        allRunsData[key].push(history);
+              localHistory.push({
+                round: r,
+                values: [...values],
+                discrepancy: rr.discrepancy,
+                messages: Array.isArray(rr.messages) ? rr.messages : [],
+                messageDelivery: Array.isArray(rr.messageDelivery) ? rr.messageDelivery : []
+              });
+            }
 
-        // Actualizar estadísticas agregadas
-        const finalDiscrepancy = history[history.length - 1]?.discrepancy ?? 0;
-        results[resultIndex].discrepancies.push(finalDiscrepancy);
-        results[resultIndex].samples = results[resultIndex].discrepancies.length;
-        results[resultIndex].discrepancy =
-          results[resultIndex].discrepancies.reduce((s, x) => s + x, 0) /
-          results[resultIndex].samples;
-
-        // Chequeo con teoría (solo binario + guaranteed + 2 proc)
-        if (dimensionMode === 'binary' && currentDeliveryMode === 'guaranteed' &&
-            nProc === 2 && p > 0 && p < 1) {
-          const theo = SimulationEngine.calculateTheoreticalConditionedDiscrepancy(p, actualAlgo, actualRounds);
-          const d = results[resultIndex].discrepancy;
-          if (Number.isFinite(d) && Number.isFinite(theo) && theo > 0 && d > theo * 1.10) {
-            console.warn(
-              `Discrepancy ${d.toFixed(6)} exceeds theoretical (conditioned) ${theo.toFixed(6)} for p=${p}, algo=${actualAlgo}`
+            history = localHistory;
+          } else {
+            // Modo estándar / process-dependent binario
+            history = SimulationEngine.runNProcessExperiment(
+              initialProcessValues,
+              p,
+              actualRounds,
+              actualAlgo,
+              uiMeetingPoint,
+              mode,
+              { leaderIndex }  
             );
           }
-        }
 
-        resultIndex++;
+          allRunsData[key].push(history);
+
+          // Actualizar estadísticas agregadas
+          const finalDiscrepancy = history[history.length - 1]?.discrepancy ?? 0;
+          results[resultIndex].discrepancies.push(finalDiscrepancy);
+          results[resultIndex].samples = results[resultIndex].discrepancies.length;
+          results[resultIndex].discrepancy =
+            results[resultIndex].discrepancies.reduce((s, x) => s + x, 0) /
+            results[resultIndex].samples;
+
+          // Chequeo con teoría (solo binario + guaranteed + 2 proc)
+          if (dimensionMode === 'binary' && mode === 'guaranteed' &&
+              nProc === 2 && p > 0 && p < 1) {
+            const theo = SimulationEngine.calculateTheoreticalConditionedDiscrepancy(p, actualAlgo, actualRounds);
+            const d = results[resultIndex].discrepancy;
+            if (Number.isFinite(d) && Number.isFinite(theo) && theo > 0 && d > theo * 1.10) {
+              console.warn(
+                `Discrepancy ${d.toFixed(6)} exceeds theoretical (conditioned) ${theo.toFixed(6)} for p=${p}, algo=${actualAlgo}, mode=${mode}`
+              );
+            }
+          }
+
+          resultIndex++;
+        }
       }
     }
 
@@ -6399,9 +6444,11 @@ function runRangeExperiments() {
 
   const startMessage = dimensionMode === 'barycentric'
     ? `Starting ${dimensions}D barycentric simulation with ${processCount} processes`
-    : currentDeliveryMode === 'guaranteed'
+    : modesToRun.includes('guaranteed')
       ? 'Starting simulation with Guaranteed/Conditioned (=1 message) mode'
-      : 'Starting simulation with Standard Delivery mode';
+      : modesToRun.includes('process-dependent')
+        ? 'Starting simulation with Broadcast mode'
+        : 'Starting simulation with Standard Delivery mode';
 
   addLog(startMessage, "info");
 
@@ -6621,6 +6668,7 @@ function runRangeExperiments() {
         results: experimentalResults.map(result => ({
           p: result.p,
           algorithm: result.algorithm,
+          deliveryMode: result.deliveryMode,
           discrepancy: result.discrepancy,
           theoretical: result.theoretical,
           samples: result.samples,
@@ -7085,63 +7133,45 @@ function runRangeExperiments() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="flex items-start cursor-pointer hover:bg-white p-2 rounded transition">
-                    <input
-                      type="radio"
-                      name="deliveryMode"
-                      value="standard"
-                      checked={deliveryMode === 'standard'}
-                      onChange={(e) => setDeliveryMode(e.target.value)}
-                      className="mt-1 mr-3"
-                      disabled={isRunning}
-                    />
-                    <div className="flex-1">
-                      <div className="font-medium text-sm">Standard Delivery</div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Messages delivered with probability p independently. All messages can be lost in a round.
-                      </p>
-                    </div>
-                  </label>
-
-                  <label className="flex items-start cursor-pointer hover:bg-white p-2 rounded transition">
-                    <input
-                      type="radio"
-                      name="deliveryMode"
-                      value="guaranteed"
-                      checked={deliveryMode === 'guaranteed'}
-                      onChange={(e) => setDeliveryMode(e.target.value)}
-                      className="mt-1 mr-3"
-                      disabled={isRunning}
-                    />
-                    <div className="flex-1">
-                      <div className="font-medium text-sm">Guaranteed Progress</div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        At least one message delivered per round, ensuring network progress.
-                      </p>
-                    </div>
-                  </label>
-
-                  <label className="flex items-start cursor-pointer hover:bg-white p-2 rounded transition">
-                    <input
-                      type="radio"
-                      name="deliveryMode"
-                      value="process-dependent"
-                      checked={deliveryMode === 'process-dependent'}
-                      onChange={(e) => setDeliveryMode(e.target.value)}
-                      className="mt-1 mr-3"
-                      disabled={isRunning}
-                    />
-                    <div className="flex-1">
-                      <div className="font-medium text-sm">Broadcast</div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        All messages from each process deliver together with probability p, or none deliver with probability q.
-                      </p>
-                    </div>
-                  </label>
+                  {[
+                    { id: 'standard', title: 'Standard Delivery', desc: 'Messages delivered with probability p independently. All messages can be lost in a round.' },
+                    { id: 'guaranteed', title: 'Guaranteed Progress', desc: 'At least one message delivered per round, ensuring network progress.' },
+                    { id: 'process-dependent', title: 'Broadcast', desc: 'All messages from each process deliver together with probability p, or none deliver with probability q.' },
+                  ].map(mode => (
+                    <label key={mode.id} className="flex items-start cursor-pointer hover:bg-white p-2 rounded transition">
+                      <input
+                        type="checkbox"
+                        name={`deliveryMode-${mode.id}`}
+                        value={mode.id}
+                        checked={selectedDeliveryModes.includes(mode.id)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setSelectedDeliveryModes(prev => {
+                            if (checked) {
+                              const next = Array.from(new Set([...prev, mode.id]));
+                              setDeliveryMode(next[0] || 'standard');
+                              return next;
+                            }
+                            const next = prev.filter(m => m !== mode.id);
+                            // Siempre mantener al menos uno
+                            return next.length > 0 ? next : ['standard'];
+                          });
+                        }}
+                        className="mt-1 mr-3"
+                        disabled={isRunning}
+                      />
+                      <div className="flex-1">
+                        <div className="font-medium text-sm">{mode.title}</div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {mode.desc}
+                        </p>
+                      </div>
+                    </label>
+                  ))}
 
                 </div>
 
-                {deliveryMode === 'guaranteed' && (
+                {selectedDeliveryModes.includes('guaranteed') && (
                   <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded">
                     <div className="flex items-start">
                       <svg className="w-4 h-4 text-blue-600 mt-0.5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -7156,7 +7186,7 @@ function runRangeExperiments() {
                   </div>
                 )}
 
-                {deliveryMode === 'process-dependent' && (
+                {selectedDeliveryModes.includes('process-dependent') && (
                   <div className="mt-3 p-2 bg-purple-50 border border-purple-200 rounded">
                     <div className="flex items-start">
                       <svg className="w-4 h-4 text-purple-600 mt-0.5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -7172,7 +7202,7 @@ function runRangeExperiments() {
                 )}
 
                 {/* K para Guaranteed */}
-                {deliveryMode === 'guaranteed' && (
+                {selectedDeliveryModes.includes('guaranteed') && (
                   <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Minimum Messages (K):</label>
 
@@ -7755,6 +7785,7 @@ function runRangeExperiments() {
                   meetingPoint={meetingPoint}
                   selectedAlgorithms={selectedAlgorithms} 
                   deliveryMode={deliveryMode}
+                  selectedDeliveryModes={selectedDeliveryModes}
                 />
                 </div>
                 
@@ -7841,9 +7872,9 @@ function runRangeExperiments() {
                           algoDisplay === "auto" ? (pNum > 0.5 ? "AMP" : "FV") : algoDisplay;
 
                         // ?? FIX CRÍTICO: Usar formato consistente de clave SIN toFixed
-                        const keyFor = (pNum, algoDisplay) => {
+                        const keyFor = (pNum, algoDisplay, mode) => {
                           const actualAlgo = resolveAlgo(algoDisplay, pNum);
-                          return `${pNum}_${actualAlgo}`;  // Formato consistente con runRangeExperiments
+                          return `${pNum}_${actualAlgo}_${mode || deliveryMode}`;  // Incluir modo
                         };
 
                         // Probabilidades únicas disponibles
@@ -7857,39 +7888,44 @@ function runRangeExperiments() {
                         const availableAlgosForP = (pNum) => {
                           if (pNum == null || !experimentRuns) return [];
                           return selectedAlgorithms.filter(algoDisplay => {
-                            const k = keyFor(pNum, algoDisplay);
-                            return Array.isArray(experimentRuns?.[k]) && experimentRuns[k].length > 0;
+                            return (selectedDeliveryModes || [deliveryMode]).some(mode => {
+                              const k = keyFor(pNum, algoDisplay, mode);
+                              return Array.isArray(experimentRuns?.[k]) && experimentRuns[k].length > 0;
+                            });
                           });
                         };
 
                         // Derivados actuales
                         const currentP = selectedProbabilityForDetails ?? null;
                         const currentAlgoDisplay = selectedAlgorithmForDetails ?? null;
+                        const currentMode = (selectedDeliveryModes && selectedDeliveryModes.length > 0)
+                          ? selectedDeliveryModes[0]
+                          : deliveryMode;
                         const currentKey = (currentP != null && currentAlgoDisplay)
-                          ? keyFor(currentP, currentAlgoDisplay)
+                          ? keyFor(currentP, currentAlgoDisplay, currentMode)
                           : null;
                         const currentRuns = currentKey ? (experimentRuns?.[currentKey] || null) : null;
                         const resolvedAlgoLabel = (currentAlgoDisplay && currentP != null)
-                          ? resolveAlgo(currentAlgoDisplay, currentP)
+                          ? `${resolveAlgo(currentAlgoDisplay, currentP)} (${currentMode})`
                           : null;
 
                         return (
                           <div className="mt-6">
                             <h3 className="text-xl font-semibold mb-4">Detailed Experiment Analysis</h3>
 
-                            {deliveryMode !== 'standard' && (
+                            {currentMode !== 'standard' && (
                               <div className={`mb-4 p-3 rounded border ${
-                                deliveryMode === 'guaranteed' ? 'bg-green-50 border-green-200' : 'bg-purple-50 border-purple-200'
+                                currentMode === 'guaranteed' ? 'bg-green-50 border-green-200' : 'bg-purple-50 border-purple-200'
                               }`}>
                                 <div className={`text-sm font-semibold ${
-                                  deliveryMode === 'guaranteed' ? 'text-green-900' : 'text-purple-900'
+                                  currentMode === 'guaranteed' ? 'text-green-900' : 'text-purple-900'
                                 }`}>
-                                  📡 Active Delivery Mode: {deliveryMode === 'guaranteed' ? 'Guaranteed Progress' : 'Process-Dependent'}
+                                  📡 Active Delivery Mode: {currentMode === 'guaranteed' ? 'Guaranteed Progress' : 'Process-Dependent'}
                                 </div>
                                 <div className={`text-xs mt-1 ${
-                                  deliveryMode === 'guaranteed' ? 'text-green-700' : 'text-purple-700'
+                                  currentMode === 'guaranteed' ? 'text-green-700' : 'text-purple-700'
                                 }`}>
-                                  {deliveryMode === 'guaranteed' 
+                                  {currentMode === 'guaranteed' 
                                     ? 'At least one message guaranteed per round' 
                                     : 'All messages from each sender deliver together'}
                                 </div>
