@@ -20,14 +20,6 @@ const DELIVERY_MODE_OPTIONS = [
   { id: 'process-dependent', title: 'Broadcast (process-dependent)' }
 ];
 
-const OBJECTIVE_FUNCTIONS = [
-  { id: 'mode', label: 'Mode (most frequent)' },
-  { id: 'median', label: 'Median (rounded)' },
-  { id: 'rounded-mean', label: 'Mean (rounded)' },
-  { id: 'min', label: 'Min' },
-  { id: 'max', label: 'Max' }
-];
-
 const BASE_RULES = [
   { id: 'AMP', label: 'AMP', algorithm: 'AMP', needsMeetingPoint: true },
   { id: 'RECURSIVE_AMP', label: 'Recursive AMP', algorithm: 'RECURSIVE AMP', needsMeetingPoint: true },
@@ -41,6 +33,7 @@ const BASE_RULES = [
 ];
 
 const DEFAULT_MEETING_POINTS = [0.25, 0.5, 0.75];
+const FIXED_STEPS = 100;
 
 const pKey = (p) => p.toFixed(4);
 
@@ -87,37 +80,16 @@ const calculateDiscrepancy = (values) => {
 
 const valuesAreBinary = (vals) => Array.isArray(vals) && vals.every((v) => v === 0 || v === 1);
 
-const computeObjectiveValue = (values, objectiveId) => {
+const computeMajorityValue = (values) => {
   const ints = values.map((v) => Math.round(v));
   if (ints.length === 0) return 0;
-
-  switch (objectiveId) {
-    case 'mode': {
-      const counts = {};
-      ints.forEach((v) => {
-        counts[v] = (counts[v] || 0) + 1;
-      });
-      const entries = Object.entries(counts);
-      entries.sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]));
-      return parseInt(entries[0][0], 10);
-    }
-    case 'median': {
-      const sorted = [...ints].sort((a, b) => a - b);
-      const mid = Math.floor(sorted.length / 2);
-      const med = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-      return Math.round(med);
-    }
-    case 'rounded-mean': {
-      const sum = ints.reduce((s, v) => s + v, 0);
-      return Math.round(sum / ints.length);
-    }
-    case 'min':
-      return Math.min(...ints);
-    case 'max':
-      return Math.max(...ints);
-    default:
-      return ints[0];
-  }
+  const counts = {};
+  ints.forEach((v) => {
+    counts[v] = (counts[v] || 0) + 1;
+  });
+  const entries = Object.entries(counts);
+  entries.sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]));
+  return parseInt(entries[0][0], 10);
 };
 
 const buildSequenceLabel = (sequence) =>
@@ -215,8 +187,8 @@ export default function PolicySearch({
   const [initialValues, setInitialValues] = useState(baseProcessValues);
   const [roundHorizon, setRoundHorizon] = useState(3);
   const [repetitions, setRepetitions] = useState(100);
-  const [pRange, setPRange] = useState({ min: 0.1, max: 0.9, steps: 12 });
-  const [objectiveId, setObjectiveId] = useState('mode');
+  const [pRange, setPRange] = useState({ min: 0.1, max: 0.9, steps: FIXED_STEPS });
+  const [validityCriterion, setValidityCriterion] = useState('majority'); // majority | proposed
   const [selectedRuleIds, setSelectedRuleIds] = useState(['AMP', 'FV', 'MIN']);
   const [meetingPoints, setMeetingPoints] = useState(
     DEFAULT_MEETING_POINTS.includes(defaultMeetingPoint)
@@ -373,11 +345,11 @@ export default function PolicySearch({
     });
   };
 
-  const runSinglePolicyAtP = (sequence, baseValues, p, mode, targetValue) => {
-    let successCount = 0;
-    let discrepancySum = 0;
-    let consensusRoundsSum = 0;
-    let consensusHits = 0;
+const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, majorityValue) => {
+  let successCount = 0;
+  let discrepancySum = 0;
+  let consensusRoundsSum = 0;
+  let consensusHits = 0;
 
     for (let rep = 0; rep < repetitions; rep++) {
       const originalValues = [...baseValues];
@@ -422,7 +394,11 @@ export default function PolicySearch({
       });
 
       const isConsensus = values.every((v) => Math.abs(v - values[0]) < 1e-6);
-      const correctConsensus = isConsensus && Math.abs(values[0] - targetValue) < 1e-6;
+      const consensusValue = Math.round(values[0]);
+      const validByCriterion = validityCriterion === 'majority'
+        ? consensusValue === majorityValue
+        : baseValues.some((v) => Math.round(v) === consensusValue);
+      const correctConsensus = isConsensus && validByCriterion;
 
       if (correctConsensus) {
         successCount += 1;
@@ -476,7 +452,7 @@ export default function PolicySearch({
       });
     });
 
-    const targetValue = computeObjectiveValue(initialValues, objectiveId);
+    const majorityValue = computeMajorityValue(initialValues);
     const totalSteps = policies.length * pValues.length;
     const results = [];
     let completed = 0;
@@ -488,7 +464,14 @@ export default function PolicySearch({
     for (const policy of policies) {
       const perP = [];
       for (const p of pValues) {
-        const metrics = runSinglePolicyAtP(policy.sequence, initialValues, p, policy.deliveryMode, targetValue);
+        const metrics = runSinglePolicyAtP(
+          policy.sequence,
+          initialValues,
+          p,
+          policy.deliveryMode,
+          validityCriterion,
+          majorityValue
+        );
         perP.push({
           p,
           ...metrics,
@@ -654,27 +637,17 @@ export default function PolicySearch({
                   disabled={isRunning}
                 />
               </div>
-              <div>
-                <label className="text-xs font-semibold block mb-1">p steps</label>
-                <input
-                  type="number"
-                  min="2"
-                  max="60"
-                  value={pRange.steps}
-                  onChange={(e) => setPRange({ ...pRange, steps: Math.max(2, parseInt(e.target.value, 10) || 2) })}
-                  className="w-full p-2 text-sm border border-gray-300 rounded"
-                  disabled={isRunning}
-                />
-              </div>
+            </div>
           </div>
-        </div>
 
           <div className="space-y-3 bg-blue-50 border border-blue-200 rounded p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-blue-900">Consensus objective</p>
+                <p className="text-sm font-semibold text-blue-900">Consensus validity criterion</p>
                 <p className="text-xs text-blue-800">
-                  Target value (computed): <span className="font-semibold">{computeObjectiveValue(initialValues, objectiveId)}</span>
+                  {validityCriterion === 'majority'
+                    ? `Target value (majority): ${computeMajorityValue(initialValues)}`
+                    : 'Any initially proposed value is valid'}
               </p>
             </div>
             <div className="text-[11px] text-blue-700 bg-white/60 px-3 py-1 rounded">
@@ -682,14 +655,17 @@ export default function PolicySearch({
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            {OBJECTIVE_FUNCTIONS.map((opt) => (
-              <label key={opt.id} className={`flex items-center text-xs px-2 py-2 border rounded cursor-pointer ${objectiveId === opt.id ? 'bg-white shadow-sm border-blue-300' : 'bg-white/70'}`}>
+            {[
+              { id: 'majority', label: 'Majority of initial values' },
+              { id: 'proposed', label: 'Any proposed value' }
+            ].map((opt) => (
+              <label key={opt.id} className={`flex items-center text-xs px-2 py-2 border rounded cursor-pointer ${validityCriterion === opt.id ? 'bg-white shadow-sm border-blue-300' : 'bg-white/70'}`}>
                 <input
                   type="radio"
                   className="mr-2"
                   value={opt.id}
-                  checked={objectiveId === opt.id}
-                  onChange={(e) => setObjectiveId(e.target.value)}
+                  checked={validityCriterion === opt.id}
+                  onChange={(e) => setValidityCriterion(e.target.value)}
                   disabled={isRunning}
                 />
                 <span className="font-medium text-gray-700">{opt.label}</span>
@@ -717,7 +693,7 @@ export default function PolicySearch({
           </div>
 
           <div className="space-y-3 bg-white rounded-lg shadow p-4">
-            <label className="text-xs font-semibold">Rule catalog</label>
+            <label className="text-xs font-semibold">Protocol catalog</label>
             <div className="grid grid-cols-2 gap-2">
               {BASE_RULES.map((rule) => {
                 const disabled = (rule.requireThree && processCount !== 3) ||
@@ -904,7 +880,9 @@ export default function PolicySearch({
               </div>
               <div className="text-right space-y-1">
                 <span className="inline-flex items-center px-2 py-1 text-[11px] bg-blue-50 text-blue-800 rounded border border-blue-200">
-                  Target consensus value: {computeObjectiveValue(initialValues, objectiveId)}
+                  {validityCriterion === 'majority'
+                    ? `Target consensus (majority): ${computeMajorityValue(initialValues)}`
+                    : 'Valid if unanimous on any initial value'}
                 </span>
                 <span className="text-xs text-gray-500 block">
                   Showing {visiblePolicyIds.length} of {chartPolicies.length} charted policies (total {policyResults.length})
