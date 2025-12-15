@@ -67,6 +67,12 @@ const shortMode = (mode) => {
   return 'std';
 };
 
+const modeBadgeClass = (mode) => {
+  if (mode === 'guaranteed') return 'bg-green-100 text-green-800 border border-green-200';
+  if (mode === 'process-dependent') return 'bg-purple-100 text-purple-800 border border-purple-200';
+  return 'bg-gray-100 text-gray-800 border border-gray-200';
+};
+
 const calculateDiscrepancy = (values) => {
   if (!Array.isArray(values) || values.length === 0) return 0;
   let maxDisc = 0;
@@ -204,6 +210,14 @@ export default function PolicySearch({
   const [visiblePolicyIds, setVisiblePolicyIds] = useState([]);
   const visibleInitRef = useRef(false);
   const cancelRef = useRef(false);
+  const yieldEvery = 20; // reduce UI churn; still responsive when visible
+
+  const maybeYield = async (step = 0) => {
+    if (document?.hidden) return;
+    if (step % yieldEvery === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  };
   const [policyResults, setPolicyResults] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -263,17 +277,20 @@ export default function PolicySearch({
   }, [sortedPolicies, tableLimit]);
 
   useEffect(() => {
-    if (chartPolicies.length === 0) {
+    if (sortedPolicies.length === 0) {
       setVisiblePolicyIds([]);
       return;
     }
     if (!visibleInitRef.current) {
       visibleInitRef.current = true;
-      setVisiblePolicyIds(chartPolicies.map((p) => p.id));
+      setVisiblePolicyIds(sortedPolicies.slice(0, chartTopK).map((p) => p.id));
       return;
     }
-    setVisiblePolicyIds((prev) => prev.filter((id) => chartPolicies.some((p) => p.id === id)));
-  }, [chartPolicies]);
+    setVisiblePolicyIds((prev) => {
+      const existing = prev.filter((id) => sortedPolicies.some((p) => p.id === id));
+      return existing.length > 0 ? existing : sortedPolicies.slice(0, chartTopK).map((p) => p.id);
+    });
+  }, [sortedPolicies, chartTopK]);
 
   const bestPerP = useMemo(() => {
     const map = {};
@@ -490,11 +507,11 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
         });
 
         completed += 1;
-        if (totalSteps > 0 && completed % 2 === 0) {
+        if (totalSteps > 0 && completed % 10 === 0) {
           setProgress(Math.min(100, Math.round((completed / totalSteps) * 100)));
-          // Yield occasionally to keep UI responsive
+          // Yield occasionally to keep UI responsive (only when visible)
           // eslint-disable-next-line no-await-in-loop
-          await new Promise((resolve) => setTimeout(resolve, 0));
+          await maybeYield(completed);
         }
       }
 
@@ -528,18 +545,17 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-6 space-y-6">
+    <div className="bg-gradient-to-br from-white to-gray-50 rounded-xl shadow-lg ring-1 ring-gray-200 p-6 space-y-6">
       <div className="flex flex-col xl:flex-row xl:items-start gap-8">
         <div className="xl:w-1/3 space-y-6">
-          <div className="bg-white rounded-lg shadow p-4 space-y-2">
-            <h3 className="text-lg font-semibold">Protocol Search</h3>
-            <p className="text-sm text-gray-600">
-              Build round by round rule sequences, then check how often they reach the right integer consensus
-              under each delivery model.
+          <div className="bg-gradient-to-r from-blue-50 to-white rounded-xl shadow p-4 space-y-2 ring-1 ring-blue-100">
+            <h3 className="text-lg font-semibold text-blue-900">Protocol Search</h3>
+            <p className="text-sm text-gray-700">
+              Build round by round rule sequences, then check how often they reach the right integer consensus under each delivery model.
             </p>
           </div>
 
-          <div className="space-y-3 bg-white rounded-lg shadow p-4">
+          <div className="space-y-3 bg-white rounded-xl shadow ring-1 ring-gray-200 p-4">
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold">Processes (n = {processCount})</span>
             </div>
@@ -595,7 +611,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
             </div>
           </div>
 
-          <div className="space-y-4 bg-white rounded-lg shadow p-4">
+          <div className="space-y-4 bg-white rounded-xl shadow ring-1 ring-gray-200 p-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold block mb-1">Rounds  (R)</label>
@@ -657,7 +673,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
             </div>
           </div>
 
-          <div className="space-y-3 bg-blue-50 border border-blue-200 rounded p-4">
+          <div className="space-y-3 bg-blue-50 border border-blue-200 rounded-xl p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-semibold text-blue-900">Consensus validity criterion</p>
@@ -687,15 +703,18 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
                 />
                 <span className="font-medium text-gray-700">{opt.label}</span>
               </label>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
 
-          <div className="space-y-3 bg-white rounded-lg shadow p-4">
-            <label className="text-xs font-semibold">Delivery models</label>
+          <div className="space-y-3 bg-white rounded-xl shadow ring-1 ring-gray-200 p-4">
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-semibold">Delivery models</label>
+              <span className="text-[11px] text-gray-500">(multiselect)</span>
+            </div>
             <div className="space-y-1 bg-gray-50 p-2 rounded border border-gray-200">
               {DELIVERY_MODE_OPTIONS.map((mode) => (
-                <label key={mode.id} className="flex items-center text-xs">
+                <label key={mode.id} className="flex items-center text-xs px-2 py-1 rounded hover:bg-white transition">
                   <input
                     type="checkbox"
                     className="mr-2"
@@ -703,13 +722,15 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
                     onChange={(e) => toggleDeliveryMode(mode.id, e.target.checked)}
                     disabled={isRunning}
                   />
-                  <span>{mode.title}</span>
+                  <span className={`px-2 py-0.5 rounded-full border text-[11px] ${modeBadgeClass(mode.id)}`}>
+                    {mode.title}
+                  </span>
                 </label>
               ))}
             </div>
           </div>
 
-          <div className="space-y-3 bg-white rounded-lg shadow p-4">
+          <div className="space-y-3 bg-white rounded-xl shadow ring-1 ring-gray-200 p-4">
             <label className="text-xs font-semibold">Protocol catalog</label>
             <div className="grid grid-cols-2 gap-2">
               {BASE_RULES.map((rule) => {
@@ -743,7 +764,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
             </p>
           </div>
 
-          <div className="space-y-3 bg-white rounded-lg shadow p-4">
+          <div className="space-y-3 bg-white rounded-xl shadow ring-1 ring-gray-200 p-4">
             <label className="text-xs font-semibold">Meeting points (AMP / Recursive AMP)</label>
             <div className="flex items-center gap-2">
               <input
@@ -787,7 +808,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
             </div>
             <div className="flex flex-wrap gap-2 mt-2">
               {meetingPoints.map((mp) => (
-                <span key={mp} className="px-2 py-1 text-xs bg-gray-100 border rounded flex items-center gap-1">
+                <span key={mp} className="px-2 py-1 text-[11px] bg-gray-100 border rounded-full flex items-center gap-1 shadow-sm">
                   a={mp}
                   <button
                     className="text-gray-500 hover:text-red-600"
@@ -809,7 +830,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
             </p>
           </div>
 
-          <div className="space-y-3 bg-white rounded-lg shadow p-4">
+          <div className="space-y-3 bg-white rounded-xl shadow ring-1 ring-gray-200 p-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <label className="text-xs font-semibold block mb-1">Chart top-k</label>
@@ -888,8 +909,8 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
                   {isRunning ? 'Cancel' : 'Run'}
                 </button>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${progress}%` }}></div>
+              <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden shadow-inner">
+                <div className="h-2 rounded-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" style={{ width: `${progress}%` }}></div>
               </div>
               <p className="text-xs text-gray-600">{status}</p>
             </div>
@@ -897,7 +918,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
         </div>
 
         <div className="xl:flex-1 space-y-6">
-          <div className="bg-white rounded border p-5 shadow-sm space-y-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-lg space-y-4">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
               <div>
                 <h4 className="text-base font-semibold">Probability of correct consensus vs p</h4>
@@ -917,7 +938,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
 
             {chartPolicies.length === 0 ? (
               <div className="h-64 flex items-center justify-center text-sm text-gray-500">
-                Run policy search to see curves.
+                Run protocol search to see curves.
               </div>
             ) : (
               <div className={chartHeightMode === 'tall' ? 'h-[540px]' : 'h-88'}>
@@ -956,7 +977,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
                       }}
                       labelFormatter={(v) => `p=${Number(v).toFixed(3)}`}
                     />
-                  <Legend />
+                    <Legend />
                     {chartPolicies.filter((policy) => visibleSet.has(policy.id)).map((policy, idx) => (
                       <Line
                         key={policy.id}
@@ -978,7 +999,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
             )}
           </div>
 
-          <div className="bg-white rounded border p-5 shadow-sm space-y-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-lg space-y-4">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
               <div>
                 <h4 className="text-base font-semibold">Average discrepancy vs p (lower is better)</h4>
@@ -988,7 +1009,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
 
             {chartPolicies.length === 0 ? (
               <div className="h-64 flex items-center justify-center text-sm text-gray-500">
-                Run policy search to see curves.
+                Run protocol search to see curves.
               </div>
             ) : (
               <div className={chartHeightMode === 'tall' ? 'h-[540px]' : 'h-88'}>
@@ -1043,7 +1064,7 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
             )}
           </div>
 
-          <div className="bg-white border rounded p-4 shadow-sm">
+          <div className="bg-white border rounded-xl p-4 shadow-lg">
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-sm font-semibold">Protocols table (sorted by avg success)</h4>
               <span className="text-xs text-gray-500">Showing {tablePolicies.length} of {sortedPolicies.length}</span>
@@ -1095,14 +1116,22 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
                             </div>
                             <div className="text-[11px] text-gray-500">Rounds: {policy.sequence.length}</div>
                           </td>
-                          <td className="px-2 py-1">{policy.deliveryMode}</td>
-                          <td className="px-2 py-1 text-right">{policy.averageSuccess.toFixed(3)}</td>
-                          <td className="px-2 py-1 text-right">{policy.averageDiscrepancy.toFixed(3)}</td>
-                          <td className="px-2 py-1 text-right">
+                          <td className="px-2 py-1">
+                            <span className={`px-2 py-0.5 text-[11px] rounded-full ${modeBadgeClass(policy.deliveryMode)}`}>
+                              {policy.deliveryMode}
+                            </span>
+                          </td>
+                          <td className="px-2 py-1 text-right font-mono">{policy.averageSuccess.toFixed(3)}</td>
+                          <td className="px-2 py-1 text-right font-mono">{policy.averageDiscrepancy.toFixed(3)}</td>
+                          <td className="px-2 py-1 text-right font-mono">
                             {policy.averageConsensusRound ? policy.averageConsensusRound.toFixed(2) : '—'}
                           </td>
-                          <td className="px-2 py-1 text-right">
-                            {bestEntry ? `p=${bestEntry.p.toFixed(2)} (${bestEntry.successRate.toFixed(2)})` : '—'}
+                          <td className="px-2 py-1 text-right text-[11px]">
+                            {bestEntry ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 border border-blue-200">
+                                p={bestEntry.p.toFixed(2)} ({bestEntry.successRate.toFixed(2)})
+                              </span>
+                            ) : '—'}
                           </td>
                         </tr>
                       );

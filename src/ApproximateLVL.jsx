@@ -5587,6 +5587,13 @@ function runRangeExperiments() {
   setIsRunning(true);
   setProgress(0);
   setCurrentRepetition(0);
+  const yieldEvery = 20;
+  const maybeYield = async (step = 0) => {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    if (step % yieldEvery === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  };
 
   // Modo y valores iniciales
   const initialProcessValues = dimensionMode === 'binary'
@@ -5697,7 +5704,7 @@ function runRangeExperiments() {
 
   let currentRep = 0;
 
-  function runNextRepetition() {
+  async function runNextRepetition() {
     if (cancelRef.current) {
       setIsRunning(false);
       setProgress(100);
@@ -5755,6 +5762,7 @@ function runRangeExperiments() {
 
     // Una repetición completa
     let resultIndex = 0;
+    let stepCounter = 0;
     for (const p of allProbabilities) {
       if (cancelRef.current) break;
 
@@ -5884,6 +5892,8 @@ function runRangeExperiments() {
           }
 
           resultIndex++;
+          stepCounter++;
+          await maybeYield(stepCounter);
         }
       }
     }
@@ -5893,7 +5903,9 @@ function runRangeExperiments() {
     setProgress(progressValue);
 
     currentRep++;
-    setTimeout(runNextRepetition, 10);
+    setTimeout(() => {
+      runNextRepetition();
+    }, 10);
   }
 
   const startMessage = dimensionMode === 'barycentric'
@@ -6308,7 +6320,7 @@ function runRangeExperiments() {
   }
 
   return (
-    <div className="bg-gray-100 p-4 rounded-lg">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 p-4 rounded-lg">
       {/* Save Experiment Modal */}
       <SaveExperimentModal 
         showSaveModal={showSaveModal}
@@ -6321,14 +6333,14 @@ function runRangeExperiments() {
       />
       
       {/* Header */}
-      <header className="bg-white shadow rounded-lg mb-6">
-        <div className="px-4 py-4 flex items-center">
+      <header className="bg-gradient-to-r from-blue-50 to-white shadow-lg rounded-xl mb-6 border border-blue-100 ring-1 ring-blue-100/60">
+        <div className="px-5 py-4 flex items-center">
           <div className="w-12 h-12 mr-4">
             <AppLogo />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">ApproximateLVL</h1>
-            <p className="text-sm text-gray-500">Multi-Process Distributed Computing Agreement Simulator</p>
+            <p className="text-sm text-gray-600">Multi-Process Distributed Computing Agreement Simulator</p>
           </div>
         </div>
       </header>
@@ -6340,7 +6352,7 @@ function runRangeExperiments() {
               
         {/* ======== SIDEBAR / SIMULATION PARAMETERS (COMPLETO) ======== */}
         <div className={`lg:w-1/4 flex-shrink-0 ${activeTab === 'policy-search' ? 'hidden' : ''}`}>
-          <div className="bg-white rounded-lg shadow p-6 mb-6 space-y-6">
+          <div className="bg-white rounded-xl shadow-lg ring-1 ring-gray-200 p-6 mb-6 space-y-6">
             <h2 className="text-lg font-semibold">⚙️ Simulation Parameters</h2>
 
             {/* Toggle Binary / Multi-Dimensional */}
@@ -7167,18 +7179,18 @@ function runRangeExperiments() {
           </div>
 
           {/* Event Log (mantén igual) */}
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <div className="bg-white rounded-xl shadow-lg ring-1 ring-gray-200 p-6 mb-6">
             <div className="flex justify-between items-center mb-2">
               <h3 className="text-sm font-semibold">Event Log</h3>
               <button
                 onClick={() => setShowLogs(!showLogs)}
-                className="text-xs bg-gray-100 hover:bg-gray-200 py-1 px-2 rounded"
+                className="text-xs bg-gray-100 hover:bg-gray-200 py-1 px-2 rounded shadow-sm"
               >
                 {showLogs ? 'Hide' : 'Show'} Log
               </button>
             </div>
             {showLogs && (
-              <div className="h-40 overflow-y-auto bg-gray-50 p-2 rounded text-xs font-mono space-y-1">
+              <div className="h-40 overflow-y-auto bg-gray-50 p-2 rounded-lg text-xs font-mono space-y-1 border border-gray-200">
                 {logs.map((log, index) => {
                   const isError   = log.includes("ERROR");
                   const isWarning = log.includes("WARNING");
@@ -7201,28 +7213,28 @@ function runRangeExperiments() {
           {/* Main Content Area */}
           <div className="lg:flex-1">
             <div className="border-b border-gray-200 mb-4">
-              <nav className="flex">
+              <nav className="flex bg-white rounded-lg shadow-sm ring-1 ring-gray-200 p-1 space-x-1">
                 <button 
                   onClick={() => setActiveTab('theory')}
-                  className={`px-4 py-2 font-medium text-sm ${activeTab === 'theory' ? 'border-b-2 border-green-500 text-green-600' : 'text-gray-500 hover:text-gray-700'}`}
+                  className={`px-4 py-2 font-medium text-sm rounded-md transition ${activeTab === 'theory' ? 'bg-green-50 text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                   📐 Theoretical Comparison
                 </button>
                 <button 
                   onClick={() => setActiveTab('statistics')}
-                  className={`px-4 py-2 font-medium text-sm ${activeTab === 'statistics' ? 'border-b-2 border-green-500 text-green-600' : 'text-gray-500 hover:text-gray-700'}`}
+                  className={`px-4 py-2 font-medium text-sm rounded-md transition ${activeTab === 'statistics' ? 'bg-green-50 text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                   📊 Statistical Analysis
                 </button>
                 <button 
                   onClick={() => setActiveTab('policy-search')}
-                  className={`px-4 py-2 font-medium text-sm ${activeTab === 'policy-search' ? 'border-b-2 border-green-500 text-green-600' : 'text-gray-500 hover:text-gray-700'}`}
+                  className={`px-4 py-2 font-medium text-sm rounded-md transition ${activeTab === 'policy-search' ? 'bg-green-50 text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                   🧭 Protocol Search
                 </button>
                 <button 
                   onClick={() => setActiveTab('saved')}
-                  className={`px-4 py-2 font-medium text-sm ${activeTab === 'saved' ? 'border-b-2 border-green-500 text-green-600' : 'text-gray-500 hover:text-gray-700'}`}
+                  className={`px-4 py-2 font-medium text-sm rounded-md transition ${activeTab === 'saved' ? 'bg-green-50 text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                   💾 Saved Experiments
                 </button>
