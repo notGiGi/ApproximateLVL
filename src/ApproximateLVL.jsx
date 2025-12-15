@@ -4574,6 +4574,11 @@ const handleLoadConfig = () => {
   setSelectedDeliveryModes(config.selectedDeliveryModes || [config.deliveryMode || 'standard']);
   setFvMethod(config.fvMethod || "average");
   if (config.conditionedK) setConditionedK(config.conditionedK);
+  if (Array.isArray(config.selectedAlgorithms) && config.selectedAlgorithms.length > 0) {
+    setSelectedAlgorithms(config.selectedAlgorithms);
+  } else if (config.algorithm) {
+    setSelectedAlgorithms([config.algorithm]);
+  }
 
   addLog("Configuration loaded successfully", "success");
   setCopyMessage("Configuration loaded!");
@@ -4591,6 +4596,7 @@ const handleGenerateConfig = () => {
     customSteps:    rangeExperiments.customSteps,
     customStepValue:rangeExperiments.customStepValue,
     algorithm:      forcedAlgorithm,
+    selectedAlgorithms,
     fvMethod:       fvMethod,
     meetingPoint:   meetingPoint,
     rounds:         rounds,
@@ -7639,9 +7645,38 @@ function runRangeExperiments() {
               <div>
                 {experimentalResults && experimentalResults.length > 0 ? (
                   <div>
-                    <div className="bg-white rounded-lg shadow p-4 mb-4">
-                      <h3 className="text-lg font-semibold mb-3">Statistical Analysis</h3>
-                      
+                    <div className="bg-gradient-to-r from-emerald-50 via-white to-sky-50 rounded-2xl shadow-lg ring-1 ring-emerald-100 p-6 mb-6">
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-emerald-600 font-semibold">Distribution insights</p>
+                          <h3 className="text-2xl font-bold text-gray-900">Statistical Analysis</h3>
+                          <p className="text-sm text-gray-600 mt-1">
+                            Explora dispersión, error vs teoría y ranking por algoritmo en todos los puntos de p simulados.
+                          </p>
+                        </div>
+                        <div className="flex gap-3">
+                          <div className="px-4 py-3 bg-white rounded-xl shadow-sm border border-emerald-100">
+                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Samples</p>
+                            <p className="text-xl font-semibold text-gray-900">
+                              {(() => {
+                                const all = experimentalResults.flatMap(r => r.discrepancies || []);
+                                return all.length || experimentalResults.length;
+                              })()}
+                            </p>
+                          </div>
+                          <div className="px-4 py-3 bg-white rounded-xl shadow-sm border border-emerald-100">
+                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Algorithms</p>
+                            <p className="text-xl font-semibold text-gray-900">
+                              {(() => {
+                                const names = new Set();
+                                experimentalResults.forEach(r => names.add(r.algorithm || r.displayAlgorithm || 'Unknown'));
+                                return names.size;
+                              })()}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
                       {/* Detectar algoritmos únicos en los resultados */}
                       {(() => {
                         // Agrupar resultados por algoritmo
@@ -7665,9 +7700,81 @@ function runRangeExperiments() {
                         
                         const processCount = processValues.length;
                         const isConditioned = deliveryMode === 'guaranteed';
+
+                        // Resumen global
+                        const flattenDiscrepancies = experimentalResults.flatMap(r =>
+                          Array.isArray(r.discrepancies) && r.discrepancies.length > 0
+                            ? r.discrepancies
+                            : (typeof r.discrepancy === 'number' ? [r.discrepancy] : [])
+                        );
+                        const globalMean = flattenDiscrepancies.length
+                          ? flattenDiscrepancies.reduce((a, b) => a + b, 0) / flattenDiscrepancies.length
+                          : 0;
+                        const globalMin = flattenDiscrepancies.length ? Math.min(...flattenDiscrepancies) : 0;
+                        const globalMax = flattenDiscrepancies.length ? Math.max(...flattenDiscrepancies) : 0;
+                        const algoRanking = uniqueAlgorithms.map(algo => {
+                          const values = (algorithmGroups[algo] || []).flatMap(r =>
+                            Array.isArray(r.discrepancies) && r.discrepancies.length > 0
+                              ? r.discrepancies
+                              : (typeof r.discrepancy === 'number' ? [r.discrepancy] : [])
+                          );
+                          const mean = values.length
+                            ? values.reduce((a, b) => a + b, 0) / values.length
+                            : Infinity;
+                          return { algo, mean, count: values.length };
+                        }).sort((a, b) => a.mean - b.mean);
+                        const bestAlgo = algoRanking[0];
+                        const worstAlgo = algoRanking[algoRanking.length - 1];
+
+                        const summaryCard = (title, value, helper, accent) => (
+                          <div className={`rounded-xl p-4 bg-white border ${accent} shadow-sm`}>
+                            <p className="text-xs uppercase tracking-wide text-gray-500">{title}</p>
+                            <p className="text-xl font-semibold text-gray-900">{value}</p>
+                            <p className="text-xs text-gray-500">{helper}</p>
+                          </div>
+                        );
+
+                        const heroExperiment = (() => {
+                          let pick = null;
+                          experimentalResults.forEach(r => {
+                            const disc = typeof r.discrepancy === 'number' ? r.discrepancy : null;
+                            if (disc === null) return;
+                            if (!pick || disc < pick.discrepancy) pick = r;
+                          });
+                          return pick;
+                        })();
                         
                         return (
                           <>
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-5">
+                              {summaryCard('Global mean discrepancy', globalMean.toFixed(6), 'Across all p and repetitions', 'border-emerald-100')}
+                              {summaryCard('Best observed', globalMin.toFixed(6), 'Minimum discrepancy reached', 'border-blue-100')}
+                              {summaryCard('Worst observed', globalMax.toFixed(6), 'Maximum discrepancy measured', 'border-rose-100')}
+                              {bestAlgo && summaryCard('Top algorithm', bestAlgo.algo, `avg ${bestAlgo.mean.toFixed(6)} (${bestAlgo.count} pts)`, 'border-amber-100')}
+                            </div>
+
+                            {heroExperiment && (
+                              <div className="mb-5 rounded-xl border border-emerald-100 bg-white/90 shadow-sm p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                <div>
+                                  <p className="text-xs uppercase tracking-wide text-emerald-600 font-semibold">Best run snapshot</p>
+                                  <p className="text-sm text-gray-700">
+                                    p = {heroExperiment.p?.toFixed(3) ?? '—'} · {heroExperiment.algorithm}
+                                    {heroExperiment.mode ? ` · ${heroExperiment.mode}` : ''}
+                                  </p>
+                                </div>
+                                <div className="flex gap-3 text-sm">
+                                  <div className="px-3 py-2 rounded-lg bg-emerald-50 text-emerald-700 font-semibold">
+                                    Discrepancy {heroExperiment.discrepancy?.toFixed(6) ?? '—'}
+                                  </div>
+                                  {heroExperiment.theoretical != null && (
+                                    <div className="px-3 py-2 rounded-lg bg-blue-50 text-blue-700 font-semibold">
+                                      Theory {heroExperiment.theoretical?.toFixed(6)}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
                             {/* Advertencia sobre limitaciones teóricas */}
                             {processCount > 2 && (
                               <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
@@ -7692,11 +7799,17 @@ function runRangeExperiments() {
                             {hasMultipleAlgorithms ? (
                               // Vista para múltiples algoritmos
                               <div className="space-y-4">
-                                <div className="text-sm text-gray-600 mb-2">
-                                  Comparing {uniqueAlgorithms.length} algorithms: {uniqueAlgorithms.join(', ')}
+                                <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
+                                  <span>Comparing {uniqueAlgorithms.length} algorithms: {uniqueAlgorithms.join(', ')}</span>
+                                  {bestAlgo && worstAlgo && (
+                                    <div className="flex gap-2 text-xs">
+                                      <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Best · {bestAlgo.algo}</span>
+                                      <span className="px-2 py-1 rounded-full bg-rose-100 text-rose-700 font-semibold">Worst · {worstAlgo.algo}</span>
+                                    </div>
+                                  )}
                                 </div>
                                 
-                                {uniqueAlgorithms.map((algorithm, algoIdx) => {
+                                {uniqueAlgorithms.map((algorithm) => {
                                   const algoResults = algorithmGroups[algorithm];
                                   const isPaperAlgo = PAPER_ALGORITHMS.includes(algorithm);
                                   const showTheory = hasTheoreticalSupport(algorithm);
@@ -7721,10 +7834,10 @@ function runRangeExperiments() {
                                   const cv = avgDiscrepancy !== 0 ? (stdDev / Math.abs(avgDiscrepancy)) * 100 : 0;
                                   
                                   return (
-                                    <div key={algorithm} className="border rounded-lg p-3">
-                                      <div className="flex items-center justify-between mb-2">
-                                        <h4 className="font-medium flex items-center gap-2">
-                                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                    <div key={algorithm} className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm">
+                                      <div className="flex items-center justify-between mb-3">
+                                        <h4 className="font-semibold flex items-center gap-2 text-gray-900">
+                                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                                             algorithm === "AMP" ? "bg-green-100 text-green-800" : 
                                             algorithm === "FV" ? "bg-red-100 text-red-800" :
                                             isPaperAlgo ? "bg-blue-100 text-blue-800" :
@@ -7734,7 +7847,10 @@ function runRangeExperiments() {
                                           </span>
                                           {!isPaperAlgo && <span className="text-xs text-gray-500">(Experimental)</span>}
                                         </h4>
-                                        <span className="text-xs text-gray-500">{algoResults.length} data points</span>
+                                        <div className="text-xs text-gray-500 flex items-center gap-2">
+                                          <span className="px-2 py-0.5 bg-gray-100 rounded">n={algoResults.length}</span>
+                                          {showTheory && <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded">Theory available</span>}
+                                        </div>
                                       </div>
                                       
                                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
@@ -7759,7 +7875,7 @@ function runRangeExperiments() {
                                       </div>
                                       
                                       {showTheory && (
-                                        <div className="mt-2 pt-2 border-t">
+                                        <div className="mt-3 pt-3 border-t border-gray-100">
                                           <p className="text-xs text-gray-600 mb-1">Theoretical Comparison (Paper Algorithm):</p>
                                           {(() => {
                                             const theoreticalErrors = algoResults
@@ -7788,24 +7904,24 @@ function runRangeExperiments() {
                               </div>
                             ) : (
                               // Vista para un solo algoritmo - tabla tradicional
-                              <div>
+                              <div className="border border-gray-200 bg-white rounded-xl shadow-sm">
                                 <div className="overflow-x-auto">
                                   <table className="min-w-full divide-y divide-gray-200">
                                     <thead className="bg-gray-50">
                                       <tr>
-                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">P</th>
-                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Algorithm</th>
-                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Experimental</th>
-                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Samples</th>
+                                        <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">P</th>
+                                        <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Algorithm</th>
+                                        <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Experimental</th>
+                                        <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Samples</th>
                                         {hasTheoreticalSupport(uniqueAlgorithms[0]) && (
                                           <>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Theoretical</th>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Error</th>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Error %</th>
+                                            <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Theoretical</th>
+                                            <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Error</th>
+                                            <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Error %</th>
                                           </>
                                         )}
-                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Std Dev</th>
-                                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">CV %</th>
+                                        <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Std Dev</th>
+                                        <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">CV %</th>
                                       </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
@@ -7897,8 +8013,8 @@ function runRangeExperiments() {
                             {/* Sección de estadísticas agregadas */}
                             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                               {/* Estadísticas generales */}
-                              <div className="p-3 bg-blue-50 rounded-lg">
-                                <h4 className="font-medium mb-2">Overall Statistics</h4>
+                              <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 shadow-sm">
+                                <h4 className="font-semibold mb-2 text-blue-900">Overall Statistics</h4>
                                 {(() => {
                                   const allDiscrepancies = [];
                                   experimentalResults.forEach(r => {
@@ -7920,17 +8036,17 @@ function runRangeExperiments() {
                                   const stderr = stdDev / Math.sqrt(allDiscrepancies.length);
                                   
                                   return (
-                                    <ul className="text-sm space-y-1">
-                                      <li><span className="font-medium">Mean Discrepancy:</span> {avgDiscrepancy.toFixed(6)}</li>
-                                      <li><span className="font-medium">Standard Deviation:</span> {stdDev.toFixed(6)}</li>
-                                      <li><span className="font-medium">Coefficient of Variation:</span> {cv.toFixed(2)}%</li>
-                                      <li><span className="font-medium">Standard Error:</span> {stderr.toFixed(6)}</li>
-                                      <li><span className="font-medium">95% CI:</span> [{
+                                    <ul className="text-sm space-y-1 text-blue-900">
+                                      <li><span className="font-semibold">Mean Discrepancy:</span> {avgDiscrepancy.toFixed(6)}</li>
+                                      <li><span className="font-semibold">Standard Deviation:</span> {stdDev.toFixed(6)}</li>
+                                      <li><span className="font-semibold">Coefficient of Variation:</span> {cv.toFixed(2)}%</li>
+                                      <li><span className="font-semibold">Standard Error:</span> {stderr.toFixed(6)}</li>
+                                      <li><span className="font-semibold">95% CI:</span> [{
                                         (avgDiscrepancy - 1.96 * stderr).toFixed(6)
                                       }, {
                                         (avgDiscrepancy + 1.96 * stderr).toFixed(6)
                                       }]</li>
-                                      <li><span className="font-medium">Total Samples:</span> {allDiscrepancies.length}</li>
+                                      <li><span className="font-semibold">Total Samples:</span> {allDiscrepancies.length}</li>
                                     </ul>
                                   );
                                 })()}
@@ -7938,8 +8054,8 @@ function runRangeExperiments() {
                               
                               {/* Análisis por algoritmo si hay múltiples */}
                               {hasMultipleAlgorithms && (
-                                <div className="p-3 bg-green-50 rounded-lg">
-                                  <h4 className="font-medium mb-2">Algorithm Performance</h4>
+                                <div className="p-4 bg-green-50 rounded-lg border border-green-100 shadow-sm">
+                                  <h4 className="font-semibold mb-2 text-green-900">Algorithm Performance</h4>
                                   {(() => {
                                     const algoStats = uniqueAlgorithms.map(algo => {
                                       const algoResults = algorithmGroups[algo];
@@ -7962,26 +8078,22 @@ function runRangeExperiments() {
                                     const worst = algoStats[algoStats.length - 1];
                                     
                                     return (
-                                      <div className="text-sm space-y-2">
-                                        <div>
-                                          <p className="text-green-700">
-                                            <strong>Best Performance:</strong> {best.algo}
-                                            <span className="ml-1 font-mono">({best.mean.toFixed(6)})</span>
-                                          </p>
+                                      <div className="text-sm space-y-2 text-green-900">
+                                        <div className="flex flex-wrap gap-2">
+                                          <span className="px-2 py-1 rounded bg-white text-emerald-700 border border-emerald-100 font-semibold">
+                                            Best: {best.algo} ({best.mean.toFixed(6)})
+                                          </span>
+                                          {algoStats.length > 1 && (
+                                            <span className="px-2 py-1 rounded bg-white text-amber-700 border border-amber-100 font-semibold">
+                                              Worst: {worst.algo} ({worst.mean.toFixed(6)})
+                                            </span>
+                                          )}
                                         </div>
-                                        {algoStats.length > 1 && (
-                                          <div>
-                                            <p className="text-orange-700">
-                                              <strong>Worst Performance:</strong> {worst.algo}
-                                              <span className="ml-1 font-mono">({worst.mean.toFixed(6)})</span>
-                                            </p>
-                                          </div>
-                                        )}
                                         {algoStats.length > 2 && (
-                                          <div className="mt-2 pt-2 border-t border-green-300">
-                                            <p className="font-medium mb-1">Ranking:</p>
-                                            <ol className="list-decimal list-inside">
-                                              {algoStats.map((stat, idx) => (
+                                          <div className="mt-1 pt-2 border-t border-green-200">
+                                            <p className="font-semibold mb-1">Ranking:</p>
+                                            <ol className="list-decimal list-inside space-y-1">
+                                              {algoStats.map((stat) => (
                                                 <li key={stat.algo} className="text-xs">
                                                   {stat.algo}: {stat.mean.toFixed(6)}
                                                 </li>
@@ -7997,7 +8109,7 @@ function runRangeExperiments() {
                             </div>
                             
                             {/* Información adicional */}
-                            <div className="mt-4 p-3 bg-gray-50 rounded text-xs text-gray-600">
+                            <div className="mt-4 p-3 bg-gray-50 rounded text-xs text-gray-600 border border-gray-200">
                               <p className="mb-1">
                                 <strong>Note:</strong> Statistics shown are based on {experimentalResults.length} probability points
                                 {rounds > 1 && ` over ${rounds} rounds`}.
@@ -8121,6 +8233,20 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
     
     addLog(`Experiment "${experiment.metadata?.name}" exported`, "success");
   };
+
+  const totalExperiments = savedExperiments.length;
+  const totalResults = savedExperiments.reduce((acc, exp) => acc + (exp.results?.length || 0), 0);
+  const avgRounds = totalExperiments
+    ? savedExperiments.reduce((acc, exp) => acc + (exp.parameters?.rounds || 0), 0) / totalExperiments
+    : 0;
+  const avgProcesses = totalExperiments
+    ? savedExperiments.reduce((acc, exp) => acc + (exp.parameters?.processCount || 0), 0) / totalExperiments
+    : 0;
+  const algoPalette = (() => {
+    const set = new Set();
+    savedExperiments.forEach(exp => set.add(exp.parameters?.algorithm || 'Unknown'));
+    return Array.from(set);
+  })();
   
   if (savedExperiments.length === 0) {
     return (
@@ -8148,22 +8274,55 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
   
   return (
     <div className="space-y-4">
+      <div className="bg-gradient-to-r from-sky-50 via-white to-emerald-50 rounded-2xl border border-emerald-100 shadow p-5">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-emerald-600 font-semibold">Saved experiments</p>
+            <h3 className="text-xl font-bold text-gray-900">Experiment Laboratory</h3>
+            
+          </div>
+          {selectedExperiments.length > 0 && (
+            <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-sm font-semibold">
+              {selectedExperiments.length} selected
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-white border border-emerald-100 rounded-xl p-3 shadow-sm">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Total</p>
+            <p className="text-xl font-semibold text-gray-900">{totalExperiments}</p>
+            <p className="text-xs text-gray-500">Experiments stored</p>
+          </div>
+          <div className="bg-white border border-emerald-100 rounded-xl p-3 shadow-sm">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Algorithms</p>
+            <p className="text-xl font-semibold text-gray-900">{algoPalette.length}</p>
+            <p className="text-xs text-gray-500">{algoPalette.join(', ') || '—'}</p>
+          </div>
+          <div className="bg-white border border-emerald-100 rounded-xl p-3 shadow-sm">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Avg rounds</p>
+            <p className="text-xl font-semibold text-gray-900">{avgRounds.toFixed(1)}</p>
+            <p className="text-xs text-gray-500">per experiment</p>
+          </div>
+          <div className="bg-white border border-emerald-100 rounded-xl p-3 shadow-sm">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500">Processes</p>
+            <p className="text-xl font-semibold text-gray-900">{avgProcesses.toFixed(1)}</p>
+            <p className="text-xs text-gray-500">average</p>
+          </div>
+        </div>
+      </div>
+
       {/* Control Panel */}
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-white rounded-2xl shadow p-4 border border-gray-100">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold">
-            Experimental Comparison Laboratory
-            {selectedExperiments.length > 0 && (
-              <span className="ml-2 text-sm text-blue-600">
-                ({selectedExperiments.length} selected)
-              </span>
-            )}
-          </h3>
+          <div className="space-y-1">
+            <h3 className="text-lg font-semibold">Experimental Comparison Laboratory</h3>
+            <p className="text-xs text-gray-500">Selecciona hasta 5 experimentos para una comparación profunda.</p>
+          </div>
           
           <div className="flex gap-2">
             <button
               onClick={() => setFilterSettings(prev => ({...prev, showFilters: !prev.showFilters}))}
-              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded"
+              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded shadow-sm"
             >
               {filterSettings.showFilters ? '🔽' : '▶️'} Filters
             </button>
@@ -8173,7 +8332,7 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
                 <button
                   onClick={() => setComparisonMode('probability')}
                   className={`px-3 py-1 text-sm rounded ${
-                    comparisonMode === 'probability' ? 'bg-blue-600 text-white' : 'bg-gray-100'
+                    comparisonMode === 'probability' ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100'
                   }`}
                 >
                   P-Curve
@@ -8182,7 +8341,7 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
                 <button
                   onClick={() => setComparisonMode('overview')}
                   className={`px-3 py-1 text-sm rounded ${
-                    comparisonMode === 'overview' ? 'bg-blue-600 text-white' : 'bg-gray-100'
+                    comparisonMode === 'overview' ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100'
                   }`}
                 >
                   Overview
@@ -8190,7 +8349,7 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
                 <button
                   onClick={() => setComparisonMode('convergence')}
                   className={`px-3 py-1 text-sm rounded ${
-                    comparisonMode === 'convergence' ? 'bg-blue-600 text-white' : 'bg-gray-100'
+                    comparisonMode === 'convergence' ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100'
                   }`}
                 >
                   Convergence
@@ -8198,7 +8357,7 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
                 <button
                   onClick={() => setComparisonMode('performance')}
                   className={`px-3 py-1 text-sm rounded ${
-                    comparisonMode === 'performance' ? 'bg-blue-600 text-white' : 'bg-gray-100'
+                    comparisonMode === 'performance' ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100'
                   }`}
                 >
                   Performance
@@ -8210,7 +8369,7 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
             {selectedExperiments.length > 0 && (
               <button
                 onClick={() => setSelectedExperiments([])}
-                className="px-3 py-1 text-sm bg-red-100 hover:bg-red-200 text-red-600 rounded"
+                className="px-3 py-1 text-sm bg-red-50 hover:bg-red-100 text-red-700 rounded shadow-sm"
               >
                 Clear
               </button>
@@ -8220,13 +8379,13 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
         
         {/* Filters */}
         {filterSettings.showFilters && (
-          <div className="border-t pt-3 grid grid-cols-3 gap-3">
+          <div className="border-t pt-3 grid grid-cols-3 gap-3 bg-gray-50 rounded-xl p-3 mt-2">
             <div>
               <label className="block text-xs text-gray-600 mb-1">Algorithm</label>
               <select
                 value={filterSettings.algorithm}
                 onChange={(e) => setFilterSettings(prev => ({...prev, algorithm: e.target.value}))}
-                className="w-full p-1 text-sm border rounded"
+                className="w-full p-1 text-sm border rounded bg-white"
               >
                 <option value="all">All Algorithms</option>
                 <option value="AMP">AMP</option>
@@ -8244,7 +8403,7 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
               <select
                 value={filterSettings.processCount}
                 onChange={(e) => setFilterSettings(prev => ({...prev, processCount: e.target.value}))}
-                className="w-full p-1 text-sm border rounded"
+                className="w-full p-1 text-sm border rounded bg-white"
               >
                 <option value="all">Any</option>
                 <option value="2">2 Processes</option>
@@ -8259,7 +8418,7 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
               <select
                 value={filterSettings.rounds}
                 onChange={(e) => setFilterSettings(prev => ({...prev, rounds: e.target.value}))}
-                className="w-full p-1 text-sm border rounded"
+                className="w-full p-1 text-sm border rounded bg-white"
               >
                 <option value="all">Any</option>
                 <option value="1">1 Round</option>
@@ -8314,71 +8473,76 @@ function ExperimentCard({ experiment, isSelected, onToggle, onDelete, onExport }
     Math.max(...experiment.results.map(r => r.discrepancy || 0)) : 0;
   
   return (
-    <div className={`bg-white rounded-lg shadow p-4 ${isSelected ? 'ring-2 ring-blue-500' : ''}`}>
-      <div className="flex justify-between items-start">
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
+    <div className={`bg-white rounded-2xl shadow-sm p-4 border ${isSelected ? 'border-blue-300 ring-2 ring-blue-100' : 'border-gray-100'}`}>
+      <div className="flex justify-between items-start gap-3">
+        <div className="flex-1 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <input
               type="checkbox"
               checked={isSelected}
               onChange={onToggle}
-              className="w-4 h-4"
+              className="w-4 h-4 accent-blue-600"
             />
-            <h4 className="font-medium">{experiment.metadata?.name || 'Unnamed Experiment'}</h4>
-            <span className={`px-2 py-0.5 text-xs rounded ${
-              experiment.parameters?.algorithm === 'AMP' ? 'bg-green-100 text-green-700' :
-              experiment.parameters?.algorithm === 'FV' ? 'bg-red-100 text-red-700' :
-            experiment.parameters?.algorithm === 'RECURSIVE AMP' ? 'bg-purple-100 text-purple-700' :
-            experiment.parameters?.algorithm === 'MIN' ? 'bg-yellow-100 text-yellow-700' :
-            experiment.parameters?.algorithm === 'LEADER' ? 'bg-blue-100 text-blue-700' :
-            'bg-gray-100 text-gray-700'
+            <h4 className="font-semibold text-gray-900">{experiment.metadata?.name || 'Unnamed Experiment'}</h4>
+            <span className={`px-2 py-0.5 text-xs rounded-full border ${
+              experiment.parameters?.algorithm === 'AMP' ? 'bg-green-50 text-green-700 border-green-100' :
+              experiment.parameters?.algorithm === 'FV' ? 'bg-red-50 text-red-700 border-red-100' :
+            experiment.parameters?.algorithm === 'RECURSIVE AMP' ? 'bg-purple-50 text-purple-700 border-purple-100' :
+            experiment.parameters?.algorithm === 'MIN' ? 'bg-yellow-50 text-yellow-700 border-yellow-100' :
+            experiment.parameters?.algorithm === 'LEADER' ? 'bg-blue-50 text-blue-700 border-blue-100' :
+            'bg-gray-50 text-gray-700 border-gray-200'
           }`}>
               {experiment.parameters?.algorithm || 'Unknown'}
             </span>
             {experiment.type === 'range' && (
-              <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
+              <span className="px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded-full border border-blue-100">
                 Range
               </span>
             )}
           </div>
           
-          <div className="mt-2 grid grid-cols-5 gap-4 text-xs text-gray-600">
-            <div>
-              <span className="font-medium">Processes:</span> {experiment.parameters?.processCount || 'N/A'}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs text-gray-600">
+            <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+              <span className="font-semibold text-gray-800 block">Processes</span>
+              <span className="font-mono">{experiment.parameters?.processCount || 'N/A'}</span>
             </div>
-            <div>
-              <span className="font-medium">Rounds:</span> {experiment.parameters?.rounds || 1}
+            <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+              <span className="font-semibold text-gray-800 block">Rounds</span>
+              <span className="font-mono">{experiment.parameters?.rounds || 1}</span>
             </div>
-            <div>
-              <span className="font-medium">Avg Disc:</span> {avgDiscrepancy.toFixed(4)}
+            <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+              <span className="font-semibold text-gray-800 block">Avg Disc</span>
+              <span className="font-mono">{avgDiscrepancy.toFixed(4)}</span>
             </div>
-            <div>
-              <span className="font-medium">Min:</span> {minDiscrepancy.toFixed(4)}
+            <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+              <span className="font-semibold text-gray-800 block">Min</span>
+              <span className="font-mono">{minDiscrepancy.toFixed(4)}</span>
             </div>
-            <div>
-              <span className="font-medium">Max:</span> {maxDiscrepancy.toFixed(4)}
+            <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+              <span className="font-semibold text-gray-800 block">Max</span>
+              <span className="font-mono">{maxDiscrepancy.toFixed(4)}</span>
             </div>
           </div>
         </div>
         
-        <div className="flex gap-1 ml-4">
+        <div className="flex gap-1 ml-1">
           <button
             onClick={() => setExpanded(!expanded)}
-            className="p-1 hover:bg-gray-100 rounded"
+            className="p-2 hover:bg-gray-100 rounded-full text-gray-600 border border-gray-200"
             title="Toggle details"
           >
             {expanded ? '▼' : '▶'}
           </button>
           <button
             onClick={onExport}
-            className="p-1 hover:bg-green-100 rounded text-green-600"
+            className="p-2 hover:bg-green-50 rounded-full text-green-600 border border-green-100"
             title="Export"
           >
             💾
           </button>
           <button
             onClick={onDelete}
-            className="p-1 hover:bg-red-100 rounded text-red-600"
+            className="p-2 hover:bg-red-50 rounded-full text-red-600 border border-red-100"
             title="Delete"
           >
             🗑️
@@ -8389,17 +8553,15 @@ function ExperimentCard({ experiment, isSelected, onToggle, onDelete, onExport }
       {expanded && (
         <div className="mt-3 pt-3 border-t text-sm">
           <p className="text-gray-600">{experiment.metadata?.description || 'No description'}</p>
-          <div className="mt-2 text-xs text-gray-500">
-            <p>Created: {new Date(experiment.metadata?.createdAt || Date.now()).toLocaleString()}</p>
-            {experiment.metadata?.tags && (
-              <div className="mt-1 flex flex-wrap gap-1">
-                {experiment.metadata.tags.map((tag, idx) => (
-                  <span key={idx} className="px-2 py-0.5 bg-gray-100 rounded">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
+          <div className="mt-2 text-xs text-gray-500 flex flex-wrap gap-2">
+            <span className="px-2 py-1 rounded bg-gray-100 border border-gray-200">
+              Created: {new Date(experiment.metadata?.createdAt || Date.now()).toLocaleString()}
+            </span>
+            {experiment.metadata?.tags && experiment.metadata.tags.map((tag, idx) => (
+              <span key={idx} className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded border border-emerald-100">
+                {tag}
+              </span>
+            ))}
           </div>
         </div>
       )}

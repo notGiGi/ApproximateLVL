@@ -264,21 +264,44 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
     // COURTEOUS ahora funciona para cualquier n>=2
     if (algorithm === "COURTEOUS") {
       const allValues = [myValue, ...receivedMessages];
-      const count1 = allValues.filter(v => v === 1).length;
-      const count0 = allValues.filter(v => v === 0).length;
 
-      if (count0 > count1) {
-        newValues[i] = 0;
-      } else if (count1 > count0) {
-        newValues[i] = 1;
-      } else {
-        // Sin mayoría: ser cortés y moverse al valor contrario
-        if (myValue === 0 || myValue === 1) {
-          newValues[i] = 1 - myValue;
+      // Si todos son binarios, aplica la regla clásica de cortesía
+      const allBinary = allValues.every(v => v === 0 || v === 1);
+      if (allBinary) {
+        const count1 = allValues.filter(v => v === 1).length;
+        const count0 = allValues.length - count1;
+        if (count0 > count1) {
+          newValues[i] = 0;
+        } else if (count1 > count0) {
+          newValues[i] = 1;
         } else {
-          // Para valores no binarios, usa umbral 0.5 como binarización ligera
-          const bin = myValue >= 0.5 ? 1 : 0;
-          newValues[i] = bin === 1 ? 0 : 1;
+          newValues[i] = myValue === 0 ? 1 : 0; // empate: ser cortés
+        }
+      } else {
+        // Caso general: mayoría por valor entero redondeado (consenso entero)
+        const roundedValues = allValues.map(v => Math.round(v));
+        const freq = {};
+        roundedValues.forEach(v => { freq[v] = (freq[v] || 0) + 1; });
+        let bestVal = roundedValues[0];
+        let bestCount = freq[bestVal];
+        let tie = false;
+        Object.entries(freq).forEach(([k, count]) => {
+          if (count > bestCount) {
+            bestVal = Number(k);
+            bestCount = count;
+            tie = false;
+          } else if (count === bestCount && Number(k) !== bestVal) {
+            tie = true;
+          }
+        });
+
+        if (!tie) {
+          newValues[i] = bestVal;
+        } else {
+          const myRounded = Math.round(myValue);
+          // En empate, “ser cortés”: si hay otra opción distinta a la mía, tómala; si no, mantén.
+          const alt = Object.keys(freq).map(Number).find(v => v !== myRounded);
+          newValues[i] = alt !== undefined ? alt : myRounded;
         }
       }
     }
