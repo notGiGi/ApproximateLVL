@@ -1,3 +1,56 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Global polish */
+body {
+  background: radial-gradient(circle at 10% 20%, #f8fbff 0, #f6f9ff 25%, #f3f7ff 50%, #eef5ff 75%, #e8f2ff 100%);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color: #0f172a;
+}
+
+button {
+  transition: transform 120ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+button:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+.btn-primary {
+  @apply bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-semibold shadow-md hover:shadow-lg hover:from-emerald-600 hover:to-teal-600 rounded-lg;
+}
+
+.btn-secondary {
+  @apply bg-white text-gray-800 border border-gray-200 hover:border-gray-300 shadow-sm rounded-lg;
+}
+
+.card {
+  @apply bg-white rounded-2xl shadow-lg ring-1 ring-gray-100;
+}
+
+.table-zebra tbody tr:nth-child(even) {
+  background-color: #f9fbff;
+}
+
+.table-header {
+  @apply uppercase tracking-wide text-[11px] font-semibold text-gray-500;
+}
+
+.glass-card {
+  backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 18px 60px rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.pill {
+  @apply inline-flex items-center px-3 py-1 text-xs font-semibold rounded-full;
+}
+
+.table-sticky thead th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  z-index: 5;
+}

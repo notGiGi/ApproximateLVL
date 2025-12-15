@@ -6561,14 +6561,27 @@ function runRangeExperiments() {
             {/* Load / Generate config */}
             <div className="mb-4 space-y-2">
               <h4 className="text-xs font-semibold">Enter the code to load a simulation:</h4>
-              <input
-                type="text"
-                placeholder="Configuration code"
-                value={configCode}
-                onChange={e => setConfigCode(e.target.value)}
-                className="w-full p-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-2 00"
-                disabled={isRunning}
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Configuration code"
+                  value={configCode}
+                  onChange={e => setConfigCode(e.target.value)}
+                  className="w-full p-2 pr-16 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  disabled={isRunning}
+                />
+                {configCode && (
+                  <button
+                    type="button"
+                    onClick={() => setConfigCode("")}
+                    className="absolute inset-y-1 right-1 px-3 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md shadow-sm"
+                    disabled={isRunning}
+                    title="Clear code"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={handleLoadConfig}
@@ -7175,8 +7188,10 @@ function runRangeExperiments() {
                   if (!isRunning) runRangeExperiments();
                   else cancelRangeExperiments();
                 }}
-                className={`w-full py-3 px-4 rounded-md font-semibold text-white ${
-                  isRunning ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
+                className={`w-full py-3 px-4 rounded-lg font-semibold shadow-md transition ${
+                  isRunning
+                    ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white hover:shadow-lg'
+                    : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:shadow-lg'
                 }`}
               >
                 {isRunning ? 'Cancel' : 'Run'}
@@ -7185,9 +7200,9 @@ function runRangeExperiments() {
           </div>
 
           {/* Event Log (mantén igual) */}
-          <div className="bg-white rounded-xl shadow-lg ring-1 ring-gray-200 p-6 mb-6">
+          <div className="card glass-card p-6 mb-6">
             <div className="flex justify-between items-center mb-2">
-              <h3 className="text-sm font-semibold">Event Log</h3>
+              <h3 className="text-sm font-semibold text-gray-800">Event Log</h3>
               <button
                 onClick={() => setShowLogs(!showLogs)}
                 className="text-xs bg-gray-100 hover:bg-gray-200 py-1 px-2 rounded shadow-sm"
@@ -7220,32 +7235,32 @@ function runRangeExperiments() {
           <div className="lg:flex-1">
             <div className="border-b border-gray-200 mb-4">
               <nav className="flex bg-white rounded-lg shadow-sm ring-1 ring-gray-200 p-1 space-x-1">
-                <button 
-                  onClick={() => setActiveTab('theory')}
-                  className={`px-4 py-2 font-medium text-sm rounded-md transition ${activeTab === 'theory' ? 'bg-green-50 text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  📐 Theoretical Comparison
-                </button>
-                <button 
-                  onClick={() => setActiveTab('statistics')}
-                  className={`px-4 py-2 font-medium text-sm rounded-md transition ${activeTab === 'statistics' ? 'bg-green-50 text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  📊 Statistical Analysis
-                </button>
-                <button 
-                  onClick={() => setActiveTab('policy-search')}
-                  className={`px-4 py-2 font-medium text-sm rounded-md transition ${activeTab === 'policy-search' ? 'bg-green-50 text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  🧭 Protocol Search
-                </button>
-                <button 
-                  onClick={() => setActiveTab('saved')}
-                  className={`px-4 py-2 font-medium text-sm rounded-md transition ${activeTab === 'saved' ? 'bg-green-50 text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  💾 Saved Experiments
-                </button>
-              </nav>
-            </div>
+                    <button 
+                      onClick={() => setActiveTab('theory')}
+                      className={`px-4 py-2 font-medium text-sm rounded-md transition ${activeTab === 'theory' ? 'bg-green-100 text-green-800 shadow-sm ring-1 ring-green-200' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      📐 Theoretical Comparison
+                    </button>
+                    <button 
+                      onClick={() => setActiveTab('statistics')}
+                      className={`px-4 py-2 font-medium text-sm rounded-md transition ${activeTab === 'statistics' ? 'bg-green-100 text-green-800 shadow-sm ring-1 ring-green-200' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      📊 Statistical Analysis
+                    </button>
+                    <button 
+                      onClick={() => setActiveTab('policy-search')}
+                      className={`px-4 py-2 font-medium text-sm rounded-md transition ${activeTab === 'policy-search' ? 'bg-green-100 text-green-800 shadow-sm ring-1 ring-green-200' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      🧭 Protocol Search
+                    </button>
+                    <button 
+                      onClick={() => setActiveTab('saved')}
+                      className={`px-4 py-2 font-medium text-sm rounded-md transition ${activeTab === 'saved' ? 'bg-green-100 text-green-800 shadow-sm ring-1 ring-green-200' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      💾 Saved Experiments
+                    </button>
+                  </nav>
+                </div>
             {activeTab === 'multiple-dimensions' && (
               <MultipleDimensionsTab />
             )}
@@ -7281,51 +7296,55 @@ function runRangeExperiments() {
                 />
                 </div>
                 
-                <div className="bg-white rounded-lg shadow p-4 mb-4">
-                  <h3 className="text-lg font-semibold mb-4">Simulation Experiments</h3>
-                  
+                <div className="card glass-card p-5 mb-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-emerald-600 font-semibold">Simulation run</p>
+                      <h3 className="text-xl font-bold text-gray-900">Simulation Experiments</h3>
+                    </div>
+                    {isRunning && (
+                      <span className="pill bg-emerald-50 text-emerald-700 border border-emerald-100">Running…</span>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div className="col-span-1 md:col-span-2">
-                      <div className="mb-4 bg-blue-50 p-3 rounded-lg">
-                        <h4 className="font-bold text-blue-800 mb-2">Theoretical Background:</h4>
-                        <p className="text-sm mb-2">
-                          From the paper, there are algorithms that perform optimally depending on p:
+                      <div className="mb-4 bg-gradient-to-br from-sky-50 to-indigo-50 p-4 rounded-xl border border-indigo-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-bold text-indigo-900">Theoretical Background</h4>
+                          <span className="pill bg-white border border-indigo-100 text-indigo-700">AMP / FV</span>
+                        </div>
+                        <p className="text-sm mb-2 text-gray-700">
+                          From the paper, optimality shifts with p:
                         </p>
-                        <ul className="list-disc pl-5 mb-2 text-sm space-y-1">
-                          <li>
-                            <span className="font-bold">Agreed Meeting Point (AMP)</span>: For p &gt; 0.5
-                          </li>
-                          <li>
-                            <span className="font-bold">Flip Value (FV)</span>: For p &lt;= 0.5
-                          </li>
+                        <ul className="list-disc pl-5 mb-2 text-sm space-y-1 text-gray-800">
+                          <li><span className="font-bold">Agreed Meeting Point (AMP)</span>: p &gt; 0.5</li>
+                          <li><span className="font-bold">Flip Value (FV)</span>: p &lt;= 0.5</li>
                         </ul>
-                        <p className="text-sm">
-                          For n processes with m processes having value 0 and (n-m) having value 1:
-                        </p>
-                        <ul className="list-disc pl-5 mb-2 text-sm space-y-1">
+                        <p className="text-sm text-gray-700">For n processes with m zeros and (n−m) ones:</p>
+                        <ul className="list-disc pl-5 mb-2 text-sm space-y-1 text-gray-800">
                           <li>
-                            <span className="font-bold">AMP(a)</span>: E[D] = 1 - (aA + (1-a)B) where:
-                            <ul className="list-disc pl-5 text-xs mt-1">
-                              <li>A = 1 - q^(n-m) (Probability each 0-player received at least one 1-message)</li>
-                              <li>B = 1 - q^m (Probability each 1-player received at least one 0-message)</li>
+                            <span className="font-bold">AMP(a)</span>: E[D] = 1 − (aA + (1−a)B)
+                            <ul className="list-disc pl-5 text-xs mt-1 text-gray-600">
+                              <li>A = 1 − q^(n−m) (each 0-player got a 1)</li>
+                              <li>B = 1 − q^m (each 1-player got a 0)</li>
                             </ul>
                           </li>
                           <li>
-                            <span className="font-bold">Flip (FV)</span>: E[D] = 1 - (CA + CB) where:
-                            <ul className="list-disc pl-5 text-xs mt-1">
-                              <li>C = q^(m*(n-m)) (Probability no player received any message)</li>
+                            <span className="font-bold">Flip (FV)</span>: E[D] = 1 − (C A + C B)
+                            <ul className="list-disc pl-5 text-xs mt-1 text-gray-600">
+                              <li>C = q^(m·(n−m)) (no player received any msg)</li>
                             </ul>
                           </li>
                         </ul>
                         {processValues.length === 2 && rounds > 1 && (
-                          <div className="bg-white p-2 rounded">
-                            <p className="text-sm font-semibold">Multi-round behavior (from Theorem 3.2):</p>
-                            <p className="text-sm">After k rounds, discrepancy decreases exponentially: 
-                              <ul className="list-disc pl-5 mt-1">
-                                <li>AMP: = (1-p)<sup>k</sup> when p = 1/2</li>
-                                <li>FV: = (p²+q²)<sup>k</sup> when p &lt; 1/2</li>
-                              </ul>
-                            </p>
+                          <div className="bg-white p-3 rounded-lg border border-indigo-100">
+                            <p className="text-sm font-semibold text-indigo-900">Multi-round behavior (Theorem 3.2)</p>
+                            <p className="text-sm text-gray-700">After k rounds, discrepancy decays exponentially:</p>
+                            <ul className="list-disc pl-5 mt-1 text-sm text-gray-800 space-y-1">
+                              <li>AMP: (1−p)<sup>k</sup> when p = 1/2</li>
+                              <li>FV: (p²+q²)<sup>k</sup> when p &lt; 1/2</li>
+                            </ul>
                           </div>
                         )}
                       </div>
@@ -7333,13 +7352,13 @@ function runRangeExperiments() {
                   </div>
 
                   {isRunning && (
-                    <div className="mb-4">
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm">Progress:</span>
-                        <span className="text-sm">{progress}%</span>
+                    <div className="mb-4 bg-white rounded-xl p-3 border border-emerald-100 shadow-sm">
+                      <div className="flex justify-between mb-1 text-sm text-gray-700">
+                        <span>Progress</span>
+                        <span className="font-semibold text-emerald-700">{progress}%</span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${progress}%` }}></div>
+                      <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                        <div className="bg-gradient-to-r from-emerald-500 to-teal-500 h-2 rounded-full" style={{ width: `${progress}%` }}></div>
                       </div>
                       {currentRepetition !== undefined && (
                         <div className="text-xs text-center mt-1 text-gray-600">
@@ -7352,7 +7371,7 @@ function runRangeExperiments() {
                       <div className="mt-6 text-center">
                         <button
                           onClick={prepareRangeExperiment}
-                          className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 transition-colors"
+                          className="px-4 py-2 rounded-lg btn-primary"
                         >
                           💾 Save Experiment
                         </button>
@@ -7564,13 +7583,19 @@ function runRangeExperiments() {
 
                 </div>
                 
-                <ResultsTable 
-                  experimentData={experimentData}
-                  processCount={processCount}
-                  forcedAlgorithm={algorithm}
-                  fvMethod={fvMethod}
-                  rounds={rounds}
-                />
+                <div className="card glass-card p-4 mb-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900">Results Table</h3>
+                    <span className="pill bg-slate-50 border border-slate-200 text-slate-700">Round {rounds}</span>
+                  </div>
+                  <ResultsTable 
+                    experimentData={experimentData}
+                    processCount={processCount}
+                    forcedAlgorithm={algorithm}
+                    fvMethod={fvMethod}
+                    rounds={rounds}
+                  />
+                </div>
                 {dimensionMode === 'barycentric' && experimentalResults.length > 0 && (
                   <div className="bg-white rounded-lg shadow p-6 mt-6">
                     <h3 className="text-lg font-semibold mb-4">
