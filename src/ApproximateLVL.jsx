@@ -4306,11 +4306,9 @@ function CompleteDistributedComputingSimulator() {
   }, [dimensionMode, forcedAlgorithm, selectedAlgorithmForDetails]);
 
   const processCount = processValues.length;
-  // SOLO AGREGAR ESTO - Detectar si es algoritmo de 3 procesos
   const is3ProcessAlgorithm = ["SELFISH", "CYCLIC", "BIASED0"].includes(algorithm);
   const [showTheoreticalCourteous, setShowTheoreticalCourteous] = useState(false);
   const [showExperimentalCourteous, setShowExperimentalCourteous] = useState(false);
-  // SOLO AGREGAR ESTO - Información adicional para algoritmos de 3 procesos
 
   const selectableAlgorithms = useMemo(() => (
     dimensionMode === 'binary'
@@ -5067,7 +5065,6 @@ function ExperimentDetailViewer({
                     </div>
                   </div>
 
-                  {/* Received Values Section - Mejorada para TODOS los algoritmos */}
                   {index > 0 && Array.isArray(round?.messages) && (
                     <div className="mb-4">
                       <h5 className="font-medium mb-2">Received Values:</h5>
@@ -5215,7 +5212,6 @@ function ExperimentDetailViewer({
                     </div>
                   )}
 
-                  {/* Known Values Sets - Compatible con TODOS los algoritmos */}
                   {(Array.isArray(round?.knownValuesSets) || 
                     ["MIN", "RECURSIVE AMP", "COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm)) && (
                     <div className="mb-4">
