@@ -2804,26 +2804,26 @@ function RangeResultsTable({
   });
 
   return (
-    <div className="bg-white rounded-lg shadow-lg overflow-hidden border border-gray-200">
-      <div className="overflow-x-auto">
+    <div className="card glass-card p-3">
+      <div className="overflow-x-auto table-sticky rounded-xl border border-gray-100">
         <table className="min-w-full divide-y divide-gray-200 text-xs">
           <thead>
-            <tr className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
-              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Probability (p)</th>
-              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Algorithm</th>
-              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Delivery</th>
-              <th className="px-6 py-4 text-left font-semibold uppercase tracking-wider">Experimental{rounds > 1 ? ` (${rounds} rounds)` : ""}</th>
-              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Samples</th>
+            <tr className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white">
+              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider table-header text-white">Probability (p)</th>
+              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider table-header text-white">Algorithm</th>
+              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider table-header text-white">Delivery</th>
+              <th className="px-6 py-4 text-left font-semibold uppercase tracking-wider table-header text-white">Experimental{rounds > 1 ? ` (${rounds} rounds)` : ""}</th>
+              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider table-header text-white">Samples</th>
               {processCount === 2 && (
                 <>
-                  <th className="px-6 py-4 text-left font-semibold uppercase tracking-wider">Theoretical{rounds > 1 ? ` (${rounds} rounds)` : ""}</th>
-                  <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Error Abs</th>
-                  <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider">Error %</th>
+                  <th className="px-6 py-4 text-left font-semibold uppercase tracking-wider table-header text-white">Theoretical{rounds > 1 ? ` (${rounds} rounds)` : ""}</th>
+                  <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider table-header text-white">Error Abs</th>
+                  <th className="px-3 py-2 text-left font-semibold uppercase tracking-wider table-header text-white">Error %</th>
                 </>
               )}
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-white divide-y divide-gray-50 table-zebra">
             {resultsWithCorrectTheory.map((result, idx) => {
               // === MODIFICACIÓN 1: calcular error absoluto ===
               const error =
@@ -2856,35 +2856,41 @@ function RangeResultsTable({
               }
 
               return (
-                <tr key={idx} className={idx % 2 === 0 ? "" : "bg-gray-50"}>
-                  <td className="px-3 py-2 whitespace-nowrap">{result.p.toFixed(2)}</td>
+                <tr key={idx}>
+                  <td className="px-3 py-2 whitespace-nowrap font-mono text-slate-800">{result.p.toFixed(2)}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${
                         result.algorithm === "AMP"
-                          ? "bg-green-100 text-green-800"
-                          : "bg-red-100 text-red-800"
+                          ? "bg-green-50 text-green-800 border-green-100"
+                          : result.algorithm === "FV"
+                          ? "bg-red-50 text-red-800 border-red-100"
+                          : result.algorithm === "COURTEOUS"
+                          ? "bg-indigo-50 text-indigo-800 border-indigo-100"
+                          : "bg-gray-50 text-gray-800 border-gray-200"
                       }`}
                     >
                       {result.algorithm}
                     </span>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">
-                    {result.deliveryMode || 'standard'}
+                    <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-800 border border-gray-200 font-semibold text-[11px]">
+                      {result.deliveryMode || 'standard'}
+                    </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="font-mono text-sm">
+                    <div className="font-mono text-sm text-slate-900">
                       {result.discrepancy < 1e-6 && result.discrepancy > 0
                         ? result.discrepancy.toExponential(3)
                         : result.discrepancy.toFixed(6)}
                     </div>
                   </td>
-                  <td className="px-3 py-2 whitespace-nowrap">{result.samples}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-slate-800">{result.samples}</td>
 
                   {processCount === 2 && (
                     <>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-mono text-sm text-gray-600">
+                        <div className="font-mono text-sm text-gray-700">
                           {result.theoretical < 1e-6 && result.theoretical > 0
                             ? result.theoretical.toExponential(3)
                             : result.theoretical.toFixed(6)}
@@ -2892,7 +2898,7 @@ function RangeResultsTable({
                       </td>
 
                       {/* Error absoluto */}
-                      <td className="px-6 py-4 whitespace-nowrap font-mono">
+                      <td className="px-6 py-4 whitespace-nowrap font-mono text-slate-800">
                         {error !== null
                           ? (error < 1e-6 && error > 0
                               ? error.toExponential(3)
@@ -4495,6 +4501,31 @@ function CompleteDistributedComputingSimulator() {
         errorPercent: r.theoretical != null ? Math.abs(mean - r.theoretical) / r.theoretical * 100 : null
       };
     });
+
+  // Alimentar Results Table con la corrida seleccionada o la primera disponible
+  useEffect(() => {
+    if (!experimentRuns || Object.keys(experimentRuns).length === 0) {
+      setExperimentData(null);
+      return;
+    }
+    const resolveAlgoForKey = (algoDisplay, pNum) =>
+      algoDisplay === "auto" ? (pNum > 0.5 ? "AMP" : "FV") : algoDisplay;
+
+    const mode = (selectedDeliveryModes && selectedDeliveryModes.length > 0)
+      ? selectedDeliveryModes[0]
+      : deliveryMode;
+
+    let runs = null;
+    if (selectedProbabilityForDetails != null && selectedAlgorithmForDetails) {
+      const key = `${selectedProbabilityForDetails}_${resolveAlgoForKey(selectedAlgorithmForDetails, selectedProbabilityForDetails)}_${mode}`;
+      runs = experimentRuns[key];
+    }
+    if (!runs || runs.length === 0) {
+      const firstKey = Object.keys(experimentRuns)[0];
+      runs = experimentRuns[firstKey];
+    }
+    setExperimentData(Array.isArray(runs) && runs.length > 0 ? runs[0] : null);
+  }, [experimentRuns, selectedProbabilityForDetails, selectedAlgorithmForDetails, selectedDeliveryModes, deliveryMode]);
 
   const [valueMode, setValueMode] = useState('binary'); // 'binary' o 'continuous'
 
@@ -6585,14 +6616,14 @@ function runRangeExperiments() {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={handleLoadConfig}
-                  className="w-full p-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:opacity-50"
+                  className="w-full p-2 text-sm font-semibold btn-secondary hover:shadow disabled:opacity-50"
                   disabled={isRunning}
                 >
                   Load
                 </button>
                 <button
                   onClick={handleGenerateConfig}
-                  className="w-full p-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-green-200 disabled:opacity-50"
+                  className="w-full p-2 text-sm font-semibold btn-primary disabled:opacity-50"
                   disabled={isRunning}
                 >
                   Generate
@@ -7004,11 +7035,11 @@ function runRangeExperiments() {
             </div>
 
             {/* Simulation Configuration */}
-            <div className="space-y-2">
-              <h4 className="text-xs font-semibold">Simulation Configuration</h4>
+            <div className="space-y-3 card glass-card p-4">
+              <h4 className="text-sm font-semibold text-gray-900">Simulation Configuration</h4>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs block mb-1">Rounds:</label>
+                  <label className="text-xs block mb-1 text-gray-600">Rounds:</label>
                   <div className="flex items-center space-x-2">
                     <input
                       type="number"
@@ -7037,7 +7068,7 @@ function runRangeExperiments() {
                 </div>
 
                 <div>
-                  <label className="text-xs block mb-1">Repetitions:</label>
+                  <label className="text-xs block mb-1 text-gray-600">Repetitions:</label>
                   <input
                     type="number"
                     min="1"
@@ -7051,19 +7082,25 @@ function runRangeExperiments() {
               </div>
 
               {rounds > 1 && (
-                <div className="bg-blue-50 p-2 rounded text-xs">
-                  <p className="font-medium text-blue-700">Multi-Round Mode</p>
-                  <p className="mt-1">Running simulation for {rounds} rounds. Theory plots and results will show the final discrepancy after all rounds.</p>
+                <div className="bg-gradient-to-r from-blue-50 to-sky-50 p-3 rounded-lg border border-blue-100 text-xs">
+                  <p className="font-semibold text-blue-800 flex items-center gap-2">
+                    <span className="pill bg-white border border-blue-100 text-blue-700">Multi-Round</span>
+                    Mode active
+                  </p>
+                  <p className="mt-1 text-gray-700">Running simulation for {rounds} rounds. Theory plots and results will show the final discrepancy after all rounds.</p>
                 </div>
               )}
             </div>
 
             {/* Probability Range Settings */}
-            <div className="space-y-2">
-              <h4 className="text-xs font-semibold">Probability Range Settings:</h4>
+            <div className="space-y-3 card glass-card p-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-gray-900">Probability Range</h4>
+                <span className="pill bg-slate-50 border border-slate-200 text-slate-700">p ∈ [0,1]</span>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs mb-1">Min Probability:</label>
+                  <label className="block text-xs mb-1 text-gray-600">Min Probability:</label>
                   <input
                     type="number"
                     min="0"
@@ -7074,12 +7111,12 @@ function runRangeExperiments() {
                       const newValue = parseFloat(e.target.value);
                       setRangeExperiments((prev) => ({ ...prev, minP: newValue }));
                     }}
-                    className="w-full p-1 text-sm border border-gray-300 rounded-md"
+                    className="w-full p-1 text-sm border border-gray-300 rounded-md bg-white"
                     disabled={isRunning}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs mb-1">Max Probability:</label>
+                  <label className="block text-xs mb-1 text-gray-600">Max Probability:</label>
                   <input
                     type="number"
                     min="0"
@@ -7090,7 +7127,7 @@ function runRangeExperiments() {
                       const newValue = parseFloat(e.target.value);
                       setRangeExperiments((prev) => ({ ...prev, maxP: newValue }));
                     }}
-                    className="w-full p-1 text-sm border border-gray-300 rounded-md"
+                    className="w-full p-1 text-sm border border-gray-300 rounded-md bg-white"
                     disabled={isRunning}
                   />
                 </div>
@@ -7120,8 +7157,8 @@ function runRangeExperiments() {
             </div>
 
             {/* Display Options */}
-            <div className="space-y-2">
-              <h4 className="text-xs font-semibold">Display Options:</h4>
+            <div className="space-y-2 card glass-card p-4">
+              <h4 className="text-sm font-semibold text-gray-900">Display Options</h4>
               <div className="grid grid-cols-1 gap-2">
                 <div className="flex items-center">
                   <input
@@ -7132,7 +7169,7 @@ function runRangeExperiments() {
                     className="mr-2"
                     disabled={isRunning}
                   />
-                  <label htmlFor="showExperimental" className="text-xs">Show Experimental Curve</label>
+                  <label htmlFor="showExperimental" className="text-xs text-gray-700">Show Experimental Curve</label>
                 </div>
                 <div className="flex items-center">
                   <input
@@ -7143,7 +7180,7 @@ function runRangeExperiments() {
                     className="mr-2"
                     disabled={isRunning}
                   />
-                  <label htmlFor="showTheoreticalAmp" className="text-xs">Show AMP Curve</label>
+                  <label htmlFor="showTheoreticalAmp" className="text-xs text-gray-700">Show AMP Curve</label>
                 </div>
                 <div className="flex items-center">
                   <input
@@ -7154,7 +7191,7 @@ function runRangeExperiments() {
                     className="mr-2"
                     disabled={isRunning}
                   />
-                  <label htmlFor="showTheoreticalFv" className="text-xs">Show FV Curve</label>
+                  <label htmlFor="showTheoreticalFv" className="text-xs text-gray-700">Show FV Curve</label>
                 </div>
 
                 <div className="flex items-center">
@@ -7174,7 +7211,7 @@ function runRangeExperiments() {
                     className="mr-2"
                     disabled={isRunning}
                   />
-                  <label htmlFor="showTheoreticalCourteous" className="text-xs">
+                  <label htmlFor="showTheoreticalCourteous" className="text-xs text-gray-700">
                     Show COURTEOUS Curve (3-player theory)
                   </label>
                 </div>
@@ -7441,128 +7478,129 @@ function runRangeExperiments() {
                                     : 'All messages from each sender deliver together'}
                                 </div>
                               </div>
-                            )}
+                          )}
 
-                            {/* Selector de probabilidad, algoritmo y repetición */}
-                            <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                {/* Select de probabilidad */}
-                                <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Select probability:
+                          {/* Selector de probabilidad, algoritmo y repetición */}
+                          <div className="mb-4 card glass-card p-4 border border-gray-100">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              {/* Select de probabilidad */}
+                              <div className="space-y-1">
+                                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                                  Probability
+                                </label>
+                                <select
+                                  className="w-full p-2 border border-gray-200 rounded-lg bg-white shadow-sm"
+                                  value={currentP != null ? currentP : ""}  // Sin formateo
+                                  onChange={(e) => {
+                                    const pStr = e.target.value;
+                                    const pNum = parseFloat(pStr);
+                                    if (!Number.isNaN(pNum)) {
+                                      const avail = availableAlgosForP(pNum);
+                                      const firstAlgo = avail[0] || selectedAlgorithms[0] || "auto";
+                                      setSelectedProbabilityForDetails(pNum);
+                                      setSelectedAlgorithmForDetails(firstAlgo);
+                                      setSelectedRepetition(0);
+                                    }
+                                  }}
+                                >
+                                  <option value="">Select a probability...</option>
+                                  {uniquePs.map((p, idx) => (
+                                    <option key={idx} value={p}>  {/* Valor sin formatear */}
+                                      p = {p.toFixed(3)}  {/* Solo el display formateado */}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              {/* Selector de algoritmo */}
+                              {selectedAlgorithms.length > 1 && currentP != null && (
+                                <div className="space-y-1">
+                                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                                    Algorithm
                                   </label>
                                   <select
-                                    className="w-full p-2 border border-gray-300 rounded-md"
-                                    value={currentP != null ? currentP : ""}  // Sin formateo
+                                    className="w-full p-2 border border-gray-200 rounded-lg bg-white shadow-sm"
+                                    value={currentAlgoDisplay || ""}
                                     onChange={(e) => {
-                                      const pStr = e.target.value;
-                                      const pNum = parseFloat(pStr);
-                                      if (!Number.isNaN(pNum)) {
-                                        const avail = availableAlgosForP(pNum);
-                                        const firstAlgo = avail[0] || selectedAlgorithms[0] || "auto";
-                                        setSelectedProbabilityForDetails(pNum);
-                                        setSelectedAlgorithmForDetails(firstAlgo);
-                                        setSelectedRepetition(0);
-                                      }
+                                      const displayAlgo = e.target.value;
+                                      setSelectedAlgorithmForDetails(displayAlgo);
+                                      setSelectedRepetition(0);
                                     }}
                                   >
-                                    <option value="">Select a probability...</option>
-                                    {uniquePs.map((p, idx) => (
-                                      <option key={idx} value={p}>  {/* Valor sin formatear */}
-                                        p = {p.toFixed(3)}  {/* Solo el display formateado */}
+                                    {availableAlgosForP(currentP).map(algoDisplay => {
+                                      const resolved = resolveAlgo(algoDisplay, currentP);
+                                      return (
+                                        <option key={algoDisplay} value={algoDisplay}>
+                                          {algoDisplay}{algoDisplay === "auto" ? ` (${resolved})` : ""}
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                </div>
+                              )}
+
+                              {/* Selector de repetición */}
+                              {currentP != null && currentAlgoDisplay && currentRuns && currentRuns.length > 0 && (
+                                <div className="space-y-1">
+                                  <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                                    Repetition
+                                  </label>
+                                  <select
+                                    className="flex-1 p-2 border border-gray-200 rounded-lg bg-white shadow-sm"
+                                    value={selectedRepetition ?? 0}
+                                    onChange={(e) => setSelectedRepetition(parseInt(e.target.value, 10))}
+                                  >
+                                    {currentRuns.map((_, idx) => (
+                                      <option key={idx} value={idx}>
+                                        Repetition {idx + 1} of {currentRuns.length}
                                       </option>
                                     ))}
                                   </select>
                                 </div>
-
-                                {/* Selector de algoritmo */}
-                                {selectedAlgorithms.length > 1 && currentP != null && (
-                                  <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                      Select algorithm:
-                                    </label>
-                                    <select
-                                      className="w-full p-2 border border-gray-300 rounded-md"
-                                      value={currentAlgoDisplay || ""}
-                                      onChange={(e) => {
-                                        const displayAlgo = e.target.value;
-                                        setSelectedAlgorithmForDetails(displayAlgo);
-                                        setSelectedRepetition(0);
-                                      }}
-                                    >
-                                      {availableAlgosForP(currentP).map(algoDisplay => {
-                                        const resolved = resolveAlgo(algoDisplay, currentP);
-                                        return (
-                                          <option key={algoDisplay} value={algoDisplay}>
-                                            {algoDisplay}{algoDisplay === "auto" ? ` (${resolved})` : ""}
-                                          </option>
-                                        );
-                                      })}
-                                    </select>
-                                  </div>
-                                )}
-
-                                {/* Selector de repetición */}
-                                {currentP != null && currentAlgoDisplay && currentRuns && currentRuns.length > 0 && (
-                                  <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                      Select repetition:
-                                    </label>
-                                    <select
-                                      className="flex-1 p-2 border border-gray-300 rounded-md"
-                                      value={selectedRepetition ?? 0}
-                                      onChange={(e) => setSelectedRepetition(parseInt(e.target.value, 10))}
-                                    >
-                                      {currentRuns.map((_, idx) => (
-                                        <option key={idx} value={idx}>
-                                          Repetition {idx + 1} of {currentRuns.length}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Estadísticas */}
-                              {currentP != null && currentAlgoDisplay && currentRuns && currentRuns.length > 0 && (
-                                <div className="mt-4 p-3 bg-blue-50 rounded">
-                                  <h4 className="font-medium text-sm mb-2">
-                                    Statistics for {resolvedAlgoLabel} at p={currentP.toFixed(3)}:
-                                  </h4>
-                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                                    <div>
-                                      <span className="text-gray-600">Current:</span>
-                                      <span className="ml-2 font-bold">
-                                        {currentRuns[selectedRepetition ?? 0]?.[currentRuns[selectedRepetition ?? 0].length - 1]?.discrepancy?.toFixed(4) ?? '—'}
-                                      </span>
-                                    </div>
-                                    <div>
-                                      <span className="text-gray-600">Average:</span>
-                                      <span className="ml-2 font-bold">
-                                        {(() => {
-                                          const finals = currentRuns.map(run => run?.[run.length - 1]?.discrepancy ?? 0);
-                                          const avg = finals.reduce((a, b) => a + b, 0) / (finals.length || 1);
-                                          return avg.toFixed(4);
-                                        })()}
-                                      </span>
-                                    </div>
-                                    <div>
-                                      <span className="text-gray-600">Min/Max:</span>
-                                      <span className="ml-2 font-bold">
-                                        {(() => {
-                                          const finals = currentRuns.map(run => run?.[run.length - 1]?.discrepancy ?? 0);
-                                          return `${Math.min(...finals).toFixed(4)} / ${Math.max(...finals).toFixed(4)}`;
-                                        })()}
-                                      </span>
-                                    </div>
-                                    <div>
-                                      <span className="text-gray-600">Repetitions:</span>
-                                      <span className="ml-2 font-bold">{currentRuns.length}</span>
-                                    </div>
-                                  </div>
-                                </div>
                               )}
                             </div>
+
+                            {/* Estadísticas */}
+                            {currentP != null && currentAlgoDisplay && currentRuns && currentRuns.length > 0 && (
+                              <div className="mt-4 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-indigo-100">
+                                <h4 className="font-semibold text-sm mb-2 text-indigo-900 flex items-center gap-2">
+                                  <span className="pill bg-white border border-indigo-100 text-indigo-700">Stats</span>
+                                  {resolvedAlgoLabel} @ p={currentP.toFixed(3)}
+                                </h4>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs text-slate-800">
+                                  <div className="bg-white rounded-lg border border-slate-100 p-2 shadow-sm">
+                                    <span className="text-[11px] uppercase tracking-wide text-gray-500">Current</span>
+                                    <div className="font-bold">
+                                      {currentRuns[selectedRepetition ?? 0]?.[currentRuns[selectedRepetition ?? 0].length - 1]?.discrepancy?.toFixed(4) ?? '—'}
+                                    </div>
+                                  </div>
+                                  <div className="bg-white rounded-lg border border-slate-100 p-2 shadow-sm">
+                                    <span className="text-[11px] uppercase tracking-wide text-gray-500">Average</span>
+                                    <div className="font-bold">
+                                      {(() => {
+                                        const finals = currentRuns.map(run => run?.[run.length - 1]?.discrepancy ?? 0);
+                                        const avg = finals.reduce((a, b) => a + b, 0) / (finals.length || 1);
+                                        return avg.toFixed(4);
+                                      })()}
+                                    </div>
+                                  </div>
+                                  <div className="bg-white rounded-lg border border-slate-100 p-2 shadow-sm">
+                                    <span className="text-[11px] uppercase tracking-wide text-gray-500">Min / Max</span>
+                                    <div className="font-bold">
+                                      {(() => {
+                                        const finals = currentRuns.map(run => run?.[run.length - 1]?.discrepancy ?? 0);
+                                        return `${Math.min(...finals).toFixed(4)} / ${Math.max(...finals).toFixed(4)}`;
+                                      })()}
+                                    </div>
+                                  </div>
+                                  <div className="bg-white rounded-lg border border-slate-100 p-2 shadow-sm">
+                                    <span className="text-[11px] uppercase tracking-wide text-gray-500">Repetitions</span>
+                                    <div className="font-bold">{currentRuns.length}</div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
 
                             {/* Visualizador */}
                             {currentP != null && currentAlgoDisplay && currentRuns && currentRuns.length > 0 && currentRuns[selectedRepetition ?? 0] && (
@@ -7929,27 +7967,27 @@ function runRangeExperiments() {
                               </div>
                             ) : (
                               // Vista para un solo algoritmo - tabla tradicional
-                              <div className="border border-gray-200 bg-white rounded-xl shadow-sm">
-                                <div className="overflow-x-auto">
+                              <div className="card glass-card p-3">
+                                <div className="overflow-x-auto table-sticky rounded-xl border border-gray-100">
                                   <table className="min-w-full divide-y divide-gray-200">
-                                    <thead className="bg-gray-50">
+                                    <thead className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white">
                                       <tr>
-                                        <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">P</th>
-                                        <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Algorithm</th>
-                                        <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Experimental</th>
-                                        <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Samples</th>
+                                        <th className="px-3 py-2 text-left table-header text-white">P</th>
+                                        <th className="px-3 py-2 text-left table-header text-white">Algorithm</th>
+                                        <th className="px-3 py-2 text-left table-header text-white">Experimental</th>
+                                        <th className="px-3 py-2 text-left table-header text-white">Samples</th>
                                         {hasTheoreticalSupport(uniqueAlgorithms[0]) && (
                                           <>
-                                            <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Theoretical</th>
-                                            <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Error</th>
-                                            <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Error %</th>
+                                            <th className="px-3 py-2 text-left table-header text-white">Theoretical</th>
+                                            <th className="px-3 py-2 text-left table-header text-white">Error</th>
+                                            <th className="px-3 py-2 text-left table-header text-white">Error %</th>
                                           </>
                                         )}
-                                        <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">Std Dev</th>
-                                        <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase">CV %</th>
+                                        <th className="px-3 py-2 text-left table-header text-white">Std Dev</th>
+                                        <th className="px-3 py-2 text-left table-header text-white">CV %</th>
                                       </tr>
                                     </thead>
-                                    <tbody className="bg-white divide-y divide-gray-200">
+                                    <tbody className="bg-white divide-y divide-gray-50 table-zebra">
                                       {experimentalResults.map((result, idx) => {
                                         const isPaperAlgo = PAPER_ALGORITHMS.includes(result.algorithm);
                                         const hasTheory = hasTheoreticalSupport(result.algorithm) && 
@@ -7974,42 +8012,42 @@ function runRangeExperiments() {
                                           (error / Math.abs(result.theoretical)) * 100 : null;
                                         
                                         return (
-                                          <tr key={idx} className={idx % 2 === 0 ? "" : "bg-gray-50"}>
-                                            <td className="px-3 py-2 text-sm">{result.p.toFixed(3)}</td>
+                                          <tr key={idx}>
+                                            <td className="px-3 py-2 text-sm font-mono text-slate-800">{result.p.toFixed(3)}</td>
                                             <td className="px-3 py-2 text-sm">
-                                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                                result.algorithm === "AMP" ? "bg-green-100 text-green-800" : 
-                                                result.algorithm === "FV" ? "bg-red-100 text-red-800" :
-                                                isPaperAlgo ? "bg-blue-100 text-blue-800" :
-                                                "bg-purple-100 text-purple-800"
+                                              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                                                result.algorithm === "AMP" ? "bg-green-50 text-green-800 border-green-100" : 
+                                                result.algorithm === "FV" ? "bg-red-50 text-red-800 border-red-100" :
+                                                isPaperAlgo ? "bg-blue-50 text-blue-800 border-blue-100" :
+                                                "bg-purple-50 text-purple-800 border-purple-100"
                                               }`}>
                                                 {result.algorithm}
                                                 {!isPaperAlgo && " (Exp)"}
                                               </span>
                                             </td>
-                                            <td className="px-3 py-2 text-sm font-mono">
+                                            <td className="px-3 py-2 text-sm font-mono text-slate-900">
                                               {result.discrepancy < 1e-6 ? 
                                                 result.discrepancy.toExponential(3) : 
                                                 result.discrepancy.toFixed(6)}
                                             </td>
-                                            <td className="px-3 py-2 text-sm">{result.samples || 0}</td>
+                                            <td className="px-3 py-2 text-sm text-slate-800">{result.samples || 0}</td>
                                             {hasTheoreticalSupport(uniqueAlgorithms[0]) && (
                                               <>
-                                                <td className="px-3 py-2 text-sm font-mono">
+                                                <td className="px-3 py-2 text-sm font-mono text-slate-800">
                                                   {hasTheory ? 
                                                     (result.theoretical < 1e-6 ? 
                                                       result.theoretical.toExponential(3) : 
                                                       result.theoretical.toFixed(6)) 
                                                     : '—'}
                                                 </td>
-                                                <td className="px-3 py-2 text-sm font-mono">
+                                                <td className="px-3 py-2 text-sm font-mono text-slate-800">
                                                   {error !== null ? 
                                                     (error < 1e-6 ? error.toExponential(3) : error.toFixed(6)) 
                                                     : '—'}
                                                 </td>
                                                 <td className="px-3 py-2 text-sm">
                                                   {errorPercent !== null ? (
-                                                    <span className={`font-medium ${
+                                                    <span className={`font-semibold ${
                                                       errorPercent < 5 ? 'text-green-600' :
                                                       errorPercent < 10 ? 'text-yellow-600' :
                                                       'text-red-600'
@@ -8020,10 +8058,10 @@ function runRangeExperiments() {
                                                 </td>
                                               </>
                                             )}
-                                            <td className="px-3 py-2 text-sm font-mono">
+                                            <td className="px-3 py-2 text-sm font-mono text-slate-800">
                                               {stdDev.toFixed(6)}
                                             </td>
-                                            <td className="px-3 py-2 text-sm">
+                                            <td className="px-3 py-2 text-sm text-slate-800">
                                               {cv.toFixed(2)}%
                                             </td>
                                           </tr>
@@ -8615,23 +8653,28 @@ function ExperimentComparisonPanel({ experiments, mode }) {
 // Overview Comparison
 function ComparisonOverview({ experiments }) {
   return (
-    <div className="bg-white rounded-lg shadow p-4">
-      <h4 className="font-semibold mb-4">Experimental Overview Comparison</h4>
+    <div className="card glass-card p-4">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-emerald-600 font-semibold">Comparison</p>
+          <h4 className="font-semibold text-gray-900">Experimental Overview</h4>
+        </div>
+      </div>
       
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto table-sticky rounded-xl border border-gray-100">
         <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+          <thead className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white">
             <tr>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Experiment</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Algorithm</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Config</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Final Disc</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Avg Disc</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Min Disc</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Reduction %</th>
+              <th className="px-3 py-2 text-left table-header text-white">Experiment</th>
+              <th className="px-3 py-2 text-left table-header text-white">Algorithm</th>
+              <th className="px-3 py-2 text-left table-header text-white">Config</th>
+              <th className="px-3 py-2 text-left table-header text-white">Final Disc</th>
+              <th className="px-3 py-2 text-left table-header text-white">Avg Disc</th>
+              <th className="px-3 py-2 text-left table-header text-white">Min Disc</th>
+              <th className="px-3 py-2 text-left table-header text-white">Reduction %</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-white divide-y divide-gray-50 table-zebra">
             {experiments.map((exp, idx) => {
               const results = exp.results || [];
               const finalDisc = results[results.length - 1]?.discrepancy || 0;
@@ -8642,28 +8685,29 @@ function ComparisonOverview({ experiments }) {
               
               return (
                 <tr key={exp.metadata?.id || idx}>
-                  <td className="px-3 py-2 text-sm font-medium">{exp.metadata?.name}</td>
+                  <td className="px-3 py-2 text-sm font-medium text-slate-900">{exp.metadata?.name}</td>
                   <td className="px-3 py-2 text-sm">
-                    <span className={`px-2 py-0.5 text-xs rounded ${
-                      exp.parameters?.algorithm === 'RECURSIVE AMP' ? 'bg-purple-100 text-purple-700' :
-                      exp.parameters?.algorithm === 'AMP' ? 'bg-green-100 text-green-700' :
-                      exp.parameters?.algorithm === 'FV' ? 'bg-red-100 text-red-700' :
-                      exp.parameters?.algorithm === 'MIN' ? 'bg-yellow-100 text-yellow-700' :
-                      exp.parameters?.algorithm === 'LEADER' ? 'bg-blue-100 text-blue-700' :
-                      'bg-gray-100'
+                    <span className={`px-2 py-0.5 text-xs rounded-full font-semibold border ${
+                      exp.parameters?.algorithm === 'RECURSIVE AMP' ? 'bg-purple-50 text-purple-700 border-purple-100' :
+                      exp.parameters?.algorithm === 'AMP' ? 'bg-green-50 text-green-700 border-green-100' :
+                      exp.parameters?.algorithm === 'FV' ? 'bg-red-50 text-red-700 border-red-100' :
+                      exp.parameters?.algorithm === 'MIN' ? 'bg-yellow-50 text-yellow-700 border-yellow-100' :
+                      exp.parameters?.algorithm === 'LEADER' ? 'bg-blue-50 text-blue-700 border-blue-100' :
+                      exp.parameters?.algorithm === 'COURTEOUS' ? 'bg-indigo-50 text-indigo-700 border-indigo-100' :
+                      'bg-gray-50 text-gray-700 border-gray-200'
                     }`}>
                       {exp.parameters?.algorithm}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-xs">
+                  <td className="px-3 py-2 text-xs text-slate-700">
                     {exp.parameters?.processCount}p / {exp.parameters?.rounds}r
                   </td>
-                  <td className="px-3 py-2 text-sm font-mono">{finalDisc.toFixed(6)}</td>
-                  <td className="px-3 py-2 text-sm font-mono">{avgDisc.toFixed(6)}</td>
-                  <td className="px-3 py-2 text-sm font-mono">{minDisc.toFixed(6)}</td>
+                  <td className="px-3 py-2 text-sm font-mono text-slate-900">{finalDisc.toFixed(6)}</td>
+                  <td className="px-3 py-2 text-sm font-mono text-slate-900">{avgDisc.toFixed(6)}</td>
+                  <td className="px-3 py-2 text-sm font-mono text-slate-900">{minDisc.toFixed(6)}</td>
                   <td className="px-3 py-2 text-sm">
                     <div className="flex items-center">
-                      <span className={`mr-2 ${reduction > 80 ? 'text-green-600' : reduction > 50 ? 'text-blue-600' : 'text-gray-600'}`}>
+                      <span className={`mr-2 font-semibold ${reduction > 80 ? 'text-green-600' : reduction > 50 ? 'text-blue-600' : 'text-gray-600'}`}>
                         {reduction.toFixed(1)}%
                       </span>
                       <div className="w-16 bg-gray-200 rounded-full h-2">
