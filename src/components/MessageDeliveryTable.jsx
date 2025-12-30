@@ -115,7 +115,7 @@ export default function MessageDeliveryTable({
         }
         return `LEADER: Heard ${leaderName}`;
       }
-      return `LEADER: No message from ${leaderName} - kept own input`;
+      return `LEADER: No message from ${leaderName} - kept own value`;
     } else if (algorithm === "RECURSIVE AMP") {
       if (changed) {
         const receivedVals = messagesByReceiver[toIdx] || [];

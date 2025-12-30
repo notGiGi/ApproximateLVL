@@ -381,8 +381,6 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
         newValues[i] = myValue;
       } else if (leaderMessageReceived) {
         newValues[i] = leaderMessageValue;
-      } else if (originalValues && originalValues[i] !== undefined) {
-        newValues[i] = originalValues[i];
       } else {
         newValues[i] = myValue;
       }
