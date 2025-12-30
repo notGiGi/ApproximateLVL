@@ -395,10 +395,18 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
       }
     }
     else if (algorithm === "RECURSIVE AMP") {
-      if (receivedDifferentValue !== undefined) {
+      // RECURSIVE AMP: Usa el PROMEDIO de todos los valores recibidos para mantener
+      // convergencia gradual recursiva. Fórmula: newValue = a × myValue + (1-a) × avg(received)
+      // Esto es justo porque todos los valores recibidos contribuyen equitativamente.
+      if (receivedMessages.length > 0) {
+        // Calcular PROMEDIO de TODOS los valores recibidos
+        const sum = receivedMessages.reduce((acc, val) =>
+          toDecimal(acc).plus(toDecimal(val)), toDecimal(0));
+        const receivedAvg = sum.div(receivedMessages.length);
+
         const a = toDecimal(meetingPoint);
         newValues[i] = a.mul(toDecimal(myValue))
-          .plus(toDecimal(1).minus(a).mul(toDecimal(receivedDifferentValue)))
+          .plus(toDecimal(1).minus(a).mul(receivedAvg))
           .toNumber();
       } else {
         newValues[i] = myValue;
@@ -412,8 +420,16 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
       }
     }
     else if (algorithm === "FV") {
-      if (receivedDifferentValue !== undefined) {
-        newValues[i] = receivedDifferentValue;
+      // FV: Selección ALEATORIA entre valores diferentes para comportamiento justo
+      // sin sesgo hacia procesos con IDs específicos. Esto evita dependencia del orden.
+
+      // Filtrar TODOS los valores diferentes del valor actual
+      const differentValues = receivedMessages.filter(val => val !== myValue);
+
+      if (differentValues.length > 0) {
+        // Selección ALEATORIA uniforme entre los valores diferentes
+        const randomIdx = Math.floor(Math.random() * differentValues.length);
+        newValues[i] = differentValues[randomIdx];
       } else {
         newValues[i] = myValue;
       }
@@ -1137,10 +1153,11 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
             newValues[i] = meetingPoint;
           }
         } else if (algorithm === "FV") {
-          // FV: adopta el primer valor diferente que recibe
+          // FV: Selección ALEATORIA entre valores diferentes para comportamiento justo
           const differentValues = receivedMessages.filter(val => val !== values[i]);
           if (differentValues.length > 0) {
-            newValues[i] = differentValues[0];
+            const randomIdx = Math.floor(Math.random() * differentValues.length);
+            newValues[i] = differentValues[randomIdx];
           }
         }
       }
@@ -2120,8 +2137,14 @@ runMultipleExperimentsAutoSpace(initialValues, p, rounds, repetitions, algorithm
             break;
           }
           case "FV": {
-            const differentValue = receivedMessages.find(v => this.areDifferent(values[receiver], v));
-            if (differentValue) newValues[receiver] = this.cloneVector(differentValue);
+            // FV Multi-D: Selección ALEATORIA entre valores diferentes para evitar sesgo
+            // hacia procesos con IDs específicos. Comportamiento justo y estocástico.
+            const differentValues = receivedMessages.filter(v => this.areDifferent(values[receiver], v));
+            if (differentValues.length > 0) {
+              // Selección ALEATORIA uniforme
+              const randomIdx = Math.floor(Math.random() * differentValues.length);
+              newValues[receiver] = this.cloneVector(differentValues[randomIdx]);
+            }
             break;
           }
           case "MIN": {
