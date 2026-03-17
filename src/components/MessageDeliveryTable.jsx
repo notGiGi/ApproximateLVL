@@ -127,6 +127,18 @@ export default function MessageDeliveryTable({
         }
       }
       return isDelivered ? "RECURSIVE AMP: value received" : "";
+    } else if (algorithm === "PREF1") {
+      const receivedVals = messagesByReceiver[toIdx] || [];
+      const knowsOne = prevVal === 1 || receivedVals.some((entry) => entry.value === 1);
+      return knowsOne
+        ? "PREF1: knows a 1 -> decided 1"
+        : "PREF1: no 1 received -> decided 0";
+    } else if (algorithm === "PREF0") {
+      const receivedVals = messagesByReceiver[toIdx] || [];
+      const knowsZero = prevVal === 0 || receivedVals.some((entry) => entry.value === 0);
+      return knowsZero
+        ? "PREF0: knows a 0 -> decided 0"
+        : "PREF0: no 0 received -> decided 1";
     } 
     
     // Algoritmos básicos AMP y FV
@@ -152,6 +164,8 @@ export default function MessageDeliveryTable({
       case "FV": return "text-purple-700";
       case "LEADER": return "text-blue-700";
       case "COURTEOUS": return "text-indigo-700";
+      case "PREF1": return "text-amber-700";
+      case "PREF0": return "text-lime-700";
       case "SELFISH": return "text-orange-700";
       case "CYCLIC": return "text-teal-700";
       case "BIASED0": return "text-pink-700";

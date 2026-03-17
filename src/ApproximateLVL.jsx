@@ -3,6 +3,8 @@ import MessageDeliveryTable from './components/MessageDeliveryTable.jsx';
 import ExperimentVisualization from './components/ExperimentVisualization.jsx';
 import ResultsTable from './components/ResultsTable.jsx';
 import PolicySearch from './components/PolicySearch.jsx';
+import NumericTextInput from './components/NumericTextInput.jsx';
+import InfoTooltip from './components/InfoTooltip.jsx';
 import { getProcessColor, ALICE_COLOR, BOB_COLOR, CHARLIE_COLOR } from './utils/colors.js';
 import {
   LineChart,
@@ -65,13 +67,11 @@ function MeetingPointEditor({
     return (
       <div className="flex items-center space-x-2">
         <label className="text-sm">Meeting Point:</label>
-        <input
-          type="number"
+        <NumericTextInput
           min="0"
           max="1"
-          step="0.01"
           value={typeof meetingPoint === 'number' ? meetingPoint : 0.5}
-          onChange={(e) => setMeetingPoint(clamp01(e.target.value))}
+          onValueChange={(nextValue) => setMeetingPoint(clamp01(nextValue))}
           className="w-24 p-1 border border-gray-300 rounded-md"
           disabled={isRunning}
         />
@@ -90,13 +90,11 @@ function MeetingPointEditor({
     return (
       <div className="space-y-1">
         <label className="text-xs font-medium text-purple-900">Recursive AMP – a (0..1):</label>
-        <input
-          type="number"
+        <NumericTextInput
           min="0"
           max="1"
-          step="0.01"
           value={Number.isFinite(alpha) ? alpha : 0.5}
-          onChange={(e) => setCustomMeetingPoint(clamp01(e.target.value))}
+          onValueChange={(nextValue) => setCustomMeetingPoint(clamp01(nextValue))}
           className="w-24 p-1 border border-purple-300 rounded"
           disabled={isRunning}
         />
@@ -121,14 +119,12 @@ function MeetingPointEditor({
         <p className="text-xs font-medium text-purple-900">AMP – Meeting Point (vector de {dimensions} componentes en [0,1])</p>
         <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${dimensions}, minmax(48px, 1fr))` }}>
           {vec.map((v, i) => (
-            <input
+            <NumericTextInput
               key={i}
-              type="number"
               min="0"
               max="1"
-              step="0.01"
               value={Number.isFinite(v) ? v : 0.5}
-              onChange={(e) => updateAt(i, e.target.value)}
+              onValueChange={(nextValue) => updateAt(i, nextValue)}
               className="p-1 text-xs border border-purple-300 rounded"
               disabled={isRunning}
             />
@@ -490,18 +486,20 @@ const runSimulation = async () => {
 
       {/* Botón de Run */}
       <div className="bg-white p-6 rounded-lg shadow-md">
-
-        <button
-          onClick={runSimulation}
-          disabled={isRunning || (initialValues?.length ?? 0) === 0}
-          className={`mt-4 px-6 py-2 rounded font-medium ${
-            isRunning
-              ? 'bg-gray-400 cursor-not-allowed'
-              : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white'
-          }`}
-        >
-          {isRunning ? `Running... Round ${currentRound}/${rounds}` : 'Run Simulation'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={runSimulation}
+            disabled={isRunning || (initialValues?.length ?? 0) === 0}
+            className={`mt-4 px-6 py-2 rounded font-medium ${
+              isRunning
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white'
+            }`}
+          >
+            {isRunning ? `Running... Round ${currentRound}/${rounds}` : 'Run Simulation'}
+          </button>
+          <InfoTooltip text="Runs a single experiment and shows the step-by-step execution." />
+        </div>
       </div>
 
    
@@ -849,13 +847,13 @@ function NProcessesControl({
                 // Reset 3-process algorithms if switching to continuous
                 if (newMode === 'continuous' && processValues.length === 3) {
                   const has3PAlgos = selectedAlgorithms.some(a => 
-                    ["SELFISH", "CYCLIC", "BIASED0"].includes(a)
+                    ["SELFISH", "CYCLIC", "BIASED0", "PREF1", "PREF0"].includes(a)
                   );
                   if (has3PAlgos) {
                     setSelectedAlgorithms(prev => 
-                      prev.filter(a => !["SELFISH", "CYCLIC", "BIASED0"].includes(a))
+                      prev.filter(a => !["SELFISH", "CYCLIC", "BIASED0", "PREF1", "PREF0"].includes(a))
                     );
-                    addLog("3-process binary algorithms removed (switched to continuous mode)", "warning");
+                    addLog("Binary-only algorithms removed (switched to continuous mode)", "warning");
                   }
                 }
               }}
@@ -881,13 +879,12 @@ function NProcessesControl({
                   <div className="flex justify-between items-center mb-1">
                     <label className="text-xs font-medium" style={{ color }}>{label}</label>
                   </div>
-                  <input
-                    type="number"
+                  <NumericTextInput
                     min="0"
                     max="1"
-                    step={valueMode === 'binary' ? "1" : "0.1"}
+                    integer={valueMode === 'binary'}
                     value={value}
-                    onChange={(e) => updateProcessValue(index, e.target.value)}
+                    onValueChange={(nextValue) => updateProcessValue(index, nextValue)}
                     className="w-full p-1 text-sm border rounded-md"
                     style={{ borderColor: color }}
                     disabled={isRunning}
@@ -991,14 +988,12 @@ function NProcessesControl({
                 <span className="text-xs font-medium text-gray-600 w-10">P{pIdx+1}:</span>
                 <div className="flex-1 grid gap-1" style={{gridTemplateColumns: `repeat(${dimensions}, 1fr)`}}>
                   {Array(dimensions).fill(0).map((_, dIdx) => (
-                    <input
+                    <NumericTextInput
                       key={dIdx}
-                      type="number"
                       min="0"
                       max="1"
-                      step="0.01"
                       value={barycentricValues[pIdx]?.[dIdx] ?? 0}
-                      onChange={(e) => updateBarycentricValue(pIdx, dIdx, e.target.value)}
+                      onValueChange={(nextValue) => updateBarycentricValue(pIdx, dIdx, nextValue)}
                       className="w-full px-1 py-0.5 text-xs border rounded"
                       disabled={isRunning}
                     />
@@ -1021,19 +1016,17 @@ function NProcessesControl({
               <p className="text-xs font-medium text-purple-900 mb-1">AMP Meeting Point (vector absoluto):</p>
               <div className="grid gap-1" style={{gridTemplateColumns: `repeat(${dimensions}, 1fr)`}}>
                 {Array(dimensions).fill(0).map((_, dIdx) => (
-                  <input
+                  <NumericTextInput
                     key={dIdx}
-                    type="number"
                     min="0"
                     max="1"
-                    step="0.01"
                     value={
                       Array.isArray(customMeetingPoint) && customMeetingPoint[dIdx] != null
                         ? Number(customMeetingPoint[dIdx])
                         : 0.5
                     }
-                    onChange={(e) => {
-                      const val = clamp01(e.target.value);
+                    onValueChange={(nextValue) => {
+                      const val = clamp01(nextValue);
                       const base = (Array.isArray(customMeetingPoint) && customMeetingPoint.length === dimensions)
                         ? [...customMeetingPoint]
                         : Array(dimensions).fill(0.5);
@@ -2031,14 +2024,13 @@ function NumberInput({ value, onChange, min = 0, max = 1, step = 0.01, label, co
       <div className="flex justify-between items-center mb-2">
         <label className="text-sm font-medium" style={{ color }}>{label}</label>
       </div>
-      <input
-        type="number"
+      <NumericTextInput
         min={min}
         max={max}
-        step={step}
         value={value}
-        onChange={(e) => {
-          const newValue = Math.max(min, Math.min(max, parseFloat(e.target.value) || min));
+        integer={Number.isInteger(step) && Number.isInteger(min) && Number.isInteger(max)}
+        onValueChange={(nextValue) => {
+          const newValue = Math.max(min, Math.min(max, nextValue));
           onChange(newValue);
         }}
         className="w-full p-2 border rounded-md"
@@ -2334,8 +2326,134 @@ const ALGORITHM_COLOR_MAP = {
   "MIN": "#f59e0b",
   "LEADER": "#2563eb",
   "COURTEOUS": "#FF6B35",
+  "PREF1": "#f59e0b",
+  "PREF0": "#84cc16",
   "auto": "#6b7280"
 };
+
+const DELIVERY_MODE_LABELS = {
+  standard: 'Standard',
+  guaranteed: 'Guaranteed',
+  'process-dependent': 'Broadcast'
+};
+
+function buildExperimentRunKey(p, actualAlgorithm, deliveryMode) {
+  return `${p}_${actualAlgorithm}_${deliveryMode}`;
+}
+
+function resolveDisplayAlgorithm(displayAlgorithm, p) {
+  return displayAlgorithm === "auto" ? (p > 0.5 ? "AMP" : "FV") : displayAlgorithm;
+}
+
+function getAlgorithmBadgeClasses(algorithm) {
+  switch (algorithm) {
+    case "RECURSIVE AMP":
+      return "bg-purple-100 text-purple-700";
+    case "AMP":
+      return "bg-green-100 text-green-700";
+    case "FV":
+      return "bg-red-100 text-red-700";
+    case "MIN":
+      return "bg-yellow-100 text-yellow-700";
+    case "LEADER":
+      return "bg-blue-100 text-blue-700";
+    case "COURTEOUS":
+      return "bg-orange-100 text-orange-700";
+    case "PREF1":
+      return "bg-amber-100 text-amber-800";
+    case "PREF0":
+      return "bg-lime-100 text-lime-800";
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
+}
+
+function findResultAtProbability(results, target) {
+  if (!Array.isArray(results)) return null;
+  return results.find((entry) => Math.abs((entry?.p ?? -1) - target) < 0.0001) || null;
+}
+
+function computeCrossoverPoint(seriesA, seriesB) {
+  if (!Array.isArray(seriesA) || !Array.isArray(seriesB) || seriesA.length < 2 || seriesB.length < 2) {
+    return null;
+  }
+
+  const byP = new Map();
+  seriesB.forEach((point) => {
+    if (typeof point?.p === 'number' && typeof point?.discrepancy === 'number') {
+      byP.set(Number(point.p.toFixed(6)), point.discrepancy);
+    }
+  });
+
+  const aligned = seriesA
+    .filter((point) => typeof point?.p === 'number' && typeof point?.discrepancy === 'number')
+    .map((point) => {
+      const key = Number(point.p.toFixed(6));
+      const other = byP.get(key);
+      if (typeof other !== 'number') return null;
+      return { p: point.p, diff: point.discrepancy - other };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.p - b.p);
+
+  for (let index = 0; index < aligned.length; index += 1) {
+    const current = aligned[index];
+    if (Math.abs(current.diff) < 1e-9) {
+      return current.p;
+    }
+    if (index === 0) continue;
+    const previous = aligned[index - 1];
+    if (previous.diff === current.diff) continue;
+    if ((previous.diff < 0 && current.diff > 0) || (previous.diff > 0 && current.diff < 0)) {
+      const ratio = previous.diff / (previous.diff - current.diff);
+      return previous.p + (current.p - previous.p) * ratio;
+    }
+  }
+
+  return null;
+}
+
+function summarizeDiscrepancies(values) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return {
+      mean: 0,
+      variance: 0,
+      stdDev: 0,
+      stdError: 0,
+      ciLower: 0,
+      ciUpper: 0,
+      min: 0,
+      max: 0,
+      median: 0,
+      pZero: 0,
+      pOne: 0
+    };
+  }
+
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / values.length;
+  const stdDev = Math.sqrt(variance);
+  const stdError = stdDev / Math.sqrt(values.length);
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+
+  return {
+    mean,
+    variance,
+    stdDev,
+    stdError,
+    ciLower: mean - 1.96 * stdError,
+    ciUpper: mean + 1.96 * stdError,
+    min: sorted[0],
+    max: sorted[sorted.length - 1],
+    median,
+    pZero: values.filter((value) => value === 0).length / values.length,
+    pOne: values.filter((value) => value === 1).length / values.length
+  };
+}
 
 const normalizeProbability = (value) => {
   const num = Number(value);
@@ -2390,18 +2508,80 @@ function TheoryPlot({
       fvD = fvV;
     }
 
-    ampData.push({ p, discrepancy: ampD, __isOriginal: true });
-    fvData.push({ p, discrepancy: fvD, __isOriginal: true });
+    // Solo marcar como original si hay datos experimentales en este p
+    const hasExperimentalAtP = validExperimentalData.some(exp => 
+      Math.abs(exp.p - p) < 0.01
+    );
+    ampData.push({ p, discrepancy: ampD, __isOriginal: hasExperimentalAtP });
+    fvData.push({ p, discrepancy: fvD, __isOriginal: hasExperimentalAtP });
   }
 
-  // NUEVO: Generar datos teóricos para COURTEOUS (solo si hay 3 procesos)
-  const courteousData = [];
-  if (n === 3) {
+  const courteousModes = Array.from(new Set(
+    ((selectedDeliveryModes && selectedDeliveryModes.length > 0)
+      ? selectedDeliveryModes
+      : [deliveryMode]).filter((mode) => ['standard', 'process-dependent'].includes(mode))
+  ));
+
+  const courteousTheorySeries = n === 3
+    ? courteousModes.map((mode) => {
+        const data = [];
+        for (let i = 0; i <= steps; i++) {
+          const p = i / steps;
+          const singleRoundDiscrepancy = SimulationEngine.calculate3ProcessBinaryDiscrepancy(
+            p,
+            mode === 'process-dependent' ? 'COURTEOUS_CORRELATED' : 'COURTEOUS',
+            processValues,
+            mode
+          );
+          const discrepancy = typeof singleRoundDiscrepancy === 'number'
+            ? Math.pow(singleRoundDiscrepancy, selectedRound)
+            : null;
+          const hasExperimentalAtP = validExperimentalData.some(exp =>
+            Math.abs(exp.p - p) < 0.01
+          );
+          data.push({ p, discrepancy, __isOriginal: hasExperimentalAtP });
+        }
+        return {
+          mode,
+          name: `COURTEOUS (${DELIVERY_MODE_LABELS[mode] || mode} Theory)`,
+          stroke: mode === 'process-dependent' ? '#7c3aed' : '#FF6B35',
+          dash: mode === 'process-dependent' ? '6 3' : '5 5',
+          data
+        };
+      })
+    : [];
+
+  const pref1Data = [];
+  const pref0Data = [];
+  const allBinary = processValues.every(v => v === 0 || v === 1);
+  if (allBinary) {
     for (let i = 0; i <= steps; i++) {
       const p = i / steps;
-      const singleRoundDiscrepancy = 1 - 2*p + 4*Math.pow(p, 2) - 4*Math.pow(p, 3) + Math.pow(p, 4);
-      const discrepancy = Math.pow(singleRoundDiscrepancy, selectedRound);
-      courteousData.push({ p, discrepancy, __isOriginal: true });
+      const pref1 = SimulationEngine.calculateExpectedDiscrepancyNProcesses(
+        p,
+        n,
+        m,
+        "PREF1",
+        meetingPoint,
+        processValues,
+        'process-dependent',
+        selectedRound
+      );
+      const pref0 = SimulationEngine.calculateExpectedDiscrepancyNProcesses(
+        p,
+        n,
+        m,
+        "PREF0",
+        meetingPoint,
+        processValues,
+        'process-dependent',
+        selectedRound
+      );
+      const hasExperimentalAtP = validExperimentalData.some(exp =>
+        Math.abs(exp.p - p) < 0.01
+      );
+      pref1Data.push({ p, discrepancy: pref1, __isOriginal: hasExperimentalAtP });
+      pref0Data.push({ p, discrepancy: pref0, __isOriginal: hasExperimentalAtP });
     }
   }
 
@@ -2413,8 +2593,7 @@ function TheoryPlot({
       let D;
       
       if (which === 'COURTEOUS' && n === 3) {
-        const singleRound = 1 - 2*p + 4*Math.pow(p, 2) - 4*Math.pow(p, 3) + Math.pow(p, 4);
-        D = Math.pow(singleRound, selectedRound);
+        D = null;
       } else if (n === 2) {
         D = which === 'AMP'
           ? Math.pow(q, selectedRound)
@@ -2437,13 +2616,29 @@ function TheoryPlot({
   
   ensureHalfPoint(ampData, 'AMP');
   ensureHalfPoint(fvData, 'FV');
-  if (n === 3) {
-    ensureHalfPoint(courteousData, 'COURTEOUS');
-  }
+  courteousTheorySeries.forEach((series) => {
+    const hasHalf = series.data.some(d => Math.abs(d.p - 0.5) < 1e-12);
+    if (!hasHalf) {
+      const halfDiscrepancy = SimulationEngine.calculate3ProcessBinaryDiscrepancy(
+        0.5,
+        series.mode === 'process-dependent' ? 'COURTEOUS_CORRELATED' : 'COURTEOUS',
+        processValues,
+        series.mode
+      );
+      series.data.push({
+        p: 0.5,
+        discrepancy: typeof halfDiscrepancy === 'number' ? Math.pow(halfDiscrepancy, selectedRound) : null,
+        __isOriginal: true
+      });
+      series.data.sort((a, b) => a.p - b.p);
+    }
+  });
 
   const showAMP = displayCurves?.theoreticalAmp ?? true;
   const showFV = displayCurves?.theoreticalFv ?? true;
-  const showCourteous = (displayCurves?.theoreticalCourteous ?? false) && n === 3;
+  const showCourteous = (displayCurves?.theoreticalCourteous ?? false) && courteousTheorySeries.length > 0;
+  const showPref1 = (displayCurves?.theoreticalPref1 ?? false) && allBinary && selectedRound === 1;
+  const showPref0 = (displayCurves?.theoreticalPref0 ?? false) && allBinary && selectedRound === 1;
   const showExp = displayCurves?.experimental && validExperimentalData.length > 0;
 
   const experimentalSeries = useMemo(() => {
@@ -2506,11 +2701,13 @@ function TheoryPlot({
 
     if (showAMP) addValues(ampData);
     if (showFV) addValues(fvData);
-    if (showCourteous) addValues(courteousData);
+    if (showCourteous) courteousTheorySeries.forEach((series) => addValues(series.data));
+    if (showPref1) addValues(pref1Data);
+    if (showPref0) addValues(pref0Data);
     experimentalSeries.forEach(series => addValues(series.data));
 
     return set;
-  }, [showAMP, showFV, showCourteous, ampData, fvData, courteousData, experimentalSeries]);
+  }, [showAMP, showFV, showCourteous, showPref1, showPref0, ampData, fvData, courteousTheorySeries, pref1Data, pref0Data, experimentalSeries]);
 
   const renderTheoryTooltip = useCallback(({ active, payload, label }) => {
     if (!active || !Array.isArray(payload) || payload.length === 0) {
@@ -2518,25 +2715,38 @@ function TheoryPlot({
     }
 
     const normalizedLabel = normalizeProbability(label);
-    if (normalizedLabel == null || !allowedProbabilities.has(normalizedLabel)) {
+    if (normalizedLabel == null) {
       return null;
     }
 
+    // CRÍTICO: Solo mostrar si el label está EXACTAMENTE en allowedProbabilities
+    // Tolerancia MÍNIMA de 0.0001 (equivale a 0.01%)
+    let foundExactMatch = false;
+    for (const allowedP of allowedProbabilities) {
+      if (Math.abs(allowedP - normalizedLabel) < 0.0001) {
+        foundExactMatch = true;
+        break;
+      }
+    }
+
+    if (!foundExactMatch) {
+      return null;
+    }
+
+    // Filtrar entradas que coincidan EXACTAMENTE con el label
     const validEntries = payload.filter(entry => {
       if (!entry?.payload?.__isOriginal) return false;
       const normalizedPoint = normalizeProbability(entry.payload?.p);
-      return normalizedPoint != null && normalizedPoint === normalizedLabel;
+      if (normalizedPoint == null) return false;
+      // Debe ser EXACTAMENTE el mismo punto (tolerancia mínima)
+      return Math.abs(normalizedPoint - normalizedLabel) < 0.0001;
     });
 
     if (validEntries.length === 0) return null;
 
-    const displayProbability = normalizeProbability(validEntries[0]?.payload?.p);
-
     return (
       <div className="bg-white p-2 border border-gray-300 rounded shadow-lg">
-        {displayProbability != null && (
-          <p className="font-semibold text-sm mb-1">{`p = ${displayProbability.toFixed(2)}`}</p>
-        )}
+        <p className="font-semibold text-sm mb-1">{`p = ${normalizedLabel.toFixed(2)}`}</p>
         {validEntries.map((entry, idx) => {
           const rawValue = entry?.payload?.discrepancy;
           const displayValue =
@@ -2556,6 +2766,8 @@ function TheoryPlot({
       </div>
     );
   }, [allowedProbabilities]);
+
+    
 
   return (
     <div className="bg-white rounded-lg shadow p-4">
@@ -2578,7 +2790,14 @@ function TheoryPlot({
             domain={[0, 1]}
             label={{ value: 'Discrepancy', angle: -90, position: 'insideLeft', offset: -10 }}
           />
-          <Tooltip content={renderTheoryTooltip} />
+          <Tooltip 
+            content={renderTheoryTooltip}
+            isAnimationActive={false}
+            cursor={{ stroke: '#666', strokeWidth: 1, strokeDasharray: '3 3' }}
+            allowEscapeViewBox={{ x: false, y: false }}
+            position={{ y: 0 }}
+            wrapperStyle={{ pointerEvents: 'none' }}
+          />
           <Legend verticalAlign="top" height={36} />
 
           {showAMP && (
@@ -2589,7 +2808,8 @@ function TheoryPlot({
               stroke="#2ecc71"
               strokeWidth={2}
               strokeDasharray="5 5"
-              dot={false}
+              dot={{ r: 0 }}
+              activeDot={{ r: 4, fill: '#2ecc71' }}
             />
           )}
           {showFV && (
@@ -2600,20 +2820,51 @@ function TheoryPlot({
               stroke="#e74c3c"
               strokeWidth={2}
               strokeDasharray="5 5"
-              dot={false}
+              dot={{ r: 0 }}
+              activeDot={{ r: 4, fill: '#e74c3c' }}
             />
           )}
           
-          {/* NUEVO: Línea teórica para COURTEOUS */}
-          {showCourteous && (
+          {showCourteous && courteousTheorySeries.map((series) => (
             <Line
-              data={courteousData}
+              key={`courteous-${series.mode}`}
+              data={series.data}
               dataKey="discrepancy"
-              name="COURTEOUS (Theoretical)"
-              stroke="#FF6B35"
+              name={series.name}
+              stroke={series.stroke}
+              strokeWidth={2}
+              strokeDasharray={series.dash}
+              dot={{ r: 0 }}
+              connectNulls={false}
+              activeDot={{ r: 4, fill: series.stroke }}
+            />
+          ))}
+
+          {showPref1 && (
+            <Line
+              data={pref1Data}
+              dataKey="discrepancy"
+              name="PREF1 (Theoretical)"
+              stroke="#f59e0b"
               strokeWidth={2}
               strokeDasharray="5 5"
-              dot={false}
+              dot={{ r: 0 }}
+              connectNulls={false}
+              activeDot={{ r: 4, fill: '#f59e0b' }}
+            />
+          )}
+
+          {showPref0 && (
+            <Line
+              data={pref0Data}
+              dataKey="discrepancy"
+              name="PREF0 (Theoretical)"
+              stroke="#84cc16"
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              dot={{ r: 0 }}
+              connectNulls={false}
+              activeDot={{ r: 4, fill: '#84cc16' }}
             />
           )}
 
@@ -4312,9 +4563,18 @@ function CompleteDistributedComputingSimulator() {
 
   const selectableAlgorithms = useMemo(() => (
     dimensionMode === 'binary'
-      ? ["auto", "AMP", "FV", "RECURSIVE AMP", "MIN", "LEADER", "COURTEOUS"]
+      ? [
+          "auto",
+          "AMP",
+          "FV",
+          "RECURSIVE AMP",
+          "MIN",
+          "LEADER",
+          "COURTEOUS",
+          ...(processValues.every((value) => value === 0 || value === 1) ? ["PREF1", "PREF0"] : [])
+        ]
       : ["auto", "AMP", "FV", "RECURSIVE AMP", "MIN"]
-  ), [dimensionMode]);
+  ), [dimensionMode, processValues]);
 
   
   // ============================================
@@ -4531,7 +4791,9 @@ function CompleteDistributedComputingSimulator() {
     experimental: true,
     theoreticalAmp: false,
     theoreticalFv: false,
-    theoreticalCourteous: false 
+    theoreticalCourteous: false,
+    theoreticalPref1: false,
+    theoreticalPref0: false
   });
   const [comparisonResults, setComparisonResults] = useState(null);
   const animationTimerRef = useRef(null);
@@ -4750,6 +5012,7 @@ function ExperimentDetailViewer({
 
   const fmt4 = (x) => (typeof x === 'number' && Number.isFinite(x) ? x.toFixed(4) : '0.0000');
   const fmt3 = (x) => (typeof x === 'number' && Number.isFinite(x) ? x.toFixed(3) : String(x ?? '—'));
+  const algorithmKey = typeof algorithm === 'string' ? algorithm.split(' (')[0] : algorithm;
 
 
   const formatKnownValue = (value) => {
@@ -5140,13 +5403,13 @@ function ExperimentDetailViewer({
                                   <div className="text-xs text-gray-400 mt-1">No messages received</div>
                                 )}
                                 
-                                {algorithm === "MIN" && Array.isArray(knownValuesList) && knownValuesList.length > 0 && (
+                                {algorithmKey === "MIN" && Array.isArray(knownValuesList) && knownValuesList.length > 0 && (
                                   <div className="text-xs text-blue-600 mt-2">
                                     Known so far: {knownValuesList.map(val => formatKnownValue(val)).join(', ')}
                                   </div>
                                 )}
 
-                                {algorithm === "LEADER" && (() => {
+                                {algorithmKey === "LEADER" && (() => {
                                   const leaderInfo = senderInfo.find(info => info.fromIdx === leaderIndex);
                                   const currentValue = round?.values?.[receiverIdx];
                                   return (
@@ -5161,24 +5424,24 @@ function ExperimentDetailViewer({
                                 })()}
                                 
                                 {/* Mostrar decisión según el algoritmo */}
-                                {hasReceivedDifferent && (
+                                {(hasReceivedDifferent || algorithmKey === "PREF1" || algorithmKey === "PREF0") && (
                                   <div className="mt-2 pt-1 border-t border-gray-200">
                                     <div className="text-xs">
-                                      {algorithm === "AMP" && (
+                                      {algorithmKey === "AMP" && (
                                         <span className="text-blue-600">? Moved to meeting point: {fmt3(meetingPoint)}</span>
                                       )}
-                                      {algorithm === "FV" && (
+                                      {algorithmKey === "FV" && (
                                         <span className="text-purple-600">
                                           ? Adopted: {fmt3(receivedValues.find(v => v !== round?.values?.[receiverIdx]))}
                                         </span>
                                       )}
-                                      {algorithm === "MIN" && (
+                                      {algorithmKey === "MIN" && (
                                         <span className="text-yellow-600">? Added to known set</span>
                                       )}
-                                      {algorithm === "RECURSIVE AMP" && (
+                                      {algorithmKey === "RECURSIVE AMP" && (
                                         <span className="text-indigo-600">? Applied recursive meeting point</span>
                                       )}
-                                      {algorithm === "COURTEOUS" && (() => {
+                                      {algorithmKey === "COURTEOUS" && (() => {
                                         const baseVal = round?.values?.[receiverIdx];
                                         const heard = [baseVal, ...receivedValues];
                                         const zeros = heard.filter(v => v === 0).length;
@@ -5190,15 +5453,33 @@ function ExperimentDetailViewer({
                                           <span className="text-indigo-600">? Courteous: {desc}</span>
                                         );
                                       })()}
-                                      {algorithm === "SELFISH" && (
+                                      {algorithmKey === "PREF1" && (() => {
+                                        const baseVal = round?.values?.[receiverIdx];
+                                        const knowsOne = baseVal === 1 || receivedValues.some(v => v === 1);
+                                        return (
+                                          <span className="text-amber-600">
+                                            ? {knowsOne ? "PREF1: knows a 1 -> decided 1" : "PREF1: no 1 received -> decided 0"}
+                                          </span>
+                                        );
+                                      })()}
+                                      {algorithmKey === "PREF0" && (() => {
+                                        const baseVal = round?.values?.[receiverIdx];
+                                        const knowsZero = baseVal === 0 || receivedValues.some(v => v === 0);
+                                        return (
+                                          <span className="text-lime-600">
+                                            ? {knowsZero ? "PREF0: knows a 0 -> decided 0" : "PREF0: no 0 received -> decided 1"}
+                                          </span>
+                                        );
+                                      })()}
+                                      {algorithmKey === "SELFISH" && (
                                         <span className="text-orange-600">
                                           ? Selfish: {receivedValues.length === 1 ? "Kept own value" : "Majority decision"}
                                         </span>
                                       )}
-                                      {algorithm === "CYCLIC" && (
+                                      {algorithmKey === "CYCLIC" && (
                                         <span className="text-teal-600">? Cyclic rule applied</span>
                                       )}
-                                      {algorithm === "BIASED0" && (
+                                      {algorithmKey === "BIASED0" && (
                                         <span className="text-pink-600">? Biased to 0</span>
                                       )}
                                     </div>
@@ -5213,18 +5494,18 @@ function ExperimentDetailViewer({
                   )}
 
                   {(Array.isArray(round?.knownValuesSets) || 
-                    ["MIN", "RECURSIVE AMP", "COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(algorithm)) && (
+                    ["MIN", "RECURSIVE AMP", "COURTEOUS", "SELFISH", "CYCLIC", "BIASED0", "PREF1", "PREF0"].includes(algorithmKey)) && (
                     <div className="mb-4">
                       <h5 className="font-medium mb-2 text-sm">
-                        {algorithm === "MIN" ? "Known Values Sets (MIN Algorithm)" : 
-                        algorithm === "RECURSIVE AMP" ? "Known Values Sets (RECURSIVE AMP)" :
-                        ["SELFISH", "CYCLIC", "BIASED0"].includes(algorithm) ? 
-                        `Decision Logic (${algorithm})` :
+                        {algorithmKey === "MIN" ? "Known Values Sets (MIN Algorithm)" : 
+                        algorithmKey === "RECURSIVE AMP" ? "Known Values Sets (RECURSIVE AMP)" :
+                        ["SELFISH", "CYCLIC", "BIASED0", "PREF1", "PREF0"].includes(algorithmKey) ? 
+                        `Decision Logic (${algorithmKey})` :
                         "Known Values Sets"}:
                       </h5>
                       
                       {/* Para algoritmos de 3 procesos, mostrar lógica especial */}
-                      {["SELFISH", "CYCLIC", "BIASED0"].includes(algorithm) ? (
+                      {["SELFISH", "CYCLIC", "BIASED0", "PREF1", "PREF0"].includes(algorithmKey) ? (
                         <div className="bg-blue-50 p-4 rounded">
                           <div className="space-y-2">
                             {processNames.map((name, idx) => {
@@ -5259,7 +5540,7 @@ function ExperimentDetailViewer({
                               let decisionReason = "";
                               let decisionColor = "text-gray-600";
                               
-                              if (algorithm === "COURTEOUS") {
+                              if (algorithmKey === "COURTEOUS") {
                                 if (heardCount === 0) {
                                   decisionReason = "No messages ? Keep own value";
                                 } else if (heardCount === 2) {
@@ -5273,7 +5554,7 @@ function ExperimentDetailViewer({
                                 } else {
                                   decisionReason = "Keep own value";
                                 }
-                              } else if (algorithm === "SELFISH") {
+                              } else if (algorithmKey === "SELFISH") {
                                 if (heardCount === 0) {
                                   decisionReason = "No messages ? Keep own value";
                                 } else if (heardCount === 2) {
@@ -5287,9 +5568,8 @@ function ExperimentDetailViewer({
                                 } else {
                                   decisionReason = "Keep own value";
                                 }
-                              } else if (algorithm === "CYCLIC") {
+                              } else if (algorithmKey === "CYCLIC") {
                                 const cyclicPrev = idx === 0 ? 2 : idx - 1;
-                                const cyclicNext = idx === 2 ? 0 : idx + 1;
                                 const heardFromPrev = receivedMessages.find(m => 
                                   m.from === processNames[cyclicPrev]
                                 );
@@ -5307,13 +5587,29 @@ function ExperimentDetailViewer({
                                 } else {
                                   decisionReason = "Keep own value (cyclic rule)";
                                 }
-                              } else if (algorithm === "BIASED0") {
+                              } else if (algorithmKey === "BIASED0") {
                                 const allVals = [currentValue, ...receivedMessages.map(m => m.value)];
                                 if (allVals.includes(0)) {
                                   decisionReason = "Heard or has 0 ? Decide 0";
                                   decisionColor = "text-pink-600";
                                 } else {
                                   decisionReason = "No 0 detected ? Keep 1";
+                                }
+                              } else if (algorithmKey === "PREF1") {
+                                const allVals = [currentValue, ...receivedMessages.map(m => m.value)];
+                                if (allVals.includes(1)) {
+                                  decisionReason = "PREF1: knows a 1 ? Decide 1";
+                                  decisionColor = "text-amber-600";
+                                } else {
+                                  decisionReason = "PREF1: no 1 received ? Decide 0";
+                                }
+                              } else if (algorithmKey === "PREF0") {
+                                const allVals = [currentValue, ...receivedMessages.map(m => m.value)];
+                                if (allVals.includes(0)) {
+                                  decisionReason = "PREF0: knows a 0 ? Decide 0";
+                                  decisionColor = "text-lime-600";
+                                } else {
+                                  decisionReason = "PREF0: no 0 received ? Decide 1";
                                 }
                               }
                               
@@ -5354,7 +5650,7 @@ function ExperimentDetailViewer({
                             
                             if (Array.isArray(round?.knownValuesSets) && round.knownValuesSets[idx]) {
                               knownSet = round.knownValuesSets[idx];
-                            } else if (algorithm === "MIN" || algorithm === "RECURSIVE AMP") {
+                            } else if (algorithmKey === "MIN" || algorithmKey === "RECURSIVE AMP") {
                               const receivedMessages = [];
                               if (Array.isArray(round?.messages)) {
                                 round.messages.forEach((senderMsgs, senderIdx) => {
@@ -5371,9 +5667,9 @@ function ExperimentDetailViewer({
                               knownSet = Array.from(new Set(knownSet.map(v => JSON.stringify(v)))).map(v => JSON.parse(v));
                             }
                             
-                            const bgColor = algorithm === "MIN" ? 
+                            const bgColor = algorithmKey === "MIN" ? 
                               (knownSet.length > 1 ? 'bg-yellow-50' : 'bg-gray-50') :
-                              algorithm === "RECURSIVE AMP" ?
+                              algorithmKey === "RECURSIVE AMP" ?
                               (knownSet.length > 1 ? 'bg-purple-50' : 'bg-gray-50') :
                               'bg-gray-50';
                             
@@ -5412,10 +5708,10 @@ function ExperimentDetailViewer({
                                   )}
                                 </div>
                                 
-                                {(algorithm === "MIN" || algorithm === "RECURSIVE AMP") && knownSet.length > 1 && (
+                                {(algorithmKey === "MIN" || algorithmKey === "RECURSIVE AMP") && knownSet.length > 1 && (
                                   <div className="mt-2 pt-2 border-t border-gray-200">
                                     <div className="text-xs text-gray-600">
-                                      {algorithm === "MIN" ? 
+                                      {algorithmKey === "MIN" ? 
                                         <span className="text-yellow-700 font-semibold">
                                           ? Will decide: {formatKnownValue(Math.min(...knownSet.filter(v => typeof v === 'number')))}
                                         </span> :
@@ -5460,7 +5756,7 @@ function ExperimentDetailViewer({
                             selectedProcess={selectedProcess}
                             previousValues={prevValues || []}
                             finalValues={Array.isArray(round?.values) ? round.values : []}
-                            algorithm={algorithm}
+                            algorithm={algorithmKey}
                             leaderIndex={leaderIndex}
                           />
                         );
@@ -5690,17 +5986,30 @@ function runRangeExperiments() {
   for (const p of allProbabilities) {
     for (const mode of modesToRun) {
       for (const algoDisplay of algorithmsToRun) {
-        const actualAlgo = algoDisplay === "auto" ? (p > 0.5 ? "AMP" : "FV") : algoDisplay;
-        const key = `${p}_${actualAlgo}_${mode}`;
+        const actualAlgo = resolveDisplayAlgorithm(algoDisplay, p);
+        const key = buildExperimentRunKey(p, actualAlgo, mode);
 
         // Teoría
         let theoretical;
         if (dimensionMode === 'binary') {
           if (actualAlgo === "COURTEOUS" && nProc === 3) {
             theoretical = SimulationEngine.calculate3ProcessBinaryDiscrepancy(p, "COURTEOUS", initialProcessValues, mode);
-            if (actualRounds > 1) {
+            if (actualRounds > 1 && theoretical !== null) {
               theoretical = Math.pow(theoretical, actualRounds);
             }
+          } else if ((actualAlgo === "PREF1" || actualAlgo === "PREF0") && mode === 'process-dependent') {
+            theoretical = SimulationEngine.calculateExpectedDiscrepancyNProcesses(
+              p,
+              nProc,
+              initialProcessValues.filter((value) => value === 0).length,
+              actualAlgo,
+              uiMeetingPoint,
+              initialProcessValues,
+              mode,
+              actualRounds
+            );
+          } else if (actualAlgo === "PREF1" || actualAlgo === "PREF0") {
+            theoretical = null;
           } else if (mode === 'guaranteed' && nProc === 2) {
             theoretical = SimulationEngine.calculateTheoreticalConditionedDiscrepancy(p, actualAlgo, actualRounds);
           } else {
@@ -5749,6 +6058,15 @@ function runRangeExperiments() {
       setIsRunning(false);
       setProgress(100);
       setExperimentRuns(allRunsData);
+      setStatsData({
+        pValues: allProbabilities,
+        experimentResults: results.map((result) => ({
+          ...result,
+          discrepancies: Array.isArray(result.discrepancies) ? [...result.discrepancies] : []
+        })),
+        deliveryModes: modesToRun,
+        displayAlgorithms: algorithmsToRun
+      });
 
       // Selección segura inicial para viewer
       try {
@@ -6058,28 +6376,36 @@ function runRangeExperiments() {
           experimental: true,
           theoreticalAmp: false,
           theoreticalFv: false,
-          theoreticalCourteous: false  
+          theoreticalCourteous: false,
+          theoreticalPref1: false,
+          theoreticalPref0: false
         };
       } else if (forcedAlgorithm === 'FV') {
         newDisplayCurves = {
           experimental: true,
           theoreticalAmp: false,
           theoreticalFv: false,
-          theoreticalCourteous: false  
+          theoreticalCourteous: false,
+          theoreticalPref1: false,
+          theoreticalPref0: false
         };
       } else if (forcedAlgorithm === 'COURTEOUS') {  
         newDisplayCurves = {
           experimental: true,
           theoreticalAmp: false,
           theoreticalFv: false,
-          theoreticalCourteous: false
+          theoreticalCourteous: false,
+          theoreticalPref1: false,
+          theoreticalPref0: false
         };
       } else {
         newDisplayCurves = {
           experimental: true,
           theoreticalAmp: false,
           theoreticalFv: false,
-          theoreticalCourteous: false  
+          theoreticalCourteous: false,
+          theoreticalPref1: false,
+          theoreticalPref0: false
         };
       }
       setRangeDisplayCurves(newDisplayCurves);
@@ -6146,6 +6472,18 @@ function runRangeExperiments() {
         if (val === 0 || val === 0.0) m++;
       });
       
+      const savedMode = (selectedDeliveryModes && selectedDeliveryModes.length > 0)
+        ? selectedDeliveryModes[0]
+        : deliveryMode;
+      const savedDisplayAlgorithm = selectedAlgorithmForDetails || selectedAlgorithms[0] || forcedAlgorithm || "auto";
+      const filteredResults = experimentalResults.filter((result) =>
+        result.displayAlgorithm === savedDisplayAlgorithm && result.deliveryMode === savedMode
+      );
+      const resultsToSave = filteredResults.length > 0 ? filteredResults : experimentalResults;
+      const savedAlgorithmLabel = filteredResults.length > 0
+        ? savedDisplayAlgorithm
+        : (resultsToSave[0]?.displayAlgorithm || resultsToSave[0]?.algorithm || forcedAlgorithm);
+
       // Prepare data to save
       const experimentData = {
         type: "range",
@@ -6157,16 +6495,18 @@ function runRangeExperiments() {
           minP: rangeExperiments.minP,
           maxP: rangeExperiments.maxP,
           steps: rangeExperiments.customSteps ? rangeExperiments.customStepValue : rangeExperiments.steps,
-          algorithm: forcedAlgorithm,
+          algorithm: savedAlgorithmLabel,
+          deliveryMode: savedMode,
           fvMethod: processValues.length > 2 ? fvMethod : null,
           meetingPoint: meetingPoint,
           rounds: rounds,
           repetitions: repetitions,
           leaderProcess: leaderProcess
         },
-        results: experimentalResults.map(result => ({
+        results: resultsToSave.map(result => ({
           p: result.p,
           algorithm: result.algorithm,
+          displayAlgorithm: result.displayAlgorithm,
           deliveryMode: result.deliveryMode,
           discrepancy: result.discrepancy,
           theoretical: result.theoretical,
@@ -6185,18 +6525,19 @@ function runRangeExperiments() {
         `${processValues.length}-processes` : 
         `${processValues.length}p (${m}×0,${processValues.length-m}×1)`;
         
-      const algInfo = forcedAlgorithm === "auto" ? 
+      const algInfo = savedAlgorithmLabel === "auto" ? 
         "Auto" : 
-        forcedAlgorithm + (forcedAlgorithm === "AMP" ? `(${meetingPoint})` : "");
+        savedAlgorithmLabel + (savedAlgorithmLabel === "AMP" ? `(${meetingPoint})` : "");
       
       const defaultName = `Range P=${rangeExperiments.minP.toFixed(2)}-${rangeExperiments.maxP.toFixed(2)} ${algInfo} ${processInfo}${rounds > 1 ? ` (${rounds} rounds)` : ''}`;
       
       // Generate tags automatically
       let suggestedTags = [
         "range",
-        forcedAlgorithm.toLowerCase(),
+        String(savedAlgorithmLabel).toLowerCase(),
         `${processValues.length}-processes`,
-        `m=${m}`
+        `m=${m}`,
+        savedMode
       ];
       
       // Add special tags based on properties
@@ -6327,21 +6668,16 @@ function runRangeExperiments() {
                 <div className="flex justify-between items-center mb-1">
                   <label className="text-xs font-medium" style={{ color }}>{processName}</label>
                 </div>
-                <input
-                  type="number"
+                <NumericTextInput
                   value={value}
-                  onChange={(e) => {
+                  onValueChange={(nextValue) => {
                     const newValues = [...processValues];
-                    const val = parseFloat(e.target.value);
-                    if (!isNaN(val)) {
-                      newValues[index] = val;
-                      setProcessValues(newValues);
-                    }
+                    newValues[index] = nextValue;
+                    setProcessValues(newValues);
                   }}
                   className="w-full p-1 text-sm border rounded-md"
                   style={{ borderColor: color }}
                   disabled={isRunning}
-                  step="0.1"
                   placeholder="Value"
                 />
               </div>
@@ -6390,7 +6726,10 @@ function runRangeExperiments() {
 
             {/* Toggle Binary / Multi-Dimensional */}
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold">Initial Values</h3>
+              <h3 className="flex items-center text-sm font-semibold">
+                Initial Values
+                <InfoTooltip text="Binary inputs {0,1} for each process. The discrepancy measures how far apart the final decided values are." />
+              </h3>
               <div className="flex items-center space-x-1 bg-gray-100 rounded-lg p-0.5">
                 <button
                   onClick={() => {
@@ -6549,17 +6888,12 @@ function runRangeExperiments() {
                       <span className="text-xs font-medium text-gray-700 w-8">P{pIdx + 1}:</span>
                       <div className="flex-1 grid gap-1" style={{gridTemplateColumns: `repeat(${dimensions}, 1fr)`}}>
                         {Array.from({ length: dimensions }).map((_, dIdx) => (
-                          <input
+                          <NumericTextInput
                             key={dIdx}
-                            type="number"
                             min="0"
                             max="1"
-                            step="0.01"
                             value={barycentricValues[pIdx]?.[dIdx]?.toFixed(2) || 0}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value);
-                              updateBarycentricValue(pIdx, dIdx, Number.isFinite(val) ? val : 0);
-                            }}
+                            onValueChange={(nextValue) => updateBarycentricValue(pIdx, dIdx, nextValue)}
                             className="w-full px-1 py-0.5 text-xs border border-gray-300 rounded"
                             disabled={isRunning}
                           />
@@ -6635,7 +6969,10 @@ function runRangeExperiments() {
               {/* Delivery Mode */}
               <div className="mt-3 p-3 bg-gray-50 rounded-lg">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-gray-700">Message Delivery Mode:</label>
+                  <label className="flex items-center text-sm font-medium text-gray-700">
+                    Message Delivery Mode:
+                    <InfoTooltip text="Standard: each message delivered independently with prob p. Broadcast: all messages from a process arrive together or none. Guaranteed: at least one message delivered per round." />
+                  </label>
                   <button
                     className="text-xs text-blue-600 hover:text-blue-800"
                     onClick={() => setShowDeliveryInfo(!showDeliveryInfo)}
@@ -6719,15 +7056,14 @@ function runRangeExperiments() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Minimum Messages (K):</label>
 
                     <div className="flex items-center gap-2 mb-2">
-                      <input
-                        type="number"
+                      <NumericTextInput
                         min="1"
                         max={processValues.length * (processValues.length - 1)}
+                        integer
                         value={conditionedK}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value) || 1;
+                        onValueChange={(nextValue) => {
                           const maxK = processValues.length * (processValues.length - 1);
-                          setConditionedK(Math.min(Math.max(1, val), maxK));
+                          setConditionedK(Math.min(Math.max(1, nextValue), maxK));
                         }}
                         className="w-20 p-2 border border-gray-300 rounded-md"
                         disabled={isRunning}
@@ -6806,7 +7142,10 @@ function runRangeExperiments() {
 
               {/* Select Algorithm(s) */}
               <div>
-                <label className="block text-xs mb-1">Select Algorithm(s):</label>
+                <label className="flex items-center text-xs mb-1">
+                  Select Algorithm(s):
+                  <InfoTooltip text="AMP and FV are proven optimal (paper). COURTEOUS, PREF1, PREF0 are optimal in the broadcast model. Others are experimental extensions." />
+                </label>
                 <div className="bg-white p-2 rounded border border-gray-200 max-h-32 overflow-y-auto">
                   {selectableAlgorithms.map(algo => (
                     <label key={algo} className="flex items-center py-1 hover:bg-gray-50 cursor-pointer">
@@ -6823,15 +7162,8 @@ function runRangeExperiments() {
                         disabled={isRunning}
                         className="mr-2"
                       />
-                      <span className={`text-xs px-2 py-0.5 rounded ${
-                        algo === "RECURSIVE AMP" ? "bg-purple-100 text-purple-700" :
-                        algo === "AMP"          ? "bg-green-100 text-green-700"  :
-                        algo === "FV"           ? "bg-red-100 text-red-700"      :
-                        algo === "MIN"          ? "bg-yellow-100 text-yellow-700" :
-                        algo === "LEADER"       ? "bg-blue-100 text-blue-700"    :
-                                                  "bg-gray-100 text-gray-700"
-                      }`}>
-                        {algo}
+                      <span className={`text-xs px-2 py-0.5 rounded ${getAlgorithmBadgeClasses(algo)}`}>
+                        {algo === "PREF1" ? "PREF1 (Broadcast model)" : algo === "PREF0" ? "PREF0 (Broadcast model)" : algo}
                       </span>
                     </label>
                   ))}
@@ -6870,10 +7202,16 @@ function runRangeExperiments() {
                 </div>
                 
                 {/* Descripción de algoritmos seleccionados */}
-                {selectedAlgorithms.some(a => ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0"].includes(a)) && (
+                {selectedAlgorithms.some(a => ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0", "PREF1", "PREF0"].includes(a)) && (
                   <div className="mt-2 p-2 bg-blue-50 rounded text-xs space-y-1">
                     {selectedAlgorithms.includes("COURTEOUS") && (
                       <p><b>Courteous:</b> Majority of heard values (including self); ties flip to opposite.</p>
+                    )}
+                    {selectedAlgorithms.includes("PREF1") && (
+                      <p><b>PREF1:</b> Decides 1 if any value 1 is known; else decides 0. Optimal for p ≥ 2/3 (n=3, broadcast). Pr[fail] = q^(number of 1-inputs).</p>
+                    )}
+                    {selectedAlgorithms.includes("PREF0") && (
+                      <p><b>PREF0:</b> Decides 0 if any value 0 is known; else decides 1. Optimal for p ≥ 2/3 (n=3, broadcast). Pr[fail] = q^(number of 0-inputs).</p>
                     )}
                     {selectedAlgorithms.includes("SELFISH") && (
                       <p><b>Selfish:</b> Keeps own value if heard from 1 process</p>
@@ -6905,28 +7243,26 @@ function runRangeExperiments() {
                     {/* AMP Meeting Point */}
                     {showAmp && (
                       <div className="mt-2">
-                        <label className="text-sm block mb-1">
+                        <label className="flex items-center text-sm block mb-1">
                           Meeting Point {dimensionMode === 'barycentric' ? '(vector for AMP)' : '(scalar for AMP)'}
+                          <InfoTooltip text="The agreed value that both processes move to when they learn of disagreement. AMP is optimal for p > 0.5." />
                         </label>
 
                         {dimensionMode === 'barycentric' ? (
                           <div className="bg-purple-50 rounded-lg p-2 border border-purple-200">
                             <div className="grid gap-1" style={{gridTemplateColumns: `repeat(${dimensions}, 1fr)`}}>
                               {Array.from({ length: dimensions }).map((_, dIdx) => (
-                                <input
+                                <NumericTextInput
                                   key={dIdx}
-                                  type="number"
                                   min="0"
                                   max="1"
-                                  step="0.01"
                                   value={
                                     Array.isArray(customMeetingPoint) && customMeetingPoint.length === dimensions
                                       ? (Number.isFinite(customMeetingPoint[dIdx]) ? customMeetingPoint[dIdx] : 0.5)
                                       : 0.5
                                   }
-                                  onChange={(e) => {
-                                    const raw = parseFloat(e.target.value);
-                                    const v = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0.5;
+                                  onValueChange={(nextValue) => {
+                                    const v = Number.isFinite(nextValue) ? Math.max(0, Math.min(1, nextValue)) : 0.5;
                                     const next = (
                                       Array.isArray(customMeetingPoint) && customMeetingPoint.length === dimensions
                                         ? [...customMeetingPoint]
@@ -6943,26 +7279,11 @@ function runRangeExperiments() {
                             <p className="mt-1 text-[11px] text-purple-700">Each entry ? [0,1]. Used by AMP in multi-D.</p>
                           </div>
                         ) : (
-                          <input
-                            type="text"
+                          <NumericTextInput
                             value={meetingPoint}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              if (/^\d*\.?\d{0,2}$/.test(val) || val === '') {
-                                const num = parseFloat(val);
-                                if (val === '' || val === '.' || val.endsWith('.')) {
-                                  setMeetingPoint(val);
-                                } else if (!isNaN(num) && num >= 0 && num <= 1) {
-                                  setMeetingPoint(val);
-                                }
-                              }
-                            }}
-                            onBlur={(e) => {
-                              const num = parseFloat(e.target.value);
-                              if (isNaN(num) || num < 0) setMeetingPoint(0);
-                              else if (num > 1) setMeetingPoint(1);
-                              else setMeetingPoint(num);
-                            }}
+                            min="0"
+                            max="1"
+                            onValueChange={(nextValue) => setMeetingPoint(nextValue)}
                             className="w-24 p-1 border border-gray-300 rounded-md"
                             disabled={isRunning}
                             placeholder="0.5"
@@ -6975,20 +7296,15 @@ function runRangeExperiments() {
                     {showRecAmp && (
                       <div className="mt-2 p-2 bg-purple-50 rounded border border-purple-200">
                         <label className="text-sm block mb-1">Recursive AMP a (scalar)</label>
-                        <input
-                          type="number"
+                        <NumericTextInput
                           min="0"
                           max="1"
-                          step="0.01"
                           value={
                             typeof meetingPoint === 'number'
                               ? meetingPoint
                               : (parseFloat(meetingPoint) || 0.5)
                           }
-                          onChange={(e) => {
-                            const v = Math.max(0, Math.min(1, parseFloat(e.target.value)));
-                            setMeetingPoint(Number.isFinite(v) ? v : 0.5);
-                          }}
+                          onValueChange={(nextValue) => setMeetingPoint(Number.isFinite(nextValue) ? nextValue : 0.5)}
                           className="w-24 p-1 border border-purple-300 rounded-md"
                           disabled={isRunning}
                         />
@@ -7002,20 +7318,14 @@ function runRangeExperiments() {
                         <label className="text-sm block mb-1">
                           Leader Process (1 - {processValues.length})
                         </label>
-                        <input
-                          type="number"
+                        <NumericTextInput
                           min={1}
                           max={processValues.length || 1}
-                          step={1}
+                          integer
                           value={leaderProcess}
-                          onChange={(e) => {
-                            const raw = parseInt(e.target.value, 10);
-                            if (Number.isNaN(raw)) {
-                              setLeaderProcess(1);
-                            } else {
-                              const max = processValues.length || 1;
-                              setLeaderProcess(Math.max(1, Math.min(max, raw)));
-                            }
+                          onValueChange={(nextValue) => {
+                            const max = processValues.length || 1;
+                            setLeaderProcess(Math.max(1, Math.min(max, nextValue)));
                           }}
                           disabled={isRunning}
                           className="w-full px-2 py-1 text-sm border border-blue-300 rounded"
@@ -7035,14 +7345,17 @@ function runRangeExperiments() {
               <h4 className="text-sm font-semibold text-gray-900">Simulation Configuration</h4>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs block mb-1 text-gray-600">Rounds:</label>
+                  <label className="flex items-center text-xs block mb-1 text-gray-600">
+                    Rounds:
+                    <InfoTooltip text="Number of communication rounds. Each round, every process sends its current value to all others." />
+                  </label>
                   <div className="flex items-center space-x-2">
-                    <input
-                      type="number"
+                    <NumericTextInput
                       min="1"
                       max="50"
+                      integer
                       value={rounds}
-                      onChange={(e) => setRounds(Number(e.target.value))}
+                      onValueChange={(nextValue) => setRounds(nextValue)}
                       className="w-full p-1 text-sm border border-gray-300 rounded-md"
                       disabled={isRunning}
                     />
@@ -7064,13 +7377,16 @@ function runRangeExperiments() {
                 </div>
 
                 <div>
-                  <label className="text-xs block mb-1 text-gray-600">Repetitions:</label>
-                  <input
-                    type="number"
+                  <label className="flex items-center text-xs block mb-1 text-gray-600">
+                    Repetitions:
+                    <InfoTooltip text="Number of independent simulation runs. More repetitions reduce statistical noise in the estimated E[D]." />
+                  </label>
+                  <NumericTextInput
                     min="1"
                     max="1000"
+                    integer
                     value={repetitions}
-                    onChange={(e) => setRepetitions(Number(e.target.value))}
+                    onValueChange={(nextValue) => setRepetitions(nextValue)}
                     className="w-full p-1 text-sm border border-gray-300 rounded-md"
                     disabled={isRunning}
                   />
@@ -7091,21 +7407,21 @@ function runRangeExperiments() {
             {/* Probability Range Settings */}
             <div className="space-y-3 card glass-card p-4">
               <div className="flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-gray-900">Probability Range</h4>
+                <h4 className="flex items-center text-sm font-semibold text-gray-900">
+                  Probability Range
+                  <InfoTooltip text="Probability that each message is successfully delivered. p=1 means perfect delivery, p=0 means all messages lost." />
+                </h4>
                 <span className="pill bg-slate-50 border border-slate-200 text-slate-700">p ∈ [0,1]</span>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs mb-1 text-gray-600">Min Probability:</label>
-                  <input
-                    type="number"
+                  <NumericTextInput
                     min="0"
                     max="1"
-                    step="0.01"
                     value={rangeExperiments.minP}
-                    onChange={(e) => {
-                      const newValue = parseFloat(e.target.value);
-                      setRangeExperiments((prev) => ({ ...prev, minP: newValue }));
+                    onValueChange={(nextValue) => {
+                      setRangeExperiments((prev) => ({ ...prev, minP: nextValue }));
                     }}
                     className="w-full p-1 text-sm border border-gray-300 rounded-md bg-white"
                     disabled={isRunning}
@@ -7113,15 +7429,12 @@ function runRangeExperiments() {
                 </div>
                 <div>
                   <label className="block text-xs mb-1 text-gray-600">Max Probability:</label>
-                  <input
-                    type="number"
+                  <NumericTextInput
                     min="0"
                     max="1"
-                    step="0.01"
                     value={rangeExperiments.maxP}
-                    onChange={(e) => {
-                      const newValue = parseFloat(e.target.value);
-                      setRangeExperiments((prev) => ({ ...prev, maxP: newValue }));
+                    onValueChange={(nextValue) => {
+                      setRangeExperiments((prev) => ({ ...prev, maxP: nextValue }));
                     }}
                     className="w-full p-1 text-sm border border-gray-300 rounded-md bg-white"
                     disabled={isRunning}
@@ -7208,7 +7521,35 @@ function runRangeExperiments() {
                     disabled={isRunning}
                   />
                   <label htmlFor="showTheoreticalCourteous" className="text-xs text-gray-700">
-                    Show COURTEOUS Curve (3-player theory)
+                    Show COURTEOUS Curve (adaptive theory)
+                  </label>
+                </div>
+
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="showTheoreticalPref1"
+                    checked={rangeDisplayCurves?.theoreticalPref1 || false}
+                    onChange={() => handleCurveDisplayChange('theoreticalPref1')}
+                    className="mr-2"
+                    disabled={isRunning}
+                  />
+                  <label htmlFor="showTheoreticalPref1" className="text-xs text-gray-700">
+                    Show PREF1 Curve (broadcast theory)
+                  </label>
+                </div>
+
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="showTheoreticalPref0"
+                    checked={rangeDisplayCurves?.theoreticalPref0 || false}
+                    onChange={() => handleCurveDisplayChange('theoreticalPref0')}
+                    className="mr-2"
+                    disabled={isRunning}
+                  />
+                  <label htmlFor="showTheoreticalPref0" className="text-xs text-gray-700">
+                    Show PREF0 Curve (broadcast theory)
                   </label>
                 </div>
               </div>
@@ -7216,19 +7557,22 @@ function runRangeExperiments() {
 
             {/* Run / Cancel */}
             {(activeTab === 'theory' || activeTab === 'statistics') && (
-              <button
-                onClick={() => {
-                  if (!isRunning) runRangeExperiments();
-                  else cancelRangeExperiments();
-                }}
-                className={`w-full py-3 px-4 rounded-lg font-semibold shadow-md transition ${
-                  isRunning
-                    ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white hover:shadow-lg'
-                    : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:shadow-lg'
-                }`}
-              >
-                {isRunning ? 'Cancel' : 'Run'}
-              </button>
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  onClick={() => {
+                    if (!isRunning) runRangeExperiments();
+                    else cancelRangeExperiments();
+                  }}
+                  className={`w-full py-3 px-4 rounded-lg font-semibold shadow-md transition ${
+                    isRunning
+                      ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white hover:shadow-lg'
+                      : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:shadow-lg'
+                  }`}
+                >
+                  {isRunning ? 'Cancel' : 'Run'}
+                </button>
+                <InfoTooltip text="Sweeps p from 0 to 1 and plots E[D] vs p for the selected algorithms and delivery modes." />
+              </div>
             )}
           </div>
 
@@ -7316,17 +7660,17 @@ function runRangeExperiments() {
             {activeTab === 'theory' && (
               <div>
                 <div className="mb-4">
-                <TheoryPlot 
-                  currentP={probability} 
-                  experimentalData={experimentalResults} 
-                  displayCurves={rangeDisplayCurves}
-                  rounds={rounds}
-                  processValues={processValues}
-                  meetingPoint={meetingPoint}
-                  selectedAlgorithms={selectedAlgorithms} 
-                  deliveryMode={deliveryMode}
-                  selectedDeliveryModes={selectedDeliveryModes}
-                />
+                  <TheoryPlot 
+                    currentP={probability} 
+                    experimentalData={experimentalResults} 
+                    displayCurves={rangeDisplayCurves}
+                    rounds={rounds}
+                    processValues={processValues}
+                    meetingPoint={meetingPoint}
+                    selectedAlgorithms={selectedAlgorithms} 
+                    deliveryMode={deliveryMode}
+                    selectedDeliveryModes={selectedDeliveryModes}
+                  />
                 </div>
                 
                 <div className="card glass-card p-5 mb-6">
@@ -7699,8 +8043,19 @@ function runRangeExperiments() {
             
 
 
-            {/* Statistical Analysis tab */}
             {activeTab === 'statistics' && (
+              <StatisticalAnalysisPanel
+                experimentalResults={experimentalResults}
+                experimentRuns={experimentRuns}
+                selectedDeliveryModes={selectedDeliveryModes}
+                deliveryMode={deliveryMode}
+                processValues={processValues}
+                rounds={rounds}
+              />
+            )}
+
+            {/* Statistical Analysis tab */}
+            {false && activeTab === 'statistics' && (
               <div>
                 {experimentalResults && experimentalResults.length > 0 ? (
                   <div>
@@ -8203,9 +8558,17 @@ function runRangeExperiments() {
               </div>
             )}
             
+            {activeTab === 'saved' && (
+              <SavedExperimentsComparison
+                savedExperiments={savedExperiments}
+                setSavedExperiments={setSavedExperiments}
+                addLog={addLog}
+              />
+            )}
+
             {/* Saved Experiments tab */}
             {/* Saved Experiments tab - LABORATORIO MEJORADO */}
-            {activeTab === 'saved' && (
+            {false && activeTab === 'saved' && (
               <div>
                 <EnhancedExperimentLaboratory
                   savedExperiments={savedExperiments}
@@ -8223,6 +8586,609 @@ function runRangeExperiments() {
           ApproximateLVL - Multi-Process Distributed Computing Agreement Simulator
         </p>
       </footer>
+    </div>
+  );
+}
+
+function StatisticalAnalysisPanel({
+  experimentalResults,
+  experimentRuns,
+  selectedDeliveryModes,
+  deliveryMode,
+  processValues = [],
+  rounds = 1
+}) {
+  const seriesList = useMemo(() => {
+    const seen = new Map();
+    (experimentalResults || []).forEach((result) => {
+      const displayAlgorithm = result.displayAlgorithm || result.algorithm || 'Unknown';
+      const mode = result.deliveryMode || deliveryMode || 'standard';
+      const id = `${displayAlgorithm}|${mode}`;
+      if (!seen.has(id)) {
+        seen.set(id, {
+          id,
+          displayAlgorithm,
+          deliveryMode: mode,
+          label: selectedDeliveryModes?.length > 1
+            ? `${displayAlgorithm} | ${DELIVERY_MODE_LABELS[mode] || mode}`
+            : displayAlgorithm
+        });
+      }
+    });
+    return Array.from(seen.values());
+  }, [experimentalResults, selectedDeliveryModes, deliveryMode]);
+
+  const pValues = useMemo(() => {
+    return Array.from(new Set((experimentalResults || []).map((result) => result.p)))
+      .filter((value) => typeof value === 'number' && Number.isFinite(value))
+      .sort((a, b) => a - b);
+  }, [experimentalResults]);
+
+  const [selectedSeriesId, setSelectedSeriesId] = useState('');
+  const [selectedP, setSelectedP] = useState(null);
+  const [showAllPValues, setShowAllPValues] = useState(false);
+  const [statsPage, setStatsPage] = useState(0);
+  const [useLogScale, setUseLogScale] = useState(false);
+
+  useEffect(() => {
+    if (!seriesList.length) {
+      setSelectedSeriesId('');
+      return;
+    }
+    if (!seriesList.some((series) => series.id === selectedSeriesId)) {
+      setSelectedSeriesId(seriesList[0].id);
+    }
+  }, [seriesList, selectedSeriesId]);
+
+  useEffect(() => {
+    if (!pValues.length) {
+      setSelectedP(null);
+      return;
+    }
+    if (selectedP === null || !pValues.some((value) => Math.abs(value - selectedP) < 0.0001)) {
+      setSelectedP(pValues[0]);
+    }
+  }, [pValues, selectedP]);
+
+  useEffect(() => {
+    setStatsPage(0);
+  }, [selectedP, selectedSeriesId, showAllPValues]);
+
+  const selectedSeries = seriesList.find((series) => series.id === selectedSeriesId) || seriesList[0] || null;
+
+  const getResultForSeries = useCallback((series, p) => {
+    if (!series || typeof p !== 'number') return null;
+    return (experimentalResults || []).find((result) => {
+      const displayAlgorithm = result.displayAlgorithm || result.algorithm || 'Unknown';
+      const mode = result.deliveryMode || deliveryMode || 'standard';
+      return displayAlgorithm === series.displayAlgorithm &&
+        mode === series.deliveryMode &&
+        Math.abs((result.p ?? -1) - p) < 0.0001;
+    }) || null;
+  }, [experimentalResults, deliveryMode]);
+
+  const getDiscrepanciesForSeries = useCallback((series, p) => {
+    if (!series || typeof p !== 'number') return [];
+    const actualAlgorithm = resolveDisplayAlgorithm(series.displayAlgorithm, p);
+    const key = buildExperimentRunKey(p, actualAlgorithm, series.deliveryMode);
+    const runs = experimentRuns?.[key] || [];
+    return runs
+      .map((run) => run?.[run.length - 1]?.discrepancy)
+      .filter((value) => typeof value === 'number' && Number.isFinite(value));
+  }, [experimentRuns]);
+
+  const selectedValues = selectedSeries && selectedP != null
+    ? getDiscrepanciesForSeries(selectedSeries, selectedP)
+    : [];
+  const selectedSummary = summarizeDiscrepancies(selectedValues);
+  const selectedResult = selectedSeries && selectedP != null ? getResultForSeries(selectedSeries, selectedP) : null;
+  const selectedAlgorithm = selectedSeries && selectedP != null
+    ? resolveDisplayAlgorithm(selectedSeries.displayAlgorithm, selectedP)
+    : selectedSeries?.displayAlgorithm || null;
+  const theoreticalValue = typeof selectedResult?.theoretical === 'number' && Number.isFinite(selectedResult.theoretical)
+    ? selectedResult.theoretical
+    : null;
+  const empiricalMean = selectedSummary.mean;
+  const empiricalSampleStd = selectedValues.length > 1
+    ? Math.sqrt(selectedValues.reduce((sum, value) => sum + ((value - empiricalMean) ** 2), 0) / (selectedValues.length - 1))
+    : 0;
+  const empiricalSE = selectedValues.length > 0 ? empiricalSampleStd / Math.sqrt(selectedValues.length) : 0;
+  const theoreticalSigma = theoreticalValue != null
+    ? Math.sqrt(Math.max(0, theoreticalValue * (1 - theoreticalValue)))
+    : null;
+  const theoreticalSE = theoreticalSigma != null && selectedValues.length > 0
+    ? theoreticalSigma / Math.sqrt(selectedValues.length)
+    : null;
+  const theoreticalCIWidth = theoreticalSE != null ? 2 * 1.96 * theoreticalSE : null;
+  const meanDifference = theoreticalValue != null ? empiricalMean - theoreticalValue : null;
+  const zScore = theoreticalValue != null && empiricalSE > 0 ? meanDifference / empiricalSE : null;
+
+  const zStatus = zScore == null
+    ? { label: 'No z-score available', className: 'bg-gray-100 text-gray-700' }
+    : Math.abs(zScore) < 1.96
+      ? { label: '✓ Within 95% confidence interval (normal)', className: 'bg-emerald-100 text-emerald-800' }
+      : Math.abs(zScore) < 3
+        ? { label: '⚠ Outside 95% CI but within 99.7% CI', className: 'bg-amber-100 text-amber-800' }
+        : { label: '⚠ Unlikely result — check model/formula mismatch', className: 'bg-rose-100 text-rose-800' };
+
+  const runningMeanData = useMemo(() => {
+    if (!selectedValues.length) return [];
+    let sum = 0;
+    return selectedValues.map((value, index) => {
+      sum += value;
+      const k = index + 1;
+      const runningMean = sum / k;
+      const runningSE = theoreticalSigma != null ? theoreticalSigma / Math.sqrt(k) : null;
+      const lower = theoreticalValue != null && runningSE != null ? theoreticalValue - 1.96 * runningSE : null;
+      const upper = theoreticalValue != null && runningSE != null ? theoreticalValue + 1.96 * runningSE : null;
+      const inside = lower != null && upper != null && runningMean >= lower && runningMean <= upper;
+      return {
+        k,
+        runningMean,
+        insideMean: inside ? runningMean : null,
+        outsideMean: !inside ? runningMean : null,
+        theoretical: theoreticalValue,
+        lower,
+        upper
+      };
+    });
+  }, [selectedValues, theoreticalValue, theoreticalSigma]);
+
+  const rowsForSelectedP = useMemo(() => {
+    if (selectedP == null) return [];
+    const bySeries = seriesList.map((series) => ({
+      series,
+      values: getDiscrepanciesForSeries(series, selectedP)
+    }));
+    const maxLength = bySeries.reduce((acc, entry) => Math.max(acc, entry.values.length), 0);
+    return Array.from({ length: maxLength }, (_, index) => ({
+      repetition: index + 1,
+      selectedValue: selectedSeries ? (bySeries.find((entry) => entry.series.id === selectedSeries.id)?.values[index] ?? null) : null,
+      values: bySeries.reduce((acc, entry) => {
+        acc[entry.series.id] = entry.values[index] ?? null;
+        return acc;
+      }, {})
+    }));
+  }, [selectedP, seriesList, selectedSeries, getDiscrepanciesForSeries]);
+
+  const paginatedRows = rowsForSelectedP.slice(statsPage * 100, (statsPage + 1) * 100);
+  const pageCount = Math.max(1, Math.ceil(rowsForSelectedP.length / 100));
+
+  const heatmapRows = useMemo(() => {
+    return pValues.map((p) => ({
+      p,
+      cells: seriesList.map((series) => {
+        const values = getDiscrepanciesForSeries(series, p);
+        const mean = values.length
+          ? values.reduce((sum, value) => sum + value, 0) / values.length
+          : null;
+        return { series, mean };
+      })
+    }));
+  }, [pValues, seriesList, getDiscrepanciesForSeries]);
+
+  const nSensitivityRows = theoreticalSigma == null
+    ? []
+    : [0.01, 0.005, 0.001].map((precision) => ({
+        precision,
+        nRequired: Math.ceil((theoreticalSigma ** 2) / (precision ** 2))
+      }));
+
+  if (!experimentalResults || experimentalResults.length === 0 || seriesList.length === 0) {
+    return (
+      <div className="bg-white p-8 rounded-lg shadow text-center text-gray-500">
+        <p className="mb-2">No statistical data available.</p>
+        <p className="text-sm">Run a range experiment first.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl shadow ring-1 ring-gray-200 p-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 flex-1">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Algorithm</label>
+              <select
+                className="w-full rounded-lg border border-gray-200 bg-white p-2 text-sm shadow-sm"
+                value={selectedSeries?.id || ''}
+                onChange={(event) => setSelectedSeriesId(event.target.value)}
+              >
+                {seriesList.map((series) => (
+                  <option key={series.id} value={series.id}>{series.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">p-value</label>
+              <select
+                className="w-full rounded-lg border border-gray-200 bg-white p-2 text-sm shadow-sm"
+                value={selectedP ?? ''}
+                onChange={(event) => setSelectedP(parseFloat(event.target.value))}
+              >
+                {pValues.map((value) => (
+                  <option key={value} value={value}>p = {value.toFixed(2)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Scale</label>
+              <button
+                type="button"
+                className={`w-full rounded-lg border px-3 py-2 text-sm ${useLogScale ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-gray-200 bg-white text-slate-700'}`}
+                onClick={() => setUseLogScale((value) => !value)}
+              >
+                X axis: {useLogScale ? 'log(k)' : 'linear k'}
+              </button>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">View</label>
+              <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+                <button
+                  type="button"
+                  className={`flex-1 rounded-md px-3 py-2 text-sm ${!showAllPValues ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}
+                  onClick={() => setShowAllPValues(false)}
+                >
+                  Show selected p-value
+                </button>
+                <button
+                  type="button"
+                  className={`flex-1 rounded-md px-3 py-2 text-sm ${showAllPValues ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500'}`}
+                  onClick={() => setShowAllPValues(true)}
+                >
+                  Show all p-values
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3">
+            <p className="text-xs uppercase tracking-wide text-emerald-700">Selected series</p>
+            <p className="font-semibold text-emerald-900">{selectedSeries?.label}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+        <div className="xl:col-span-3 bg-white rounded-xl shadow ring-1 ring-gray-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-semibold text-gray-900">Running Mean Convergence</h3>
+            <span className="text-xs text-gray-500">μ_k and 95% funnel</span>
+          </div>
+          {runningMeanData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={320}>
+              <LineChart data={runningMeanData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="k"
+                  type="number"
+                  scale={useLogScale ? 'log' : 'linear'}
+                  domain={[1, Math.max(selectedValues.length, 1)]}
+                  allowDecimals={false}
+                />
+                <YAxis domain={[0, 1]} />
+                <Tooltip
+                  formatter={(value, name) => [typeof value === 'number' ? value.toFixed(6) : '—', name]}
+                  labelFormatter={(label) => `k = ${label}`}
+                />
+                {theoreticalValue != null && (
+                  <ReferenceLine y={theoreticalValue} stroke="#1f2937" strokeDasharray="5 5" label={{ value: 'Theory', position: 'insideTopRight' }} />
+                )}
+                <Line type="monotone" dataKey="lower" name="95% lower" stroke="#93c5fd" dot={false} connectNulls />
+                <Line type="monotone" dataKey="upper" name="95% upper" stroke="#93c5fd" dot={false} connectNulls />
+                <Line type="monotone" dataKey="insideMean" name="Running mean (inside funnel)" stroke="#16a34a" strokeWidth={2.5} dot={false} connectNulls />
+                <Line type="monotone" dataKey="outsideMean" name="Running mean (outside funnel)" stroke="#f59e0b" strokeWidth={2.5} dot={false} connectNulls />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-6 text-sm text-gray-500">No repetition data available for the selected series.</div>
+          )}
+        </div>
+
+        <div className="xl:col-span-2 space-y-4">
+          <div className="bg-white rounded-xl shadow ring-1 ring-gray-200 p-4">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">Variance And SE Panel</h3>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">σ theoretical</div><div className="font-mono font-semibold">{theoreticalSigma == null ? '—' : theoreticalSigma.toFixed(6)}</div></div>
+              <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">SE theoretical(N)</div><div className="font-mono font-semibold">{theoreticalSE == null ? '—' : theoreticalSE.toFixed(6)}</div></div>
+              <div className="rounded-lg bg-gray-50 p-3 col-span-2"><div className="text-xs text-gray-500">95% CI width</div><div className="font-mono font-semibold">{theoreticalCIWidth == null ? '—' : theoreticalCIWidth.toFixed(6)}</div></div>
+              <div className="rounded-lg bg-emerald-50 p-3"><div className="text-xs text-emerald-700">σ empirical</div><div className="font-mono font-semibold text-emerald-900">{empiricalSampleStd.toFixed(6)}</div></div>
+              <div className="rounded-lg bg-emerald-50 p-3"><div className="text-xs text-emerald-700">SE empirical</div><div className="font-mono font-semibold text-emerald-900">{empiricalSE.toFixed(6)}</div></div>
+              <div className="rounded-lg bg-emerald-50 p-3"><div className="text-xs text-emerald-700">Empirical mean</div><div className="font-mono font-semibold text-emerald-900">{empiricalMean.toFixed(6)}</div></div>
+              <div className="rounded-lg bg-emerald-50 p-3"><div className="text-xs text-emerald-700">Theory</div><div className="font-mono font-semibold text-emerald-900">{theoreticalValue == null ? '—' : theoreticalValue.toFixed(6)}</div></div>
+              <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Difference</div><div className="font-mono font-semibold">{meanDifference == null ? '—' : `${meanDifference >= 0 ? '+' : ''}${meanDifference.toFixed(6)}`}</div></div>
+              <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">z-score</div><div className="font-mono font-semibold">{zScore == null ? '—' : `${zScore >= 0 ? '+' : ''}${zScore.toFixed(3)}`}</div></div>
+              <div className={`col-span-2 rounded-lg px-3 py-2 text-sm font-semibold ${zStatus.className}`}>{zStatus.label}</div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow ring-1 ring-gray-200 p-4">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">N Sensitivity</h3>
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-900 text-white">
+                <tr>
+                  <th className="px-3 py-2 text-left">Target</th>
+                  <th className="px-3 py-2 text-left">N needed</th>
+                  <th className="px-3 py-2 text-left">Current N</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {nSensitivityRows.map((row) => (
+                  <tr key={row.precision}>
+                    <td className="px-3 py-2 font-medium">SE &lt; {row.precision}</td>
+                    <td className="px-3 py-2 font-mono">{row.nRequired.toLocaleString()}</td>
+                    <td className="px-3 py-2 font-mono">
+                      {selectedValues.length.toLocaleString()}
+                      {selectedValues.length >= row.nRequired ? ' ← enough' : ' ← below target'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-3 bg-white rounded-xl shadow ring-1 ring-gray-200 p-4">
+          {showAllPValues ? (
+            <div className="overflow-x-auto">
+              <div className="min-w-[720px]">
+                <div className="grid gap-2" style={{ gridTemplateColumns: `120px repeat(${seriesList.length}, minmax(120px, 1fr))` }}>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">p</div>
+                  {seriesList.map((series) => (
+                    <div key={series.id} className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      {series.label}
+                    </div>
+                  ))}
+                  {heatmapRows.map((row) => (
+                    <React.Fragment key={row.p}>
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-slate-700">
+                        p = {row.p.toFixed(2)}
+                      </div>
+                      {row.cells.map((cell) => (
+                        <button
+                          key={`${row.p}-${cell.series.id}`}
+                          type="button"
+                          className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-slate-900"
+                          style={{ backgroundColor: cell.mean == null ? '#f8fafc' : `rgba(15, 23, 42, ${Math.max(0.08, Math.min(0.92, cell.mean))})`, color: cell.mean != null && cell.mean > 0.45 ? '#ffffff' : '#0f172a' }}
+                          onClick={() => {
+                            setSelectedSeriesId(cell.series.id);
+                            setSelectedP(row.p);
+                            setShowAllPValues(false);
+                          }}
+                        >
+                          {cell.mean == null ? '—' : cell.mean.toFixed(3)}
+                        </button>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-slate-900 text-white">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Repetition #</th>
+                      <th className="px-3 py-2 text-left">D value</th>
+                      {seriesList.map((series) => (
+                        <th key={series.id} className="px-3 py-2 text-left">{series.label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 bg-white">
+                    {paginatedRows.map((row) => (
+                      <tr key={row.repetition}>
+                        <td className="px-3 py-2 font-medium text-slate-700">{row.repetition}</td>
+                        <td className="px-3 py-2 font-mono">{row.selectedValue == null ? '—' : row.selectedValue.toFixed(6)}</td>
+                        {seriesList.map((series) => (
+                          <td key={`${row.repetition}-${series.id}`} className="px-3 py-2 font-mono">
+                            {row.values[series.id] == null ? '—' : row.values[series.id].toFixed(6)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-between text-sm text-gray-600">
+                <span>Showing {paginatedRows.length} of {rowsForSelectedP.length} repetitions</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded border border-gray-200 px-3 py-1 disabled:opacity-50"
+                    onClick={() => setStatsPage((page) => Math.max(0, page - 1))}
+                    disabled={statsPage === 0}
+                  >
+                    Prev
+                  </button>
+                  <span>Page {statsPage + 1} / {pageCount}</span>
+                  <button
+                    type="button"
+                    className="rounded border border-gray-200 px-3 py-1 disabled:opacity-50"
+                    onClick={() => setStatsPage((page) => Math.min(pageCount - 1, page + 1))}
+                    disabled={statsPage >= pageCount - 1}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="lg:col-span-2 bg-white rounded-xl shadow ring-1 ring-gray-200 p-4">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-3">Statistics</h3>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Mean</div><div className="font-mono font-semibold">{selectedSummary.mean.toFixed(6)}</div></div>
+            <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Variance</div><div className="font-mono font-semibold">{selectedSummary.variance.toFixed(6)}</div></div>
+            <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Std dev</div><div className="font-mono font-semibold">{selectedSummary.stdDev.toFixed(6)}</div></div>
+            <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Std error</div><div className="font-mono font-semibold">{selectedSummary.stdError.toFixed(6)}</div></div>
+            <div className="rounded-lg bg-gray-50 p-3 col-span-2"><div className="text-xs text-gray-500">95% confidence interval</div><div className="font-mono font-semibold">[{selectedSummary.ciLower.toFixed(6)}, {selectedSummary.ciUpper.toFixed(6)}]</div></div>
+            <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Min D</div><div className="font-mono font-semibold">{selectedSummary.min.toFixed(6)}</div></div>
+            <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Max D</div><div className="font-mono font-semibold">{selectedSummary.max.toFixed(6)}</div></div>
+            <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Median D</div><div className="font-mono font-semibold">{selectedSummary.median.toFixed(6)}</div></div>
+            <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Samples</div><div className="font-mono font-semibold">{selectedValues.length}</div></div>
+            <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">P(D=0)</div><div className="font-mono font-semibold">{selectedSummary.pZero.toFixed(6)}</div></div>
+            <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">P(D=1)</div><div className="font-mono font-semibold">{selectedSummary.pOne.toFixed(6)}</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SavedExperimentsComparison({ savedExperiments, setSavedExperiments, addLog }) {
+  const palette = ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#14b8a6', '#f97316', '#84cc16'];
+
+  const preparedExperiments = useMemo(() => {
+    return (savedExperiments || []).map((experiment, index) => {
+      const results = Array.isArray(experiment.results)
+        ? [...experiment.results]
+            .filter((result) => typeof result?.p === 'number' && typeof result?.discrepancy === 'number')
+            .sort((a, b) => a.p - b.p)
+        : [];
+      const label = `${experiment.parameters?.algorithm || experiment.metadata?.name || `Experiment ${index + 1}`} | ${DELIVERY_MODE_LABELS[experiment.parameters?.deliveryMode] || experiment.parameters?.deliveryMode || 'Standard'} | n=${experiment.parameters?.processCount || '—'} | r=${experiment.parameters?.rounds || 1}`;
+      return {
+        id: experiment.metadata?.id || String(index),
+        color: palette[index % palette.length],
+        label,
+        results,
+        raw: experiment
+      };
+    });
+  }, [savedExperiments]);
+
+  const pValues = useMemo(() => {
+    return Array.from(new Set(preparedExperiments.flatMap((experiment) => experiment.results.map((result) => result.p))))
+      .sort((a, b) => a - b);
+  }, [preparedExperiments]);
+
+  const chartData = useMemo(() => {
+    return pValues.map((p) => {
+      const point = { p };
+      preparedExperiments.forEach((experiment) => {
+        const match = experiment.results.find((result) => Math.abs(result.p - p) < 0.0001);
+        point[experiment.id] = match?.discrepancy ?? null;
+      });
+      return point;
+    });
+  }, [pValues, preparedExperiments]);
+
+  const summaryRows = useMemo(() => {
+    return preparedExperiments.map((experiment) => {
+      const values = experiment.results.map((result) => result.discrepancy);
+      const firstOther = preparedExperiments.find((candidate) => candidate.id !== experiment.id);
+      return {
+        ...experiment,
+        min: values.length ? Math.min(...values) : null,
+        max: values.length ? Math.max(...values) : null,
+        p05: findResultAtProbability(experiment.results, 0.5)?.discrepancy ?? null,
+        p07: findResultAtProbability(experiment.results, 0.7)?.discrepancy ?? null,
+        crossover: firstOther ? computeCrossoverPoint(experiment.results, firstOther.results) : null
+      };
+    });
+  }, [preparedExperiments]);
+
+  if (!savedExperiments || savedExperiments.length === 0) {
+    return (
+      <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+        <p className="mb-2">No saved experiments yet.</p>
+        <p className="text-sm">Use “Save Experiment” after a range run.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl shadow ring-1 ring-gray-200 p-4">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-xl font-semibold text-gray-900">Saved Experiment Comparison</h3>
+            <p className="text-sm text-gray-500">Overlay of all saved E[D] vs p curves.</p>
+          </div>
+          <button
+            type="button"
+            className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700"
+            onClick={() => {
+              setSavedExperiments([]);
+              addLog?.('Cleared saved experiments', 'info');
+            }}
+          >
+            Clear all
+          </button>
+        </div>
+
+        <ResponsiveContainer width="100%" height={360}>
+          <LineChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="p" domain={[0, 1]} tickFormatter={(value) => value.toFixed(2)} />
+            <YAxis domain={[0, 1]} />
+            <Tooltip formatter={(value) => (typeof value === 'number' ? value.toFixed(6) : '—')} labelFormatter={(value) => `p = ${Number(value).toFixed(2)}`} />
+            <Legend />
+            {preparedExperiments.map((experiment) => (
+              <Line
+                key={experiment.id}
+                type="monotone"
+                dataKey={experiment.id}
+                name={experiment.label}
+                stroke={experiment.color}
+                strokeWidth={2}
+                dot={false}
+                connectNulls
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="bg-white rounded-xl shadow ring-1 ring-gray-200 p-4 overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-900 text-white">
+            <tr>
+              <th className="px-3 py-2 text-left">Label</th>
+              <th className="px-3 py-2 text-left">Min E[D]</th>
+              <th className="px-3 py-2 text-left">Max E[D]</th>
+              <th className="px-3 py-2 text-left">E[D] @ p=0.5</th>
+              <th className="px-3 py-2 text-left">E[D] @ p=0.7</th>
+              <th className="px-3 py-2 text-left">First crossover</th>
+              <th className="px-3 py-2 text-left">Delete</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 bg-white">
+            {summaryRows.map((row) => (
+              <tr key={row.id}>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: row.color }} />
+                    <span>{row.label}</span>
+                  </div>
+                </td>
+                <td className="px-3 py-2 font-mono">{row.min == null ? '—' : row.min.toFixed(6)}</td>
+                <td className="px-3 py-2 font-mono">{row.max == null ? '—' : row.max.toFixed(6)}</td>
+                <td className="px-3 py-2 font-mono">{row.p05 == null ? '—' : row.p05.toFixed(6)}</td>
+                <td className="px-3 py-2 font-mono">{row.p07 == null ? '—' : row.p07.toFixed(6)}</td>
+                <td className="px-3 py-2 font-mono">{row.crossover == null ? '—' : row.crossover.toFixed(4)}</td>
+                <td className="px-3 py-2">
+                  <button
+                    type="button"
+                    className="rounded border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700"
+                    onClick={() => {
+                      setSavedExperiments((previous) => previous.filter((experiment) => experiment.metadata?.id !== row.id));
+                      addLog?.(`Deleted saved experiment "${row.raw.metadata?.name || row.label}"`, 'info');
+                    }}
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

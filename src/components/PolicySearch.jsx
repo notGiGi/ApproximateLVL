@@ -13,6 +13,7 @@ import {
 } from 'recharts';
 import { SimulationEngine } from '../SimulationEngine.js';
 import { getProcessColor } from '../utils/colors.js';
+import NumericTextInput from './NumericTextInput.jsx';
 
 const DELIVERY_MODE_OPTIONS = [
   { id: 'standard', title: 'Standard' },
@@ -25,6 +26,8 @@ const BASE_RULES = [
   { id: 'RECURSIVE_AMP', label: 'Recursive AMP', algorithm: 'RECURSIVE AMP', needsMeetingPoint: true },
   { id: 'FV', label: 'Flip Value (FV)', algorithm: 'FV' },
   { id: 'COURTEOUS', label: 'Courteous', algorithm: 'COURTEOUS' },
+  { id: 'PREF1', label: 'Pref1 (Broadcast model)', algorithm: 'PREF1', requireBinary: true },
+  { id: 'PREF0', label: 'Pref0 (Broadcast model)', algorithm: 'PREF0', requireBinary: true },
   { id: 'MIN', label: 'Min', algorithm: 'MIN' },
   { id: 'LEADER', label: 'Leader', algorithm: 'LEADER', needsLeader: true },
   { id: 'SELFISH', label: 'Selfish (3p binary)', algorithm: 'SELFISH', requireThree: true, requireBinary: true },
@@ -45,6 +48,8 @@ const shortRuleLabel = (rule) => {
     'RECURSIVE AMP': 'R-AMP',
     'FV': 'FV',
     'COURTEOUS': 'COUR',
+    'PREF1': 'P1',
+    'PREF0': 'P0',
     'MIN': 'MIN',
     'LEADER': 'LDR',
     'SELFISH': 'SELF',
@@ -593,14 +598,12 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
               {initialValues.map((val, idx) => (
                 <div key={idx} className="flex items-center gap-1">
                   <span className="text-xs font-semibold text-gray-600">P{idx + 1}</span>
-                  <input
-                    type="number"
+                  <NumericTextInput
                     value={val}
-                    onChange={(e) => {
+                    onValueChange={(nextValue) => {
                       if (isRunning) return;
-                      const num = parseFloat(e.target.value);
                       const next = [...initialValues];
-                      next[idx] = Number.isFinite(num) ? num : 0;
+                      next[idx] = Number.isFinite(nextValue) ? nextValue : 0;
                       setInitialValues(next);
                     }}
                     className="w-full p-1 text-xs border border-gray-300 rounded"
@@ -615,14 +618,11 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold block mb-1">Rounds  (R)</label>
-                <input
-                  type="number"
+                <NumericTextInput
                   min="1"
+                  integer
                   value={roundHorizon}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value, 10);
-                    setRoundHorizon(Math.max(1, Number.isFinite(val) ? val : 1));
-                  }}
+                  onValueChange={(nextValue) => setRoundHorizon(Math.max(1, Number.isFinite(nextValue) ? nextValue : 1))}
                   className="w-full p-2 text-sm border border-gray-300 rounded"
                   disabled={isRunning}
                 />
@@ -630,12 +630,12 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
               </div>
               <div>
                 <label className="text-xs font-semibold block mb-1">Repetitions</label>
-                <input
-                  type="number"
+                <NumericTextInput
                   min="10"
                   max="1000"
+                  integer
                   value={repetitions}
-                  onChange={(e) => setRepetitions(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  onValueChange={(nextValue) => setRepetitions(Math.max(1, nextValue || 1))}
                   className="w-full p-2 text-sm border border-gray-300 rounded"
                   disabled={isRunning}
                 />
@@ -646,26 +646,22 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold block mb-1">p min</label>
-                <input
-                  type="number"
+                <NumericTextInput
                   min="0"
                   max="1"
-                  step="0.01"
                   value={pRange.min}
-                  onChange={(e) => setPRange({ ...pRange, min: parseFloat(e.target.value) || 0 })}
+                  onValueChange={(nextValue) => setPRange({ ...pRange, min: nextValue || 0 })}
                   className="w-full p-2 text-sm border border-gray-300 rounded"
                   disabled={isRunning}
                 />
               </div>
               <div>
                 <label className="text-xs font-semibold block mb-1">p max</label>
-                <input
-                  type="number"
+                <NumericTextInput
                   min="0"
                   max="1"
-                  step="0.01"
                   value={pRange.max}
-                  onChange={(e) => setPRange({ ...pRange, max: parseFloat(e.target.value) || 1 })}
+                  onValueChange={(nextValue) => setPRange({ ...pRange, max: Number.isFinite(nextValue) ? nextValue : 1 })}
                   className="w-full p-2 text-sm border border-gray-300 rounded"
                   disabled={isRunning}
                 />
@@ -834,12 +830,12 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <label className="text-xs font-semibold block mb-1">Chart top-k</label>
-                <input
-                  type="number"
+                <NumericTextInput
                   min="1"
                   max="200"
+                  integer
                   value={chartTopK}
-                  onChange={(e) => setChartTopK(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  onValueChange={(nextValue) => setChartTopK(Math.max(1, nextValue || 1))}
                   className="w-full p-2 text-sm border border-gray-300 rounded"
                   disabled={isRunning}
                 />
@@ -847,12 +843,12 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
               </div>
               <div>
                 <label className="text-xs font-semibold block mb-1">Table limit</label>
-                <input
-                  type="number"
+                <NumericTextInput
                   min="5"
                   max="400"
+                  integer
                   value={tableLimit}
-                  onChange={(e) => setTableLimit(Math.max(5, parseInt(e.target.value, 10) || 5))}
+                  onValueChange={(nextValue) => setTableLimit(Math.max(5, nextValue || 5))}
                   className="w-full p-2 text-sm border border-gray-300 rounded"
                   disabled={isRunning}
                 />
@@ -860,12 +856,12 @@ const runSinglePolicyAtP = (sequence, baseValues, p, mode, validityCriterion, ma
               </div>
               <div>
                 <label className="text-xs font-semibold block mb-1">Policy cap</label>
-                <input
-                  type="number"
+                <NumericTextInput
                   min="50"
                   max="800"
+                  integer
                   value={policyCap}
-                  onChange={(e) => setPolicyCap(Math.max(50, Math.min(800, parseInt(e.target.value, 10) || 50)))}
+                  onValueChange={(nextValue) => setPolicyCap(Math.max(50, Math.min(800, nextValue || 50)))}
                   className="w-full p-2 text-sm border border-gray-300 rounded"
                   disabled={isRunning}
                 />

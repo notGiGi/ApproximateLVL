@@ -432,6 +432,14 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
         newValues[i] = myValue;
       }
     }
+    else if (algorithm === "PREF1") {
+      const knowsOne = myValue === 1 || receivedMessages.some(val => val === 1);
+      newValues[i] = knowsOne ? 1 : 0;
+    }
+    else if (algorithm === "PREF0") {
+      const knowsZero = myValue === 0 || receivedMessages.some(val => val === 0);
+      newValues[i] = knowsZero ? 0 : 1;
+    }
     else {
       // Default: keep own value
       newValues[i] = myValue;
@@ -743,14 +751,21 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
         processCount,
         m,
         actualAlgorithm,
-        actualMeetingPoint
+        actualMeetingPoint,
+        initialValues,
+        deliveryMode,
+        rounds
       );
       if (rounds > 1) {
         const q = toDecimal(1).minus(decP);
         const reductionFactor = actualAlgorithm === "AMP"
           ? q.toNumber()
           : (pow(decP, 2).plus(pow(q, 2))).toNumber();
-        theoretical = theoretical * Math.pow(reductionFactor, rounds - 1);
+        if (theoretical !== null && actualAlgorithm !== "PREF1" && actualAlgorithm !== "PREF0") {
+          theoretical = theoretical * Math.pow(reductionFactor, rounds - 1);
+        } else if (actualAlgorithm === "PREF1" || actualAlgorithm === "PREF0") {
+          theoretical = null;
+        }
       }
     }
     
@@ -944,7 +959,16 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
   },
 
   // Calculate expected discrepancy for n processes
-  calculateExpectedDiscrepancyNProcesses: function(p, n, m, algorithm = "auto", meetingPoint = 0.5) {
+  calculateExpectedDiscrepancyNProcesses: function(
+    p,
+    n,
+    m,
+    algorithm = "auto",
+    meetingPoint = 0.5,
+    initialValues = null,
+    deliveryMode = 'standard',
+    rounds = 1
+  ) {
     const decP = toDecimal(p);
     const q = toDecimal(1).minus(decP);
     
@@ -954,6 +978,28 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
     
     if (algorithm === "MIN" || algorithm === "RECURSIVE AMP") {
       return null;
+    }
+
+    if (algorithm === "PREF1" || algorithm === "PREF0") {
+      if (!Array.isArray(initialValues) || initialValues.length !== n) {
+        return null;
+      }
+      if (deliveryMode !== 'process-dependent' || rounds !== 1) {
+        return null;
+      }
+
+      const allEqual = initialValues.every(value => value === initialValues[0]);
+      if (allEqual) {
+        return null;
+      }
+
+      const d1 = initialValues.filter(value => value === 1).length;
+      const d0 = initialValues.filter(value => value === 0).length;
+
+      if (algorithm === "PREF1") {
+        return Math.pow(q.toNumber(), d1);
+      }
+      return Math.pow(q.toNumber(), d0);
     }
     
     const a = toDecimal(meetingPoint);
@@ -985,7 +1031,7 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
       else ones++;
     });
     
-    if (algorithm === "COURTEOUS_CORRELATED") {
+    if (algorithm === "COURTEOUS_CORRELATED" || (algorithm === "COURTEOUS" && deliveryMode === 'process-dependent')) {
       // Nueva fórmula para entrega correlacionada
       if (zeros === 2 && ones === 1) {
         // E[D] = q³ + 2p²q
@@ -998,6 +1044,9 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
       }
       return 0;
     } else if (algorithm === "COURTEOUS") {
+      if (deliveryMode === 'guaranteed' || deliveryMode === 'conditioned') {
+        return null;
+      }
       // Ecuación teórica EXACTA del paper para Courteous original
       if (zeros === 3 || ones === 3) {
         return 0;
@@ -1305,6 +1354,8 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
       } else if (algorithm === "FV") {
         const pSquaredPlusQSquared = pow(decP, 2).plus(pow(q, 2));
         return pow(pSquaredPlusQSquared, rounds).toNumber();
+      } else if (algorithm === "PREF1" || algorithm === "PREF0") {
+        return null;
       } else if (algorithm === "COURTEOUS" || algorithm === "COURTEOUS COUPLED") {
         return null;
       } else {
