@@ -55,11 +55,37 @@ function min(...values) {
   }, toDecimal(values[0] || Infinity));
 }
 
+function binomial(n, k) {
+  if (k < 0 || k > n) return 0;
+  if (k === 0 || k === n) return 1;
+  k = Math.min(k, n - k);
+  let c = 1;
+  for (let i = 0; i < k; i++) {
+    c = c * (n - i) / (i + 1);
+  }
+  return Math.round(c);
+}
+
+function courteousFormula(p, n0, n1) {
+  const q = 1 - p;
+  const n = n0 + n1;
+  const minGroup = Math.min(n0, n1);
+  let sum = 0;
+  for (let i = 0; i <= minGroup; i++) {
+    sum += binomial(n0, i) * binomial(n1, i) *
+      Math.pow(p, 2 * i) * Math.pow(q, n - 2 * i);
+  }
+  return sum;
+}
+
 // Theta value for 3 players (approximately 0.35)
 const THETA = 0.346;
 
 // Simulation engine
 export const SimulationEngine = {
+
+binomial,
+courteousFormula,
 
 
 simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, knownValuesSets = null, originalValues = null, deliveryMode = 'standard', options = {}) {
@@ -440,6 +466,16 @@ simulateRound: function(values, p, algorithm = "auto", meetingPoint = 0.5, known
       const knowsZero = myValue === 0 || receivedMessages.some(val => val === 0);
       newValues[i] = knowsZero ? 0 : 1;
     }
+    else if (algorithm === "SWEEP") {
+      const sweepPhase = options.sweepPhase === 0 ? 0 : 1;
+      if (sweepPhase === 0) {
+        const knowsZero = myValue === 0 || receivedMessages.some(val => val === 0);
+        newValues[i] = knowsZero ? 0 : 1;
+      } else {
+        const knowsOne = myValue === 1 || receivedMessages.some(val => val === 1);
+        newValues[i] = knowsOne ? 1 : 0;
+      }
+    }
     else {
       // Default: keep own value
       newValues[i] = myValue;
@@ -534,6 +570,47 @@ runExperiment: function(initialValues, p, rounds = 1, algorithm = "auto", meetin
   }];
   
   // Execute rounds
+  if (algorithm === "SWEEP") {
+    let historyRound = 0;
+
+    for (let sweep = 1; sweep <= rounds; sweep++) {
+      for (const sweepPhase of [0, 1]) {
+        historyRound += 1;
+        const result = SimulationEngine.simulateRound(
+          values,
+          p,
+          algorithm,
+          meetingPoint,
+          knownValuesSets,
+          originalValues,
+          deliveryMode,
+          { leaderIndex, sweepPhase }
+        );
+
+        values = result.newValues;
+
+        history.push({
+          round: historyRound,
+          leaderIndex,
+          sweepRound: sweep,
+          sweepPhase,
+          values: [...values],
+          processValues: values.reduce((obj, val, idx) => {
+            obj[processNames[idx].toLowerCase()] = val;
+            return obj;
+          }, {}),
+          discrepancy: result.discrepancy,
+          messages: result.messages,
+          messageDelivery: result.messageDelivery,
+          wasConditioned: !!result.wasConditioned,
+          knownValuesSets: result.knownValuesSets
+        });
+      }
+    }
+
+    return history;
+  }
+
   for (let r = 1; r <= rounds; r++) {
     const previousValuesSnapshot = [...values];
     const previousDiscrepancy = history[history.length - 1]?.discrepancy ?? initialDiscrepancy.toNumber();
@@ -726,11 +803,22 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
     });
     
     if (processCount === 2) {
-      theoretical = this.calculateExpectedDiscrepancyMultiRound(
-        p,
-        rounds,
-        actualAlgorithm
-      );
+      theoretical = actualAlgorithm === "SWEEP"
+        ? this.calculateExpectedDiscrepancyNProcesses(
+            p,
+            processCount,
+            m,
+            actualAlgorithm,
+            actualMeetingPoint,
+            initialValues,
+            deliveryMode,
+            rounds
+          )
+        : this.calculateExpectedDiscrepancyMultiRound(
+            p,
+            rounds,
+            actualAlgorithm
+          );
     } else if (processCount === 3) {
       // MODIFICADO: Manejar COURTEOUS y COURTEOUS_CORRELATED
       if (actualAlgorithm === "COURTEOUS" || actualAlgorithm === "COURTEOUS_CORRELATED") {
@@ -738,6 +826,17 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
         if (rounds > 1 && theoretical !== null) {
           theoretical = Math.pow(theoretical, rounds);
         }
+      } else if (actualAlgorithm === "SWEEP") {
+        theoretical = this.calculateExpectedDiscrepancyNProcesses(
+          p,
+          processCount,
+          m,
+          actualAlgorithm,
+          actualMeetingPoint,
+          initialValues,
+          deliveryMode,
+          rounds
+        );
       } else {
         theoretical = this.calculateExpectedDiscrepancy3Players(p, initialValues, meetingPoint);
         if (rounds > 1) {
@@ -761,7 +860,9 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
         const reductionFactor = actualAlgorithm === "AMP"
           ? q.toNumber()
           : (pow(decP, 2).plus(pow(q, 2))).toNumber();
-        if (theoretical !== null && actualAlgorithm !== "PREF1" && actualAlgorithm !== "PREF0") {
+        if (theoretical !== null && actualAlgorithm === "COURTEOUS") {
+          theoretical = Math.pow(theoretical, rounds);
+        } else if (theoretical !== null && actualAlgorithm !== "PREF1" && actualAlgorithm !== "PREF0" && actualAlgorithm !== "SWEEP") {
           theoretical = theoretical * Math.pow(reductionFactor, rounds - 1);
         } else if (actualAlgorithm === "PREF1" || actualAlgorithm === "PREF0") {
           theoretical = null;
@@ -980,6 +1081,18 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
       return null;
     }
 
+    if (algorithm === "COURTEOUS") {
+      if (!Array.isArray(initialValues) || initialValues.length !== n) {
+        return null;
+      }
+      const d0 = initialValues.filter(value => value === 0).length;
+      const d1 = initialValues.filter(value => value === 1).length;
+      if (d0 === 0 || d1 === 0) {
+        return 0;
+      }
+      return courteousFormula(p, d0, d1);
+    }
+
     if (algorithm === "PREF1" || algorithm === "PREF0") {
       if (!Array.isArray(initialValues) || initialValues.length !== n) {
         return null;
@@ -1000,6 +1113,19 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
         return Math.pow(q.toNumber(), d1);
       }
       return Math.pow(q.toNumber(), d0);
+    }
+
+    if (algorithm === "SWEEP") {
+      if (!Array.isArray(initialValues) || initialValues.length !== n) {
+        return null;
+      }
+      const d0 = initialValues.filter(value => value === 0).length;
+      const d1 = initialValues.filter(value => value === 1).length;
+      if (d0 === 0 || d1 === 0) {
+        return 0;
+      }
+      // Exact for broadcast delivery, upper bound for standard.
+      return Math.pow(q.toNumber(), rounds * n);
     }
     
     const a = toDecimal(meetingPoint);
@@ -1022,7 +1148,6 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
     if (initialValues.length !== 3) return null;
     
     const pNum = parseFloat(p);
-    const q = 1 - pNum;
     
     // Contar valores iniciales
     let zeros = 0, ones = 0;
@@ -1032,30 +1157,18 @@ runMultipleExperiments: function(initialValues, p, rounds, repetitions, algorith
     });
     
     if (algorithm === "COURTEOUS_CORRELATED" || (algorithm === "COURTEOUS" && deliveryMode === 'process-dependent')) {
-      // Nueva fórmula para entrega correlacionada
-      if (zeros === 2 && ones === 1) {
-        // E[D] = q³ + 2p²q
-        return q * q * q + 2 * pNum * pNum * q;
-      } else if (zeros === 1 && ones === 2) {
-        // Caso simétrico
-        return q * q * q + 2 * pNum * pNum * q;
-      } else if (zeros === 3 || ones === 3) {
-        return 0; // Todos iguales
+      if (zeros === 0 || ones === 0) {
+        return 0;
       }
-      return 0;
+      return courteousFormula(pNum, zeros, ones);
     } else if (algorithm === "COURTEOUS") {
       if (deliveryMode === 'guaranteed' || deliveryMode === 'conditioned') {
         return null;
       }
-      // Ecuación teórica EXACTA del paper para Courteous original
-      if (zeros === 3 || ones === 3) {
+      if (zeros === 0 || ones === 0) {
         return 0;
-      } else if (zeros === 2 && ones === 1) {
-        return 1 - 2*pNum + 4*Math.pow(pNum, 2) - 4*Math.pow(pNum, 3) + Math.pow(pNum, 4);
-      } else if (zeros === 1 && ones === 2) {
-        return 1 - 2*pNum + 4*Math.pow(pNum, 2) - 4*Math.pow(pNum, 3) + Math.pow(pNum, 4);
       }
-      return 0;
+      return courteousFormula(pNum, zeros, ones);
     } else if (algorithm === "SELFISH" || algorithm === "CYCLIC" || algorithm === "BIASED0") {
       // Estos algoritmos NO tienen ecuaciones teóricas
       return null;
@@ -1354,6 +1467,8 @@ simulateRoundConditioned: function(values, p, algorithm = "auto", meetingPoint =
       } else if (algorithm === "FV") {
         const pSquaredPlusQSquared = pow(decP, 2).plus(pow(q, 2));
         return pow(pSquaredPlusQSquared, rounds).toNumber();
+      } else if (algorithm === "SWEEP") {
+        return null;
       } else if (algorithm === "PREF1" || algorithm === "PREF0") {
         return null;
       } else if (algorithm === "COURTEOUS" || algorithm === "COURTEOUS COUPLED") {
@@ -2714,4 +2829,31 @@ runMultipleBarycentricExperiments(initialValues, p, rounds, repetitions, algorit
   }
 
 };
+
+if (process.env.NODE_ENV === 'development') {
+  // SWEEP validation
+  const testCases = [
+    { k: 1, n: 3, p: 0.5, expected: Math.pow(0.5, 3) },
+    { k: 2, n: 3, p: 0.5, expected: Math.pow(0.5, 6) },
+    { k: 1, n: 3, p: 0.7, expected: Math.pow(0.3, 3) }
+  ];
+
+  testCases.forEach(({ k, n, p, expected }) => {
+    const initialValues = Array(n - 1).fill(0).concat([1]);
+    const result = SimulationEngine.calculateExpectedDiscrepancyNProcesses(
+      p,
+      n,
+      initialValues.filter((value) => value === 0).length,
+      'SWEEP',
+      0.5,
+      initialValues,
+      'process-dependent',
+      k
+    );
+    const pass = Math.abs(result - expected) < 0.0001;
+    console.log(
+      `SWEEP k=${k} n=${n} p=${p}: ${pass ? '✓' : '✗'} got=${result?.toFixed(6)} expected=${expected.toFixed(6)}`
+    );
+  });
+}
 

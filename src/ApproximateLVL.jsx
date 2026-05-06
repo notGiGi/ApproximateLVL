@@ -847,11 +847,11 @@ function NProcessesControl({
                 // Reset 3-process algorithms if switching to continuous
                 if (newMode === 'continuous' && processValues.length === 3) {
                   const has3PAlgos = selectedAlgorithms.some(a => 
-                    ["SELFISH", "CYCLIC", "BIASED0", "PREF1", "PREF0"].includes(a)
+                    ["SELFISH", "CYCLIC", "BIASED0", "PREF1", "PREF0", "SWEEP"].includes(a)
                   );
                   if (has3PAlgos) {
                     setSelectedAlgorithms(prev => 
-                      prev.filter(a => !["SELFISH", "CYCLIC", "BIASED0", "PREF1", "PREF0"].includes(a))
+                      prev.filter(a => !["SELFISH", "CYCLIC", "BIASED0", "PREF1", "PREF0", "SWEEP"].includes(a))
                     );
                     addLog("Binary-only algorithms removed (switched to continuous mode)", "warning");
                   }
@@ -2328,6 +2328,7 @@ const ALGORITHM_COLOR_MAP = {
   "COURTEOUS": "#FF6B35",
   "PREF1": "#f59e0b",
   "PREF0": "#84cc16",
+  "SWEEP": "#0f766e",
   "auto": "#6b7280"
 };
 
@@ -2363,6 +2364,8 @@ function getAlgorithmBadgeClasses(algorithm) {
       return "bg-amber-100 text-amber-800";
     case "PREF0":
       return "bg-lime-100 text-lime-800";
+    case "SWEEP":
+      return "bg-teal-100 text-teal-800";
     default:
       return "bg-gray-100 text-gray-700";
   }
@@ -2521,18 +2524,18 @@ function TheoryPlot({
       ? selectedDeliveryModes
       : [deliveryMode]).filter((mode) => ['standard', 'process-dependent'].includes(mode))
   ));
+  const allBinary = processValues.every(v => v === 0 || v === 1);
 
-  const courteousTheorySeries = n === 3
+  const courteousTheorySeries = allBinary
     ? courteousModes.map((mode) => {
         const data = [];
         for (let i = 0; i <= steps; i++) {
           const p = i / steps;
-          const singleRoundDiscrepancy = SimulationEngine.calculate3ProcessBinaryDiscrepancy(
-            p,
-            mode === 'process-dependent' ? 'COURTEOUS_CORRELATED' : 'COURTEOUS',
-            processValues,
-            mode
-          );
+          const zeroCount = processValues.filter(v => v === 0).length;
+          const oneCount = processValues.length - zeroCount;
+          const singleRoundDiscrepancy = (zeroCount === 0 || oneCount === 0)
+            ? 0
+            : SimulationEngine.courteousFormula(p, zeroCount, oneCount);
           const discrepancy = typeof singleRoundDiscrepancy === 'number'
             ? Math.pow(singleRoundDiscrepancy, selectedRound)
             : null;
@@ -2553,7 +2556,6 @@ function TheoryPlot({
 
   const pref1Data = [];
   const pref0Data = [];
-  const allBinary = processValues.every(v => v === 0 || v === 1);
   if (allBinary) {
     for (let i = 0; i <= steps; i++) {
       const p = i / steps;
@@ -2592,8 +2594,12 @@ function TheoryPlot({
       const p = 0.5, q = 0.5;
       let D;
       
-      if (which === 'COURTEOUS' && n === 3) {
-        D = null;
+      if (which === 'COURTEOUS' && allBinary) {
+        const zeroCount = processValues.filter(v => v === 0).length;
+        const oneCount = processValues.length - zeroCount;
+        D = zeroCount === 0 || oneCount === 0
+          ? 0
+          : Math.pow(SimulationEngine.courteousFormula(0.5, zeroCount, oneCount), selectedRound);
       } else if (n === 2) {
         D = which === 'AMP'
           ? Math.pow(q, selectedRound)
@@ -2619,12 +2625,11 @@ function TheoryPlot({
   courteousTheorySeries.forEach((series) => {
     const hasHalf = series.data.some(d => Math.abs(d.p - 0.5) < 1e-12);
     if (!hasHalf) {
-      const halfDiscrepancy = SimulationEngine.calculate3ProcessBinaryDiscrepancy(
-        0.5,
-        series.mode === 'process-dependent' ? 'COURTEOUS_CORRELATED' : 'COURTEOUS',
-        processValues,
-        series.mode
-      );
+      const zeroCount = processValues.filter(v => v === 0).length;
+      const oneCount = processValues.length - zeroCount;
+      const halfDiscrepancy = zeroCount === 0 || oneCount === 0
+        ? 0
+        : SimulationEngine.courteousFormula(0.5, zeroCount, oneCount);
       series.data.push({
         p: 0.5,
         discrepancy: typeof halfDiscrepancy === 'number' ? Math.pow(halfDiscrepancy, selectedRound) : null,
@@ -4544,13 +4549,13 @@ function CompleteDistributedComputingSimulator() {
   useEffect(() => {
     if (dimensionMode !== 'binary') {
       setSelectedAlgorithms(prev => {
-        const filtered = prev.filter(algo => algo !== 'LEADER');
+        const filtered = prev.filter(algo => !['LEADER', 'PREF1', 'PREF0', 'SWEEP'].includes(algo));
         return filtered.length > 0 ? filtered : ['auto'];
       });
-      if (forcedAlgorithm === 'LEADER') {
+      if (['LEADER', 'PREF1', 'PREF0', 'SWEEP'].includes(forcedAlgorithm)) {
         setForcedAlgorithm('auto');
       }
-      if (selectedAlgorithmForDetails === 'LEADER') {
+      if (['LEADER', 'PREF1', 'PREF0', 'SWEEP'].includes(selectedAlgorithmForDetails)) {
         setSelectedAlgorithmForDetails('auto');
       }
     }
@@ -4571,7 +4576,7 @@ function CompleteDistributedComputingSimulator() {
           "MIN",
           "LEADER",
           "COURTEOUS",
-          ...(processValues.every((value) => value === 0 || value === 1) ? ["PREF1", "PREF0"] : [])
+          ...(processValues.every((value) => value === 0 || value === 1) ? ["PREF1", "PREF0", "SWEEP"] : [])
         ]
       : ["auto", "AMP", "FV", "RECURSIVE AMP", "MIN"]
   ), [dimensionMode, processValues]);
@@ -5992,11 +5997,33 @@ function runRangeExperiments() {
         // Teoría
         let theoretical;
         if (dimensionMode === 'binary') {
-          if (actualAlgo === "COURTEOUS" && nProc === 3) {
-            theoretical = SimulationEngine.calculate3ProcessBinaryDiscrepancy(p, "COURTEOUS", initialProcessValues, mode);
+          if (actualAlgo === "COURTEOUS") {
+            theoretical = nProc === 3
+              ? SimulationEngine.calculate3ProcessBinaryDiscrepancy(p, "COURTEOUS", initialProcessValues, mode)
+              : SimulationEngine.calculateExpectedDiscrepancyNProcesses(
+                  p,
+                  nProc,
+                  initialProcessValues.filter((value) => value === 0).length,
+                  "COURTEOUS",
+                  uiMeetingPoint,
+                  initialProcessValues,
+                  mode,
+                  1
+                );
             if (actualRounds > 1 && theoretical !== null) {
               theoretical = Math.pow(theoretical, actualRounds);
             }
+          } else if (actualAlgo === "SWEEP") {
+            theoretical = SimulationEngine.calculateExpectedDiscrepancyNProcesses(
+              p,
+              nProc,
+              initialProcessValues.filter((value) => value === 0).length,
+              actualAlgo,
+              uiMeetingPoint,
+              initialProcessValues,
+              mode,
+              actualRounds
+            );
           } else if ((actualAlgo === "PREF1" || actualAlgo === "PREF0") && mode === 'process-dependent') {
             theoretical = SimulationEngine.calculateExpectedDiscrepancyNProcesses(
               p,
@@ -7144,7 +7171,7 @@ function runRangeExperiments() {
               <div>
                 <label className="flex items-center text-xs mb-1">
                   Select Algorithm(s):
-                  <InfoTooltip text="AMP and FV are proven optimal (paper). COURTEOUS, PREF1, PREF0 are optimal in the broadcast model. Others are experimental extensions." />
+                  <InfoTooltip text="AMP and FV are proven optimal (paper). COURTEOUS, PREF1, PREF0, and SWEEP come from the broadcast model. Others are experimental extensions." />
                 </label>
                 <div className="bg-white p-2 rounded border border-gray-200 max-h-32 overflow-y-auto">
                   {selectableAlgorithms.map(algo => (
@@ -7163,7 +7190,13 @@ function runRangeExperiments() {
                         className="mr-2"
                       />
                       <span className={`text-xs px-2 py-0.5 rounded ${getAlgorithmBadgeClasses(algo)}`}>
-                        {algo === "PREF1" ? "PREF1 (Broadcast model)" : algo === "PREF0" ? "PREF0 (Broadcast model)" : algo}
+                        {algo === "PREF1"
+                          ? "PREF1 (Broadcast model)"
+                          : algo === "PREF0"
+                            ? "PREF0 (Broadcast model)"
+                            : algo === "SWEEP"
+                              ? "SWEEP (Broadcast model)"
+                              : algo}
                       </span>
                     </label>
                   ))}
@@ -7202,7 +7235,7 @@ function runRangeExperiments() {
                 </div>
                 
                 {/* Descripción de algoritmos seleccionados */}
-                {selectedAlgorithms.some(a => ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0", "PREF1", "PREF0"].includes(a)) && (
+                {selectedAlgorithms.some(a => ["COURTEOUS", "SELFISH", "CYCLIC", "BIASED0", "PREF1", "PREF0", "SWEEP"].includes(a)) && (
                   <div className="mt-2 p-2 bg-blue-50 rounded text-xs space-y-1">
                     {selectedAlgorithms.includes("COURTEOUS") && (
                       <p><b>Courteous:</b> Majority of heard values (including self); ties flip to opposite.</p>
@@ -7212,6 +7245,9 @@ function runRangeExperiments() {
                     )}
                     {selectedAlgorithms.includes("PREF0") && (
                       <p><b>PREF0:</b> Decides 0 if any value 0 is known; else decides 1. Optimal for p ≥ 2/3 (n=3, broadcast). Pr[fail] = q^(number of 0-inputs).</p>
+                    )}
+                    {selectedAlgorithms.includes("SWEEP") && (
+                      <p><b>SWEEP:</b> Two broadcast phases per sweep: PREF0 then PREF1. Theory is q^(k n), exact under broadcast and an upper bound under standard delivery.</p>
                     )}
                     {selectedAlgorithms.includes("SELFISH") && (
                       <p><b>Selfish:</b> Keeps own value if heard from 1 process</p>
@@ -7346,7 +7382,9 @@ function runRangeExperiments() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="flex items-center text-xs block mb-1 text-gray-600">
-                    Rounds:
+                    {algorithm === "SWEEP"
+                      ? `${rounds} sweep${rounds > 1 ? 's' : ''} (${rounds * 2} internal rounds)`
+                      : 'Rounds:'}
                     <InfoTooltip text="Number of communication rounds. Each round, every process sends its current value to all others." />
                   </label>
                   <div className="flex items-center space-x-2">
@@ -7510,18 +7548,19 @@ function runRangeExperiments() {
                     checked={rangeDisplayCurves?.theoreticalCourteous || false}
                     onChange={() => {
                       const numProcs = processCount || processValues?.length || 0;
-                      if (numProcs === 3) {
+                      const binaryInputs = (processValues || []).every((value) => value === 0 || value === 1);
+                      if (numProcs >= 2 && binaryInputs) {
                         handleCurveDisplayChange('theoreticalCourteous');
                       } else {
-                        console.log("Courteous theoretical curve available only for 3 processes, have", numProcs);
-                        addLog?.(`Courteous theoretical curve available only for 3 processes (currently ${numProcs})`, "warning");
+                        console.log("Courteous theoretical curve requires binary inputs, have", numProcs);
+                        addLog?.('Courteous theoretical curve requires binary inputs.', "warning");
                       }
                     }}
                     className="mr-2"
                     disabled={isRunning}
                   />
                   <label htmlFor="showTheoreticalCourteous" className="text-xs text-gray-700">
-                    Show COURTEOUS Curve (adaptive theory)
+                    Show COURTEOUS Curve (broadcast theory)
                   </label>
                 </div>
 
@@ -8688,6 +8727,9 @@ function StatisticalAnalysisPanel({
   const theoreticalValue = typeof selectedResult?.theoretical === 'number' && Number.isFinite(selectedResult.theoretical)
     ? selectedResult.theoretical
     : null;
+  const sweepTheoryFormula = selectedAlgorithm === 'SWEEP' && theoreticalValue != null
+    ? `q^{n·k} = q^{${processValues.length}·${rounds}} = q^${processValues.length * rounds}`
+    : null;
   const empiricalMean = selectedSummary.mean;
   const empiricalSampleStd = selectedValues.length > 1
     ? Math.sqrt(selectedValues.reduce((sum, value) => sum + ((value - empiricalMean) ** 2), 0) / (selectedValues.length - 1))
@@ -8895,7 +8937,13 @@ function StatisticalAnalysisPanel({
               <div className="rounded-lg bg-emerald-50 p-3"><div className="text-xs text-emerald-700">σ empirical</div><div className="font-mono font-semibold text-emerald-900">{empiricalSampleStd.toFixed(6)}</div></div>
               <div className="rounded-lg bg-emerald-50 p-3"><div className="text-xs text-emerald-700">SE empirical</div><div className="font-mono font-semibold text-emerald-900">{empiricalSE.toFixed(6)}</div></div>
               <div className="rounded-lg bg-emerald-50 p-3"><div className="text-xs text-emerald-700">Empirical mean</div><div className="font-mono font-semibold text-emerald-900">{empiricalMean.toFixed(6)}</div></div>
-              <div className="rounded-lg bg-emerald-50 p-3"><div className="text-xs text-emerald-700">Theory</div><div className="font-mono font-semibold text-emerald-900">{theoreticalValue == null ? '—' : theoreticalValue.toFixed(6)}</div></div>
+              <div className="rounded-lg bg-emerald-50 p-3">
+                <div className="text-xs text-emerald-700">Theory</div>
+                <div className="font-mono font-semibold text-emerald-900">{theoreticalValue == null ? '—' : theoreticalValue.toFixed(6)}</div>
+                {sweepTheoryFormula && (
+                  <div className="mt-1 text-[11px] text-emerald-800">{sweepTheoryFormula}</div>
+                )}
+              </div>
               <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">Difference</div><div className="font-mono font-semibold">{meanDifference == null ? '—' : `${meanDifference >= 0 ? '+' : ''}${meanDifference.toFixed(6)}`}</div></div>
               <div className="rounded-lg bg-gray-50 p-3"><div className="text-xs text-gray-500">z-score</div><div className="font-mono font-semibold">{zScore == null ? '—' : `${zScore >= 0 ? '+' : ''}${zScore.toFixed(3)}`}</div></div>
               <div className={`col-span-2 rounded-lg px-3 py-2 text-sm font-semibold ${zStatus.className}`}>{zStatus.label}</div>
@@ -9419,6 +9467,7 @@ function EnhancedExperimentLaboratory({ savedExperiments, setSavedExperiments, a
                 <option value="MIN">MIN</option>
                 <option value="LEADER">Leader</option>
                 <option value="COURTEOUS">Courteous</option>
+                <option value="SWEEP">SWEEP</option>
                 <option value="auto">Auto</option>
               </select>
             </div>
